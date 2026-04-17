@@ -1,0 +1,61 @@
+:root{
+  --toastify-color-light:#fff;
+  --toastify-color-dark:#121212;
+  --toastify-color-info:#2f86eb;
+  --toastify-color-success:#2e7d32;
+  --toastify-color-warning:#ed6c02;
+  --toastify-color-error:#d32f2f;
+  --toastify-text-color-light:#1f2937;
+  --toastify-text-color-dark:#f3f4f6;
+  --toastify-font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Container */
+.Toastify__toast-container{
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+}
+.Toastify__toast-container--top-right{top:1rem;right:1rem}
+.Toastify__toast-container--top-left{top:1rem;left:1rem}
+.Toastify__toast-container--bottom-right{bottom:1rem;right:1rem}
+.Toastify__toast-container--bottom-left{bottom:1rem;left:1rem}
+
+/* Toast */
+.Toastify__toast{
+  pointer-events: auto;
+  display:flex; align-items:center; gap:.5rem;
+  min-width: 240px; max-width: 420px;
+  margin:.5rem 0; padding:.75rem 1rem;
+  border-radius:.5rem;
+  background:var(--toastify-color-light);
+  color:var(--toastify-text-color-light);
+  box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);
+  font-family:var(--toastify-font-family);
+}
+.Toastify__toast--dark{background:var(--toastify-color-dark); color:var(--toastify-text-color-dark)}
+.Toastify__toast--info{border-left:4px solid var(--toastify-color-info)}
+.Toastify__toast--success{border-left:4px solid var(--toastify-color-success)}
+.Toastify__toast--warning{border-left:4px solid var(--toastify-color-warning)}
+.Toastify__toast--error{border-left:4px solid var(--toastify-color-error)}
+
+/* Body */
+.Toastify__toast-body{flex:1; margin:0;}
+
+/* Close */
+.Toastify__close-button{opacity:.6; border:none; background:transparent; color:inherit; cursor:pointer;}
+.Toastify__close-button:hover{opacity:1}
+
+/* Progress bar */
+.Toastify__progress-bar{height:3px; left:0; bottom:0; position:absolute; width:0; background:currentColor; opacity:.3}
+.Toastify__progress-bar--controlled{transition: width .2s linear}
+.Toastify__progress-bar--info{color:var(--toastify-color-info)}
+.Toastify__progress-bar--success{color:var(--toastify-color-success)}
+.Toastify__progress-bar--warning{color:var(--toastify-color-warning)}
+.Toastify__progress-bar--error{color:var(--toastify-color-error)}
+
+/* Icons */
+.Toastify__toast-icon{display:flex; align-items:center}
+
+/* RTL */
+.Toastify__toast-container--rtl{direction:rtl}

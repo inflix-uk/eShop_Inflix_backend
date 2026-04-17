@@ -1,0 +1,15 @@
+User-agent: *
+Disallow: /search
+Disallow: /checkout
+Disallow: /admin/
+Disallow: /login
+Disallow: /cgi-bin
+Disallow: /revieworder
+Disallow: /register
+Disallow: /account
+Disallow: /reset-password/
+Disallow: /log-out
+Disallow: /Support/Your-payments
+Disallow: /customer/
+
+Sitemap: https://zextons.co.uk/sitemap.xml
