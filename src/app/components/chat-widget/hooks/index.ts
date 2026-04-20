@@ -1,1 +1,0 @@
-export { useChatWidget } from "./useChatWidget";
