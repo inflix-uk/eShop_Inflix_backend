@@ -9,7 +9,7 @@ const Deal = require('../src/models/deal');
 const initializeCronJobs = () => {
     console.log('⏰ Initializing cron jobs...');
 
-    // Run failed order email job every day at 10:00 AM
+    // Run failed order email job every day at 10:00 AM  
     // Cron pattern: '0 10 * * *' (minute hour day month dayOfWeek)
     const failedOrderEmailJob = cron.schedule('0 10 * * *', async () => {
         console.log('\n🚀 Running failed order email job at:', new Date().toISOString());
