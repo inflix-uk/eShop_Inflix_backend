@@ -1,6 +1,7 @@
 // services/productService/updateProduct.js
 const Product = require('../../models/product');
 const blobStorage = require('../../utils/blobStorage');
+const { replaceFileReferenceInBlocks } = require('../../controller/homepageDataController');
 const { toSeoSlug, generateVariantId, variantNameToSeoSlug } = require('../../utils/slugUtils');
 
 /**
@@ -801,7 +802,10 @@ class UpdateProductService {
                 name, category, subcategory, tags, brand, condition, is_featured,
                 is_refundable, is_authenticated, low_stock_quantity_alert,
                 has_warranty, productType, status, Seo_Meta, Product_summary,
-                Product_description, comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
+                Product_description,
+                Product_description_blocks,
+                descriptionBlockImageCount,
+                comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
                 sim_option, battery, producturl, seeAccessoriesWeDontNeed, topsection,
                 perks_and_benefits, req
             } = reqData;
@@ -982,6 +986,52 @@ class UpdateProductService {
 
             product.Product_summary = Product_summary;
             product.Product_description = Product_description;
+
+            if (Product_description_blocks !== undefined && Product_description_blocks !== null) {
+                let blocksArray = null;
+                try {
+                    if (typeof Product_description_blocks === 'string') {
+                        const raw = Product_description_blocks.trim();
+                        blocksArray = raw === '' ? [] : JSON.parse(raw);
+                    } else if (Array.isArray(Product_description_blocks)) {
+                        blocksArray = Product_description_blocks;
+                    }
+                } catch (e) {
+                    console.error('[updateProduct] Invalid Product_description_blocks JSON', e);
+                    blocksArray = null;
+                }
+                if (Array.isArray(blocksArray)) {
+                    const imgCount = parseInt(
+                        descriptionBlockImageCount === undefined || descriptionBlockImageCount === null
+                            ? '0'
+                            : String(descriptionBlockImageCount),
+                        10
+                    );
+                    if (imgCount > 0 && req.files && req.files.length > 0) {
+                        let folderName = (producturl || 'default').toLowerCase().replace(/[^a-z0-9-_]/g, '_');
+                        if (!folderName || folderName === '_') folderName = 'default';
+                        for (let i = 0; i < imgCount; i++) {
+                            const entry = req.files.find((f) => f.fieldname === `descriptionBlockImages_${i}`);
+                            if (!entry) continue;
+                            let fileUrl = null;
+                            try {
+                                const uploaded = await blobStorage.uploadFile(
+                                    entry,
+                                    `products/${folderName}/description-blocks`
+                                );
+                                fileUrl = uploaded?.url || null;
+                            } catch (uploadErr) {
+                                console.error('[updateProduct] description block image upload failed', uploadErr);
+                            }
+                            if (fileUrl) {
+                                replaceFileReferenceInBlocks(blocksArray, `__FILE_REFERENCE__${i}__`, fileUrl);
+                            }
+                        }
+                    }
+                    product.Product_description_blocks = blocksArray.length > 0 ? blocksArray : [];
+                }
+            }
+
             product.Seo_Meta = Seo_MetaObject || null;
             product.status = status;
 

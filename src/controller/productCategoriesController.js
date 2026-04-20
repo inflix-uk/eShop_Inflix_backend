@@ -12,8 +12,28 @@ const path = require("path");
 const fs = require("fs");
 const mongoose = require("mongoose");
 const blobStorage = require("../utils/blobStorage");
+const { replaceFileReferenceInBlocks } = require("./homepageDataController");
 
 const MAX_NAVBAR_ITEMS = 50;
+const CATEGORY_BLOCK_IMAGE_SLOT_COUNT = 40;
+const categoryBlockImageMulterFields = Array.from(
+  { length: CATEGORY_BLOCK_IMAGE_SLOT_COUNT },
+  (_, i) => ({ name: `categoryBlockImages_${i}`, maxCount: 1 })
+);
+const subcategoryBlockImageMulterFields = Array.from(
+  { length: CATEGORY_BLOCK_IMAGE_SLOT_COUNT },
+  (_, i) => ({ name: `subcategoryBlockImages_${i}`, maxCount: 1 })
+);
+
+/** Match URL slugs (e.g. vent-clip) to DB values (e.g. "Vent Clip", "Vent-Clip"). */
+function normalizeSubcategorySlug(str) {
+  if (!str || typeof str !== "string") return "";
+  return str
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
 
 function sanitizeNavCustomLabel(raw) {
   if (raw == null) return "";
@@ -56,6 +76,8 @@ const uploadCategoryImage = multer({ storage: storage }).fields([
   { name: "Logo", maxCount: 1 },
   { name: "metaImage", maxCount: 1 },
   { name: "banner", maxCount: 1 },
+  ...categoryBlockImageMulterFields,
+  ...subcategoryBlockImageMulterFields,
 ]);
 
 const productCategoriescontroller = {
@@ -305,6 +327,8 @@ const productCategoriescontroller = {
           isFeatured,
           metaKeywords,
           content,
+          content_blocks,
+          categoryBlockImageCount,
         } = req.body;
         console.log(req.body);
 
@@ -378,6 +402,74 @@ const productCategoriescontroller = {
           productCategory.metaSchemas = JSON.parse(req.body.metaSchemas);
         }
 
+        // Block-based page content (same pipeline as product / homepage)
+        if (content_blocks !== undefined && content_blocks !== null) {
+          let blocksArray = null;
+          try {
+            if (typeof content_blocks === "string") {
+              const raw = content_blocks.trim();
+              blocksArray = raw === "" ? [] : JSON.parse(raw);
+            } else if (Array.isArray(content_blocks)) {
+              blocksArray = content_blocks;
+            }
+          } catch (e) {
+            console.error(
+              "[updateProductCategory] Invalid content_blocks JSON",
+              e
+            );
+            blocksArray = null;
+          }
+          if (Array.isArray(blocksArray)) {
+            const imgCount = parseInt(
+              categoryBlockImageCount === undefined ||
+                categoryBlockImageCount === null
+                ? "0"
+                : String(categoryBlockImageCount),
+              10
+            );
+            const filesMap = req.files || {};
+            if (imgCount > 0 && blobStorage.isConfigured()) {
+              const folderName = categoryName
+                ? categoryName.toLowerCase().replace(/[^a-z0-9-_]/g, "_")
+                : "category";
+              for (let i = 0; i < imgCount; i++) {
+                const slot = filesMap[`categoryBlockImages_${i}`];
+                const entry = Array.isArray(slot) ? slot[0] : slot;
+                if (!entry) continue;
+                let fileUrl = null;
+                try {
+                  const uploaded = await blobStorage.uploadFile(
+                    entry,
+                    `categories/${folderName}/content-blocks`
+                  );
+                  fileUrl = uploaded?.url || null;
+                } catch (uploadErr) {
+                  console.error(
+                    "[updateProductCategory] category block file upload failed",
+                    uploadErr
+                  );
+                }
+                if (fileUrl) {
+                  replaceFileReferenceInBlocks(
+                    blocksArray,
+                    `__FILE_REFERENCE__${i}__`,
+                    fileUrl
+                  );
+                }
+              }
+            }
+            productCategory.content_blocks =
+              blocksArray.length > 0 ? blocksArray : [];
+          }
+        }
+
+        if (
+          Array.isArray(productCategory.content_blocks) &&
+          productCategory.content_blocks.length > 0
+        ) {
+          productCategory.content = "";
+        }
+
         // Save the updated product category
         const updatedProductCategory = await productCategory.save();
 
@@ -414,7 +506,16 @@ const productCategoriescontroller = {
         }
 
         const { id } = req.params;
-        const { metasubCategory } = req.body;
+        let { metasubCategory } = req.body;
+        // multipart/form-data sends text fields as strings — must parse JSON
+        if (typeof metasubCategory === "string" && metasubCategory.length) {
+          try {
+            metasubCategory = JSON.parse(metasubCategory);
+          } catch (e) {
+            console.error("Invalid metasubCategory JSON:", e);
+            metasubCategory = null;
+          }
+        }
 
         let productCategory = await ProductCategory.findById(id);
         if (!productCategory) {
@@ -423,13 +524,15 @@ const productCategoriescontroller = {
             .json({ error: "Product category not found", status: 404 });
         }
 
+        const folderName = productCategory.name
+          ? productCategory.name.toLowerCase().replace(/[^a-z0-9-_]/g, "_")
+          : "category";
+
         // Handle uploaded files - upload to Vercel Blob
         let bannerImage = null;
 
         if (req.files && req.files["banner"] && req.files["banner"][0]) {
           if (blobStorage.isConfigured()) {
-            // Generate folder name from category name
-            const folderName = productCategory.name ? productCategory.name.toLowerCase().replace(/[^a-z0-9-_]/g, '_') : 'category';
             bannerImage = await blobStorage.uploadFile(req.files["banner"][0], `categories/${folderName}/subcategory-banners`);
           } else {
             console.warn("Blob storage not configured, images will not be saved properly");
@@ -446,6 +549,66 @@ const productCategoriescontroller = {
 
           let subCategoryIndex = subCategoryData.subCategoryIndex;
 
+          /** Parsed + uploaded subcategory page blocks; undefined = do not change */
+          let parsedSubcategoryContentBlocks = undefined;
+          const { content_blocks, subcategoryBlockImageCount } = req.body;
+          if (content_blocks !== undefined && content_blocks !== null) {
+            let blocksArray = null;
+            try {
+              if (typeof content_blocks === "string") {
+                const raw = content_blocks.trim();
+                blocksArray = raw === "" ? [] : JSON.parse(raw);
+              } else if (Array.isArray(content_blocks)) {
+                blocksArray = content_blocks;
+              }
+            } catch (e) {
+              console.error(
+                "[updateProductsubCategory] Invalid content_blocks JSON",
+                e
+              );
+              blocksArray = null;
+            }
+            if (Array.isArray(blocksArray)) {
+              const imgCount = parseInt(
+                subcategoryBlockImageCount === undefined ||
+                  subcategoryBlockImageCount === null
+                  ? "0"
+                  : String(subcategoryBlockImageCount),
+                10
+              );
+              const filesMap = req.files || {};
+              if (imgCount > 0 && blobStorage.isConfigured()) {
+                for (let i = 0; i < imgCount; i++) {
+                  const slot = filesMap[`subcategoryBlockImages_${i}`];
+                  const entry = Array.isArray(slot) ? slot[0] : slot;
+                  if (!entry) continue;
+                  let fileUrl = null;
+                  try {
+                    const uploaded = await blobStorage.uploadFile(
+                      entry,
+                      `categories/${folderName}/subcategory-content-blocks`
+                    );
+                    fileUrl = uploaded?.url || null;
+                  } catch (uploadErr) {
+                    console.error(
+                      "[updateProductsubCategory] subcategory block file upload failed",
+                      uploadErr
+                    );
+                  }
+                  if (fileUrl) {
+                    replaceFileReferenceInBlocks(
+                      blocksArray,
+                      `__FILE_REFERENCE__${i}__`,
+                      fileUrl
+                    );
+                  }
+                }
+              }
+              parsedSubcategoryContentBlocks =
+                blocksArray.length > 0 ? blocksArray : [];
+            }
+          }
+
           let newMetasubCategoryArray = [...productCategory.metasubCategory];
 
           // Ensure the metasubCategory array can hold the updated index
@@ -458,6 +621,8 @@ const productCategoriescontroller = {
               metaSchemas: [],
               subCategoryIndex: subCategoryIndex,
               banner: null,
+              content: null,
+              content_blocks: [],
             });
           }
 
@@ -467,29 +632,45 @@ const productCategoriescontroller = {
           }
 
           // Update the specific subcategory metadata
+          const prevMeta = newMetasubCategoryArray[subCategoryIndex] || {};
+          let nextContent =
+            subCategoryData.content !== undefined
+              ? subCategoryData.content
+              : prevMeta.content;
+          const nextContentBlocks =
+            parsedSubcategoryContentBlocks !== undefined
+              ? parsedSubcategoryContentBlocks
+              : prevMeta.content_blocks || [];
+
           newMetasubCategoryArray[subCategoryIndex] = {
             subcategoryName:
               subCategoryData.subcategoryName ||
-              newMetasubCategoryArray[subCategoryIndex].subcategoryName,
+              prevMeta.subcategoryName,
             metaTitle:
               subCategoryData.metaTitle !== undefined ? subCategoryData.metaTitle :
-              newMetasubCategoryArray[subCategoryIndex].metaTitle,
+              prevMeta.metaTitle,
             metaDescription:
               subCategoryData.metaDescription !== undefined ? subCategoryData.metaDescription :
-              newMetasubCategoryArray[subCategoryIndex].metaDescription,
+              prevMeta.metaDescription,
             metaKeywords:
               subCategoryData.metaKeywords !== undefined ? subCategoryData.metaKeywords :
-              newMetasubCategoryArray[subCategoryIndex].metaKeywords,
+              prevMeta.metaKeywords,
             metaSchemas:
               subCategoryData.metaSchemas ||
-              newMetasubCategoryArray[subCategoryIndex].metaSchemas,
-            content:
-              subCategoryData.content !== undefined ? subCategoryData.content :
-              newMetasubCategoryArray[subCategoryIndex].content,
+              prevMeta.metaSchemas,
+            content: nextContent,
+            content_blocks: nextContentBlocks,
             subCategoryIndex: subCategoryIndex,
             banner:
-              bannerImage || newMetasubCategoryArray[subCategoryIndex].banner,
+              bannerImage || prevMeta.banner,
           };
+
+          if (
+            Array.isArray(newMetasubCategoryArray[subCategoryIndex].content_blocks) &&
+            newMetasubCategoryArray[subCategoryIndex].content_blocks.length > 0
+          ) {
+            newMetasubCategoryArray[subCategoryIndex].content = "";
+          }
 
           productCategory.metasubCategory = newMetasubCategoryArray; // Set the updated array back to the category
         }
@@ -781,7 +962,7 @@ const productCategoriescontroller = {
       console.log("req.params", req.params);
 
       const category = await ProductCategory.findOne({ "name": id })
-        .select('_id bannerImage name metaTitle metaSchemas metaKeywords metaDescription content');
+        .select('_id bannerImage name metaTitle metaSchemas metaKeywords metaDescription content content_blocks');
       if (!category) {
         return res.status(404).json({ message: "Category not found" });
       }
@@ -809,18 +990,28 @@ const productCategoriescontroller = {
 
         // Find the subcategory and its meta details across all categories
         for (const category of categories) {
-            // Check if the subcategory exists in this category
-            subCategory = category.subCategory.find(subcategory => 
-                subcategory?.toLowerCase() === name.toLowerCase()
+            const idx = category.subCategory.findIndex(
+                (sub) =>
+                    sub &&
+                    normalizeSubcategorySlug(sub) === normalizeSubcategorySlug(name)
             );
             console.log("category", category);
 
-            if (subCategory) {
-                subCategoryMeta = category.metasubCategory?.find(
-                    (meta) => meta?.subcategoryName?.toLowerCase() === name.toLowerCase()
-                );
-                parentCategory = category.bannerImage ?? '';
-                break; // Exit the loop once the subcategory is found
+            if (idx >= 0) {
+                subCategory = category.subCategory[idx];
+                subCategoryMeta =
+                    category.metasubCategory?.[idx] ||
+                    category.metasubCategory?.find(
+                        (meta) => Number(meta?.subCategoryIndex) === idx
+                    ) ||
+                    category.metasubCategory?.find(
+                        (meta) =>
+                            meta?.subcategoryName &&
+                            normalizeSubcategorySlug(meta.subcategoryName) ===
+                                normalizeSubcategorySlug(name)
+                    );
+                parentCategory = category.bannerImage ?? "";
+                break;
             }
         }
 
@@ -839,6 +1030,13 @@ const productCategoriescontroller = {
             });
         }
 
+        // Prefer subcategory-specific banner (admin uploads); fall back to parent category image
+        const subBanner = subCategoryMeta.banner;
+        const resolvedBanner =
+          subBanner && (subBanner.url || subBanner.path)
+            ? subBanner
+            : parentCategory || "";
+
         // Structure the response to return the subcategory and meta details in the required format
         const response = {
             message: "Subcategory fetched successfully",
@@ -848,7 +1046,7 @@ const productCategoriescontroller = {
             metaTitle: subCategoryMeta.metaTitle,
             metaDescription: subCategoryMeta.metaDescription,
             metaKeywords: subCategoryMeta.metaKeywords,
-            banner: parentCategory,
+            banner: resolvedBanner,
             status: 200,
         };
 
@@ -875,20 +1073,28 @@ const productCategoriescontroller = {
 
       // Find the subcategory and its meta details across all categories
       for (const category of categories) {
-          // Check if the subcategory exists in this category
-          subCategory = category.subCategory.find(subcategory => 
-              subcategory?.toLowerCase() === name.toLowerCase()
+          const idx = category.subCategory.findIndex(
+              (sub) =>
+                  sub &&
+                  normalizeSubcategorySlug(sub) === normalizeSubcategorySlug(name)
           );
 
-          if (subCategory) {
-
-             subCategoryIndex = category.subCategory.indexOf(subCategory);
-    
-              subCategoryMeta = category.metasubCategory?.find(
-                  (meta) => meta?.subcategoryName?.toLowerCase() === name.toLowerCase()
-              );
-              parentCategory = category.bannerImage ?? '';
-              break; // Exit the loop once the subcategory is found
+          if (idx >= 0) {
+              subCategory = category.subCategory[idx];
+              subCategoryIndex = idx;
+              subCategoryMeta =
+                  category.metasubCategory?.[idx] ||
+                  category.metasubCategory?.find(
+                      (meta) => Number(meta?.subCategoryIndex) === idx
+                  ) ||
+                  category.metasubCategory?.find(
+                      (meta) =>
+                          meta?.subcategoryName &&
+                          normalizeSubcategorySlug(meta.subcategoryName) ===
+                              normalizeSubcategorySlug(name)
+                  );
+              parentCategory = category.bannerImage ?? "";
+              break;
           }
       }
 
@@ -905,11 +1111,19 @@ const productCategoriescontroller = {
                 banner: parentCategory,
                 metaSchemas: '',
                 content: '',
+                content_blocks: [],
               },
               status: 200,
           });
       }
 
+
+      // Prefer subcategory-specific banner (Product Central uploads); fall back to parent category image
+      const subBanner = subCategoryMeta.banner;
+      const resolvedBanner =
+        subBanner && (subBanner.url || subBanner.path)
+          ? subBanner
+          : parentCategory || "";
 
       // Structure the response to return the subcategory and meta details in the required format
       const response = {
@@ -922,7 +1136,8 @@ const productCategoriescontroller = {
               metaKeywords: subCategoryMeta.metaKeywords || '',
               metaSchemas: subCategoryMeta.metaSchemas || '',
               content: subCategoryMeta.content || '',
-              banner: parentCategory || '',
+              content_blocks: subCategoryMeta.content_blocks || [],
+              banner: resolvedBanner,
           },
           status: 200,
       };

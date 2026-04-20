@@ -765,6 +765,9 @@ const siteThemeController = require('../controller/siteThemeController');
 router.get('/site-theme', requireAdmin, siteThemeController.getThemeAdmin);
 router.get('/site-theme/public', siteThemeController.getThemePublic);
 router.post('/site-theme', requireAdmin, siteThemeController.saveTheme);
+// CMS typography (Next.js + admin)
+router.get('/api/theme', siteThemeController.getTypographyPublic);
+router.put('/api/theme', requireAdmin, siteThemeController.updateTypography);
 
 // ========================================================================
 // TRUSTPILOT SETTINGS MANAGEMENT

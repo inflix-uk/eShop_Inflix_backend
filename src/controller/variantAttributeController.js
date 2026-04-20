@@ -332,7 +332,7 @@ const addValueToAttribute = async (req, res) => {
             });
         }
 
-        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/g, '').replace(/^_+/, '');
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/g, '').replace(/^-+/, '').replace(/-+/g, '-');
 
         // Check if value already exists
         const existingValue = variantAttribute.values.find(v => v.slug === slug);
@@ -436,7 +436,7 @@ const addModelToValue = async (req, res) => {
             });
         }
 
-        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/g, '').replace(/^_+/, '');
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/g, '').replace(/^-+/, '').replace(/-+/g, '-');
 
         // Check if model already exists
         const existingModel = variantAttribute.values[valueIndex].models?.find(m => m.slug === slug);
@@ -607,8 +607,8 @@ const updateValueDetails = async (req, res) => {
         // Update the value
         if (name !== undefined) {
             variantAttribute.values[valueIndex].name = name;
-            // Update slug if name changed (use underscores)
-            variantAttribute.values[valueIndex].slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/g, '').replace(/^_+/, '');
+            // Update slug if name changed (use hyphens for SEO-friendly URLs)
+            variantAttribute.values[valueIndex].slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/g, '').replace(/^-+/, '').replace(/-+/g, '-');
         }
         if (isActive !== undefined) {
             variantAttribute.values[valueIndex].isActive = isActive;
@@ -676,8 +676,8 @@ const updateModelDetails = async (req, res) => {
         // Update the model
         if (name !== undefined) {
             variantAttribute.values[valueIndex].models[modelIndex].name = name;
-            // Update slug if name changed (use underscores)
-            variantAttribute.values[valueIndex].models[modelIndex].slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/g, '').replace(/^_+/, '');
+            // Update slug if name changed (use hyphens for SEO-friendly URLs)
+            variantAttribute.values[valueIndex].models[modelIndex].slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/g, '').replace(/^-+/, '').replace(/-+/g, '-');
         }
         if (isActive !== undefined) {
             variantAttribute.values[valueIndex].models[modelIndex].isActive = isActive;

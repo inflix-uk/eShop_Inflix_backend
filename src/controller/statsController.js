@@ -96,7 +96,7 @@ const statsController = {
         try {
             const csv = json2csvParser.parse(products);
     
-            const uploadPath = path.join(__dirname, '../uploads/feed');
+            const uploadPath = path.join(__dirname, '../../uploads/feed');
             if (!fs.existsSync(uploadPath)) {
                 fs.mkdirSync(uploadPath, { recursive: true });
             }
@@ -160,7 +160,7 @@ const statsController = {
         try {
             const csv = json2csvParser.parse(products);
 
-            const uploadPath = path.join(__dirname, '../uploads/feed');
+            const uploadPath = path.join(__dirname, '../../uploads/feed');
             if (!fs.existsSync(uploadPath)) {
                 fs.mkdirSync(uploadPath, { recursive: true });
             }
@@ -222,7 +222,7 @@ const statsController = {
         try {
             const csv = json2csvParser.parse(products);
 
-            const uploadPath = path.join(__dirname, '../uploads/feed');
+            const uploadPath = path.join(__dirname, '../../uploads/feed');
             if (!fs.existsSync(uploadPath)) {
                 fs.mkdirSync(uploadPath, { recursive: true });
             }

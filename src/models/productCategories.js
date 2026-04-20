@@ -32,6 +32,11 @@ const metaSubCategorySchema = new Schema({
         type: String,
         default: null
     },
+    /** Homepage-style block rows for this subcategory page */
+    content_blocks: {
+        type: Schema.Types.Mixed,
+        default: [],
+    },
     banner: {
         filename: String,
         path: String,
@@ -74,6 +79,11 @@ const productCategoriesSchema = new Schema({
     content: {
         type: String,
         default: null
+    },
+    /** Homepage-style block rows (text, image, widgets, etc.) */
+    content_blocks: {
+        type: Schema.Types.Mixed,
+        default: [],
     },
     
     metaDescription: {

@@ -124,7 +124,8 @@ const adminProductController = {
                     is_refundable, is_authenticated, low_stock_quantity_alert,
                     Shipping_Information, has_warranty, productType, discount,
                     Purchase_Quantity, status, Seo_Meta, Product_summary,
-                    Product_description, comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
+                    Product_description, Product_description_blocks, descriptionBlockImageCount,
+                    comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
                     sim_option, battery, producturl, seeAccessoriesWeDontNeed, topsection,
                     perks_and_benefits
                 } = req.body;
@@ -136,7 +137,8 @@ const adminProductController = {
                     name, category, subcategory, tags, brand, condition, is_featured,
                     is_refundable, is_authenticated, low_stock_quantity_alert,
                     has_warranty, productType, status, Seo_Meta, Product_summary,
-                    Product_description, comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
+                    Product_description, Product_description_blocks, descriptionBlockImageCount,
+                    comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
                     sim_option, battery, producturl, seeAccessoriesWeDontNeed, topsection,
                     perks_and_benefits, req
                 });
@@ -541,58 +543,74 @@ const adminProductController = {
                 status: 'Approved'
             }).sort({ createdAt: -1 });
 
+            // Helper function to normalize slugs for comparison (handles both hyphen and underscore formats)
+            const normalizeSlug = (s) => s ? s.toLowerCase().replace(/[-_]+/g, '-') : '';
+
             // Fetch topSectionItems with full data (icon, description) from VariantAttribute
+            // Try both underscore and hyphen versions of slug for backwards compatibility
             const VariantAttribute = require('../models/VariantAttribute');
             let populatedTopSectionItems = [];
             if (product.topSectionItems && product.topSectionItems.length > 0) {
-                const topSectionAttribute = await VariantAttribute.findOne({ slug: 'top_section' });
+                const topSectionAttribute = await VariantAttribute.findOne({ 
+                    $or: [{ slug: 'top_section' }, { slug: 'top-section' }]
+                });
                 if (topSectionAttribute && topSectionAttribute.values) {
                     populatedTopSectionItems = product.topSectionItems.map(slug => {
-                        const matchedValue = topSectionAttribute.values.find(v => v.slug === slug);
+                        const normalizedProductSlug = normalizeSlug(slug);
+                        const matchedValue = topSectionAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug);
                         if (matchedValue) {
                             return {
                                 slug: matchedValue.slug,
                                 name: matchedValue.name,
                                 icon: matchedValue.icon || null,
                                 description: matchedValue.description || null,
-                                image: matchedValue.image || null
+                                image: matchedValue.image || null,
+                                fromCatalog: true
                             };
                         }
                         // Fallback if slug not found in VariantAttribute
                         return {
                             slug: slug,
-                            name: slug.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                            name: slug.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
                             icon: null,
                             description: null,
-                            image: null
+                            image: null,
+                            fromCatalog: false
                         };
                     });
                 }
             }
 
             // Fetch comesWithItems with full data (icon, description) from VariantAttribute
+            // Try both underscore and hyphen versions of slug for backwards compatibility
             let populatedComesWithItems = [];
             if (product.comesWithItems && product.comesWithItems.length > 0) {
-                const comesWithAttribute = await VariantAttribute.findOne({ slug: 'comes_with' });
+                const comesWithAttribute = await VariantAttribute.findOne({ 
+                    $or: [{ slug: 'comes_with' }, { slug: 'comes-with' }]
+                });
                 if (comesWithAttribute && comesWithAttribute.values) {
                     populatedComesWithItems = product.comesWithItems.map(slug => {
-                        const matchedValue = comesWithAttribute.values.find(v => v.slug === slug);
+                        // Match using normalized slugs to handle underscore/hyphen inconsistencies
+                        const normalizedProductSlug = normalizeSlug(slug);
+                        const matchedValue = comesWithAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug);
                         if (matchedValue) {
                             return {
                                 slug: matchedValue.slug,
                                 name: matchedValue.name,
                                 icon: matchedValue.icon || null,
                                 description: matchedValue.description || null,
-                                image: matchedValue.image || null
+                                image: matchedValue.image || null,
+                                fromCatalog: true
                             };
                         }
                         // Fallback if slug not found in VariantAttribute
                         return {
                             slug: slug,
-                            name: slug.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                            name: slug.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
                             icon: null,
                             description: null,
-                            image: null
+                            image: null,
+                            fromCatalog: false
                         };
                     });
                 }
