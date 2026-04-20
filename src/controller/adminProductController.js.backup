@@ -1,0 +1,2224 @@
+// controller/adminProductController.js
+const db = require("../connections/mongo");
+const Product = require("../models/product");
+const productCategory = require("../models/productCategories");
+
+const bcrypt = require("bcrypt");
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+const { features } = require("process");
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
+const moment = require('moment');
+const mongoose = require('mongoose');
+
+// Import services
+const updateProductService = require('../services/productService/updateProduct');
+
+
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const destinationFolder = './uploads/products';
+        // Check if the destination folder exists
+        fs.access(destinationFolder, (err) => {
+            if (err) {
+                // If the folder doesn't exist, create it
+                fs.mkdir(destinationFolder, (err) => {
+                    if (err) {
+                        console.error('Error creating destination folder:', err);
+                        cb(err, null);
+                    } else {
+                        cb(null, destinationFolder);
+                    }
+                });
+            } else {
+                // If the folder already exists, use it
+                cb(null, destinationFolder);
+            }
+        });
+    },
+    filename: function (req, file, cb) {
+        // Rename the uploaded file to include the current timestamp to avoid filename conflicts
+        const timestamp = moment().format('YYYYMMDD_HHmmss_');
+        const extension = path.extname(file.originalname); // Extract file extension
+        cb(null, timestamp + file.originalname); // Generate the new filename
+    }
+});
+
+
+
+const uploadImage = multer({ storage: storage }).any();
+
+const adminProductController = {
+
+    createProduct: async (req, res) => {
+        try {
+
+            uploadImage(req, res, async function (err) {
+                if (err instanceof multer.MulterError) {
+                    console.error('Multer error:', err);
+                    return res.json({ message: 'Error uploading image', status: 400 });
+                } else if (err) {
+                    console.error('Error uploading image:', err);
+                    return res.json({ message: 'Failed to upload image', status: 500 });
+                }
+
+                // Extract data from the request body
+                const {
+                    name, category, subcategory, tags, brand, condition, is_featured, is_refundable, is_authenticated, low_stock_quantity_alert, Shipping_Information, has_warranty,
+                    productType, discount, Purchase_Quantity, status, Seo_Meta, Product_summary, Product_description, specifications, comes_with, variantDesc, sim_option, productSalePrice, battery,producturl
+
+                } = req.body;
+
+                console.log(req.body);
+           
+                
+              
+                
+                // console.log(req.files);
+                
+                const comes_with_values = comes_with ? JSON.parse(comes_with) : [];
+                const specifications_values = specifications ? JSON.parse(specifications) : [];
+                const is_refundable_Values = is_refundable && is_refundable !== 'undefined' ? JSON.parse(is_refundable) : [];
+                const has_warrantyvalues = has_warranty ? JSON.parse(has_warranty) : [];
+                const productType_values = productType ? JSON.parse(productType) : [];
+                
+
+
+                let variantDesc_values = [];
+                if (req.body.variantDesc) {
+                    variantDesc_values = JSON.parse(variantDesc) ? JSON.parse(variantDesc) : [];
+                }
+                // let sim_options = [];
+                // if (sim_option) {
+                //     sim_options = req.body.sim_option;
+                // }
+                // const discount_values = JSON.parse(discount) ? JSON.parse(discount) : [];
+                // const Purchase_Quantity_values = JSON.parse(Purchase_Quantity);
+                // const Shipping_InformationValues = JSON.parse(Shipping_Information);
+                // console.log(sim_options);
+                // return;
+
+
+                // Initialize arrays for variant names and values
+                let variantNamesArray = [];
+                let variantValuesArray = [];
+                let Seo_MetaObject = {};
+                let meta_Image = [];
+                let varImgGroupArray = [];
+                let batteryData = {};
+
+                // if (req.body.battery) {
+                //   batteryData = JSON.parse(req.body.battery);
+                //  }
+                // console.log(batteryData);
+                // return;
+
+                if (productType_values.type === "single") {
+
+                    const Seo_Meta_values = JSON.parse(Seo_Meta);
+
+                    variantValuesArray.push({
+
+                        name: "single", // You can set any name you want for the single option
+                        Icon: null, // Assuming there's no icon for the single variant
+                        Cost: parseInt(productType_values.productCost) || null,
+                        Price: parseInt(productType_values.productPrice) || null,
+                        salePrice: parseInt(productType_values.productSalePrice) || null,
+                        Quantity: parseInt(productType_values.productQty) || null,
+                        SKU: productType_values.productSKU || null,
+                        EIN: productType_values.productEIN || null,
+                        MPN: productType_values.productMPN || null,
+                        
+
+                    });
+                    Seo_MetaObject = {
+                        metaTitle: Seo_Meta_values.metaTitle || null,
+                        metaDescription: Seo_Meta_values.metaDescription || null,
+                        metaKeywords: Seo_Meta_values.metaKeywords || null,
+                        metaSchemas: Seo_Meta_values.metaSchemas || []
+                    };
+
+                    if (req.files) {
+
+                        req.files.forEach(file => {
+                            const fieldname = file.fieldname;
+
+                            if (fieldname === 'metaImage') {
+                                meta_Image = file;
+                            }
+                        });
+                    }
+
+
+                } else if (productType_values.type === "variant") {
+                    // Process variant meta images dynamically
+                    const variantMetaImages = {};
+                    const variantImages = {};
+                    const varImgGroup = {};
+                    req.files.forEach(file => {
+                        const field = file.fieldname;
+                        if (field.startsWith('variantMetaImage[') && field.endsWith(']')) {
+                            const startIdx = field.indexOf('[') + 1;
+                            const endIdx = field.indexOf(']');
+                            const variantKey = field.slice(startIdx, endIdx);
+                            if (!variantMetaImages[variantKey]) {
+                                variantMetaImages[variantKey] = [];
+                            }
+                            variantMetaImages[variantKey].push({
+                                filename: file.filename,
+                                path: file.path,
+                            });
+                        }
+                        else if (field.startsWith('variantImages[') && field.endsWith(']')) {
+                            const startIdx = field.indexOf('[') + 1;
+                            const endIdx = field.indexOf(']');
+                            const variantKey = field.slice(startIdx, endIdx);
+                            if (!variantImages[variantKey]) {
+                                variantImages[variantKey] = [];
+                            }
+                            variantImages[variantKey].push({
+                                filename: file.filename,
+                                path: file.path,
+                                size: file.size
+                            });
+                        }
+                        else if (field.startsWith('varImg[') && field.endsWith(']')) {
+                            const startIdx = field.indexOf('[') + 1;
+                            const endIdx = field.indexOf(']');
+                            const variantKey = field.slice(startIdx, endIdx);
+                            // const variantKey = extractKey(field);
+                            if (!varImgGroup[variantKey]) {
+                                varImgGroup[variantKey] = [];
+                            }
+                            varImgGroup[variantKey].push({
+                                filename: file.filename,
+                                path: file.path,
+                                // size: file.size,
+                            });
+                        }
+                    });
+
+                    // Convert varImgGroup object into an array of documents
+                    varImgGroupArray = Object.keys(varImgGroup).map(variantKey => ({
+                        name: variantKey,
+                        varImg: varImgGroup[variantKey]
+                    }));
+
+
+
+                    // Parse the variant values JSON string to JavaScript object
+                    const { variantValues } = req.body;
+                    // Parse the variant values JSON string to JavaScript object
+                    const parsedVariantValues = JSON.parse(variantValues);
+
+                    // Iterate over each variant value and construct the variantValues array
+                    for (const key in parsedVariantValues) {
+                        if (Object.hasOwnProperty.call(parsedVariantValues, key)) {
+                            const variantValue = parsedVariantValues[key];
+                            const metaImages = variantMetaImages[key] || [];
+                            const variantImage = variantImages[key] || [];
+                            // Construct variant value object and push to variantValuesArray
+                            variantValuesArray.push({
+                                name: key.trim(),
+                                variantImages: variantImage,
+                                Cost: parseInt(variantValue.cost) || null,
+                                Price: parseInt(variantValue.price) || null,
+                                Quantity: parseInt(variantValue.quantity) || null,
+                                SKU: variantValue.sku || null,
+                                EIN: variantValue.ein || null,
+                                salePrice: variantValue.salePrice || null,
+                                metaTitle: variantValue.metaTitle || null,
+                                metaDescription: variantValue.metaDesc || null,
+                                metaKeywords: variantValue.metaKeywords || null,
+                                metaSchemas: variantValue.metaSchemas || [],
+                                metaImage: metaImages.length > 0 ? metaImages[0] : null,
+                                MPN: variantValue.mpn || null,
+                            });
+                        }
+                    }
+
+                    // console.log(variantValuesArray);
+                    // return;
+
+
+                    const variantNamesData = JSON.parse(req.body.variantNames);
+                    // Iterate over each variantName object and construct the variantNamesArray
+                    variantNamesData.forEach(variantName => {
+                        // Extract name and options from each variantName object
+                        const { name, options } = variantName;
+
+                        // Construct variantName object and push to variantNamesArray
+                        // variantNamesArray.push({
+                        //     name,
+                        //     options: options.map(option => option.option) // Extract option names
+                        // });
+                        variantNamesArray.push({
+                            name,
+                            // options: Array.isArray(options) ? options.map(option => ({ name: option.option})) : [] // Ensure options is an array
+                            options: Array.isArray(options) ? options.map(option => option.option) : []
+                        });
+
+                    });
+                }
+
+                let thumbnail_image, Gallery_Images = [];
+                req.files.forEach(file => {
+                    const fieldname = file.fieldname;
+                    if (fieldname === 'thumbnail_image') {
+                        thumbnail_image = file;
+                    } else if (fieldname === 'Gallery_Images') {
+                        Gallery_Images.push(file); // Push each file into the Gallery_Images array
+                    }
+                });
+                // Ensure thumbnail_image and Gallery_Images exist
+                if (!thumbnail_image || !Gallery_Images) {
+                    return res.json({ error: 'Thumbnail image and gallery images are required', status: 400 });
+                }
+
+                // Handle thumbnail_image
+                const thumbnailImage = thumbnail_image;
+
+                // Handle Gallery_Images
+                const galleryImages = Gallery_Images.map(image => ({
+                    filename: image.filename,
+                    path: image.path
+                }));
+
+                // Create a new product instance
+                const newProduct = new Product({
+                    // Basic product information
+                    name: name,
+                    category: category,
+                    producturl: producturl,
+                    tags: tags,
+                    brand: brand,
+                    condition: condition,
+                    subCategory: subcategory,
+                    battery: battery || null,
+                    is_featured: is_featured,
+                    sim_options: sim_option,
+                    is_refundable: {
+                        status: is_refundable_Values.is_refundable,
+                        refund_duration: is_refundable_Values.refund_duration,
+                        refund_type: is_refundable_Values.refund_type
+
+                    },
+                    variantDescription: variantDesc_values || null,
+                    is_authenticated: is_authenticated,
+                    low_stock_quantity_alert: low_stock_quantity_alert || null,
+                    product_Specifications: specifications_values,
+                    comes_With: {
+                        powerAdapter: comes_with_values.powerAdapter,
+                        powerCable: comes_with_values.powerCable,
+                        protectionBundle: comes_with_values.protectionBundle,
+                        treePlanted: comes_with_values.treePlanted,
+                        hdmi: comes_with_values.hdmi,
+                        powerCableNewIncluded: comes_with_values.powerCableNewIncluded,
+                        onexcontroller: comes_with_values.onexcontroller,
+                        twoxcontroller: comes_with_values.twoxcontroller,
+                        freeSim: comes_with_values.freeSim,
+                        onexBackCover:comes_with_values.onexBackCover,
+                        onexScreenProtector:comes_with_values.onexScreenProtector,
+
+                    },
+                    // Shipping_Information: {
+                    //     Weight: Shipping_InformationValues.weight,
+                    //     Height: Shipping_InformationValues.height,
+                    //     Width: Shipping_InformationValues.width,
+                    //     Length: Shipping_InformationValues.length
+                    // },
+                    thumbnail_image: {
+                        filename: thumbnailImage ? thumbnailImage.filename : null,
+                        path: thumbnailImage ? thumbnailImage.path : null
+                    },
+                    Gallery_Images: galleryImages,
+                    has_warranty: {
+                        status: has_warrantyvalues.has_warranty,
+                        has_replacement_warranty: has_warrantyvalues.has_replacement_warranty,
+                        Warranty_duration: has_warrantyvalues.warranty_duration,
+                        Warranty_type: has_warrantyvalues.warranty_type
+
+                    },
+                    productType: {
+                        type: productType_values.type
+                    },
+                    // Add variantValuesArray to the newProduct object
+                    variantValues: variantValuesArray || null,
+                    variantNames: variantNamesArray || null,
+                    varImgGroup: varImgGroupArray || null,
+                    // discount: {
+                    //     discount_value: discount_values.discount, 
+                    //     discount_type: discount_values.discountType
+                    // },
+                    // Purchase_Quantity: {
+                    //     min_quantity: Purchase_Quantity_values.min,
+                    //     max_quantity: Purchase_Quantity_values.max
+                    // },
+
+                    Product_summary: Product_summary,
+                    Product_description: Product_description,
+                    Seo_Meta: Seo_MetaObject || null,
+                    meta_Image: {
+                        filename: meta_Image ? meta_Image.filename : null,
+                        path: meta_Image ? meta_Image.path : null
+                    },
+
+                    status: status,
+                    publishAt: Date.now(),
+                    createdAt: Date.now(),
+                    updatedAt: Date.now()
+                });
+
+                // Save the product to the database
+                // console.log('New Product:', newProduct); // Debug statement
+
+                const savedProduct = await newProduct.save().catch(error => {
+                    console.error('Error saving product:', error);
+                    throw error;
+                });
+
+                console.log(savedProduct)
+
+                // Respond with success message and the created product
+                return res.json({ message: 'Product created successfully', product: savedProduct, status: 201 });
+            });
+
+        } catch (error) {
+            console.error('Error creating product:', error);
+            // Respond with error message and status code 500 for internal server error
+            return res.json({ message: 'Failed to create product', status: 500 });
+        }
+    },
+
+    getAllActiveProduct: async (req, res) => {
+        try {
+            // const products = await Product.find();
+            const products = await Product.find({ status: 'true' });
+            
+            if (!products) {
+                return res.json({ message: 'Products not found', status: 404 });
+            }
+
+            return res.json({ message: 'Products retrieved', products, status: 201 });
+        } catch (error) {
+            console.error('Error getting products:', error);
+            return res.json({ message: 'Failed to get products', status: 500 });
+        }
+
+    },
+    getAllDeactiveProduct: async (req, res) => {
+        try {
+            const products = await Product.find({ status: false, isdeleted: false });
+            console.log(products);
+
+            if (!products) {
+                return res.json({ message: 'Products not found', status: 404 });
+            }
+
+            return res.json({ message: 'Products retrieved', products, status: 201 });  
+        } catch (error) {
+                console.error('Error getting products:', error);
+                return res.json({ message: 'Failed to get products', status: 500 });    
+
+            }
+    },
+
+    updateProduct: async (req, res) => {
+        try {
+            uploadImage(req, res, async function (err) {
+                if (err instanceof multer.MulterError) {
+                    console.error('Multer error:', err);
+                    return res.json({ message: 'Error uploading image', status: 400 });
+                } else if (err) {
+                    console.error('Error uploading image:', err);
+                    return res.json({ message: 'Failed to upload image', status: 500 });
+                }
+
+                // Extract data from request
+                const {
+                    name, category, subcategory, tags, brand, condition, is_featured,
+                    is_refundable, is_authenticated, low_stock_quantity_alert,
+                    Shipping_Information, has_warranty, productType, discount,
+                    Purchase_Quantity, status, Seo_Meta, Product_summary,
+                    Product_description, comes_with, specifications, variantDesc,
+                    sim_option, battery, producturl, seeAccessoriesWeDontNeed
+                } = req.body;
+
+                const { id } = req.params;
+
+                console.log('req.body', req.body);
+
+                // Call service to handle business logic
+                const result = await updateProductService.updateProduct(id, {
+                    name, category, subcategory, tags, brand, condition, is_featured,
+                    is_refundable, is_authenticated, low_stock_quantity_alert,
+                    has_warranty, productType, status, Seo_Meta, Product_summary,
+                    Product_description, comes_with, specifications, variantDesc,
+                    sim_option, battery, producturl, seeAccessoriesWeDontNeed,
+                    req
+                });
+
+                // Handle service result
+                if (!result.success) {
+                    return res.json({ message: result.message, status: result.status });
+                }
+
+                return res.json({ message: result.message, product: result.product, status: result.status });
+                // const Shipping_InformationValues = parseField(Shipping_Information);
+                let variantDesc_values = [];
+                if (req.body.variantDesc) {
+                    variantDesc_values = JSON.parse(variantDesc) ? JSON.parse(variantDesc) : [];
+                }
+
+                // console.log('variantDesc_values', variantDesc_values);
+                // return;
+                let sim_options = [];
+                if (sim_option) {
+                    sim_options = req.body.sim_option;
+                }
+
+                let comes_with_values = [];
+                if (comes_with) {
+                    comes_with_values = JSON.parse(comes_with) ? JSON.parse(comes_with) : [];
+                }
+                let specifications_values = [];
+                if (specifications) {
+                    specifications_values = JSON.parse(specifications) ? JSON.parse(specifications) : [];
+                }
+                let is_refundable_Values = [];
+                if (is_refundable) {
+                    is_refundable_Values = JSON.parse(is_refundable) ? JSON.parse(is_refundable) : [];
+                }
+                let has_warrantyvalues = [];
+                if (has_warranty) {
+                    has_warrantyvalues = parseField(has_warranty) ? parseField(has_warranty) : [];
+                }
+                let productType_values = [];
+                if (productType) {
+                    productType_values = parseField(productType) ? parseField(productType) : [];
+                }
+                let batteryValue = [];
+
+                // if (battery) {
+                //     batteryValue = parseField(battery) ? parseField(battery) : [];
+                // }
+
+
+
+                // const discount_values = parseField(discount) ? parseField(discount) : [];
+                // const Purchase_Quantity_values = parseField(Purchase_Quantity);
+                const variant_Values = parseField(req.body.variantValues);
+
+
+
+                let VariantValueName = null;
+                let variantNamesArray = [];
+                let variantValuesArray = [];
+                let Seo_MetaObject = {};
+                let meta_Image = [];
+                let thumbnail_image = [];
+                let meta_ImageObject = {};
+                let Gallery_Images = [];
+                let thumbnail_imageObject = {};
+                let galleryImagesArray = [];
+                let galleryImages = [];
+                // let variantValues_Array = [];
+                const variantImages = {};
+                let varImgGroupArray = [];
+
+
+                if (Array.isArray(variant_Values)) {
+
+                    // console.log(variant_Values );
+                    // return;
+                    variant_Values.forEach(item => {
+                        VariantValueName = item.name;
+                        const VariantValueCost = item.Cost;
+                        const VariantValuePrice = item.Price;
+                        const VariantSalePrice = item.salePrice;
+                        const VariantValueQuantity = item.Quantity;
+                        const VariantValueSKU = item.SKU;
+                        const VariantValueEIN = item.EIN;
+                        const VariantValueMPN = item.MPN;
+                        const Seo_Meta_values = parseField(Seo_Meta);
+
+                        // console.log(Seo_Meta_values );
+                        // return;
+                        if (productType_values.type === "single") {
+                            const Seo_Meta_values = parseField(Seo_Meta);
+                            variantValuesArray.push({
+                                name: VariantValueName || "single",
+                                Icon: null,
+                                Cost: VariantValueCost || null,
+                                Price: VariantValuePrice || null,
+                                salePrice: VariantSalePrice || null,
+                                Quantity: VariantValueQuantity || null,
+                                SKU: VariantValueSKU || null,
+                                EIN: VariantValueEIN || null,
+                                MPN: VariantValueMPN || null,
+
+                            });
+                        }
+                        // console.log("Seo_Meta_values",  Seo_Meta_values );
+                        // return;
+                        Seo_MetaObject = {
+                            metaTitle: Seo_Meta_values.metaTitle || null,
+                            metaDescription: Seo_Meta_values.metaDescription || null,
+                            metaKeywords: Seo_Meta_values.metaKeywords || null,
+                            metaSchemas: Seo_Meta_values.metaSchemas || null
+                        };
+                    });
+                }
+                // console.log(Seo_MetaObject);
+                // return;
+
+                if (req.body.meta_Image) {
+                    meta_ImageObject = JSON.parse(req.body.meta_Image);
+                }
+                if (req.body.thumbnail_image) {
+
+                    thumbnail_imageObject = JSON.parse(req.body.thumbnail_image);
+                }
+  
+                if (req.body.Gallery_Images) {
+                    let parsedGalleryImages = [];
+
+                    if (typeof req.body.Gallery_Images === 'string') {
+                        // Attempt to parse the string as a JSON object or array
+                        try {
+                            const galleryImages = JSON.parse(req.body.Gallery_Images);
+                            if (Array.isArray(galleryImages)) {
+                                parsedGalleryImages = galleryImages;
+                            } else {
+                                parsedGalleryImages = [galleryImages];
+                            }
+                        } catch (error) {
+                            console.error('Error parsing Gallery_Images:', error);
+                        }
+                    } else if (Array.isArray(req.body.Gallery_Images)) {
+                        // If it's already an array of strings, parse each one
+                        parsedGalleryImages = req.body.Gallery_Images.map(imageStr => {
+                            try {
+                                return JSON.parse(imageStr);
+                            } catch (error) {
+                                console.error('Error parsing image string:', error);
+                                return null;
+                            }
+                        }).filter(image => image !== null);
+                    }
+
+                    // Map to the desired structure
+                    galleryImagesArray = parsedGalleryImages.map(image => ({
+                        filename: image.filename,
+                        path: image.path
+                    }));
+                }
+
+                // ############ old code ##################
+                // if (req.body.variantImages) {
+                //     const variantImages = req.body.variantImages;
+                //     const groupedImages = {};
+                //     // console.log('variantImages',variantImages);
+                //     // return;
+                //     for (const key in variantImages) {
+                //         const color = key.split('-')[1]; 
+                //         if (!groupedImages[color]) {
+                //             groupedImages[color] = [];
+                //         }
+
+                //         // Check if variantImages[key] is an array or a single string
+                //         const imagesArray = Array.isArray(variantImages[key]) ? variantImages[key] : [variantImages[key]];
+
+                //         imagesArray.forEach(imageStr => {
+                //             try {
+                //                 const image = JSON.parse(imageStr);
+                //                 if (!groupedImages[color].some(img => img.path === image.path)) {
+                //                     groupedImages[color].push(image);
+                //                 }
+                //             } catch (e) {
+                //                 console.error(`Error parsing JSON for key ${key}:`, e);
+                //             }
+                //         });
+                //     }
+
+                //     // console.log('groupedImages',groupedImages);
+                //     // return;
+                //     varImgGroupArray = Object.keys(groupedImages).map(color => ({
+                //         name: color,
+                //         varImg: groupedImages[color]
+                //     }));
+
+                //     // Log the varImgGroupArray with complete data
+                //     // console.log('varImgGroupArray', JSON.stringify(varImgGroupArray, null, 2));
+                // }
+                   // ############ end old code ##################
+
+    
+               
+                
+                   if (req.body.variantImages) {
+                    const variantImages = req.body.variantImages;
+                    console.log('variantImages: ', variantImages);
+                    const groupedImages = {}; // To store grouped images by color
+                
+                    // List of compound color names
+                    const compoundColors = [
+                        "Phantom-Black", "Silver-Shadow", "Crafted-Black", "Phantom-Silver", "Phantom-Violet", "Pink-Gold",
+                        "Sky-Blue", "Ice-Blue", "Cloud-Lavender", "Cloud-Navy", "Cloud-Mint", "Cloud-White", "Cloud-Red",
+                        "Cloud-Orange", "Titanium-Black", "Titanium-Violet", "Titanium-Gray", "Titanium-Yellow", "Titanium-Blue",
+                        "Titanium-Green", "Titanium-Orange", "Matte-Space-Gray", "Matte-Silver", "Matte-Gold", "Matte-Midnight-Green",
+                        "Black-Titanium", "White-Titanium", "Blue-Titanium", "Natural-Titanium", "Rose-Gold", "Space-Gray",
+                        "Deep-Purple", "Space-Black", "Light-Green", "Magical-Blue", "Brave-Black", "Prism-White", "Prism-Black",
+                        "Prism-Green", "Prism-Blue", "Canary-Yellow", "Flamingo-Pink", "Cosmic-Grey", "Cloud-Blue", "Phantom-Brown",
+                        "Cobalt-Violet", "Amber-Yellow", "Jade-Green", "Sandstone-Orange", "Sapphire-Blue", "Dark-Gray",
+                        "Sierra-Blue", "Midnight-Black", "Lake-Blue", "Sunlight-Orange", "Poco-Yellow", "Cool-Blue", "Power-Black",
+                        "Desert-Titanium", "Iron-Gray", "Electric-Violet", "Sunset-Dune", "Rose-Quartz", "Wintergreen", "Elegant-Black",
+                        "Peacock-Blue", "Pearl-White"
+                    ];
+                
+                    for (const variantKey in variantImages) {
+                        let color;
+                        let colorCode = null;
+                
+                        // Attempt to match a compound color
+                        const compoundMatch = compoundColors.find((compoundColor) => variantKey.includes(compoundColor));
+                        if (compoundMatch) {
+                            color = compoundMatch; // Use matched compound color
+                        } else {
+                            // Fallback to extract color portion after the first `-`
+                            const match = variantKey.match(/^[^-]+-(.+?)(?:\s|$)/);
+                            color = match?.[1] || variantKey; // Use full key if no match
+                        }
+                
+                        // Extract color code from the variantKey
+                        const colorCodeMatch = variantKey.match(/\(#([a-fA-F0-9]{6})\)/);
+                        if (colorCodeMatch) {
+                            colorCode = `#${colorCodeMatch[1]}`;
+                        }
+                
+                        // Initialize group for this color if it doesn't exist
+                        if (!groupedImages[color]) {
+                            groupedImages[color] = {
+                                displayName: `${color} (${colorCode})`,
+                                varImg: []
+                            };
+                        }
+                
+                        // Handle single or array images
+                        const imageEntries = Array.isArray(variantImages[variantKey]) ? variantImages[variantKey] : [variantImages[variantKey]];
+                
+                        imageEntries.forEach((imageStr) => {
+                            try {
+                                const image = JSON.parse(imageStr); // Parse image JSON
+                
+                                if (!groupedImages[color].varImg.some((img) => img.path === image.path)) {
+                                    groupedImages[color].varImg.push(image);
+                                }
+                            } catch (error) {
+                                console.error(`Error parsing image JSON for key "${variantKey}":`, error);
+                            }
+                        });
+                    }
+                
+                    // Transform groupedImages into the desired array format
+                    varImgGroupArray = Object.keys(groupedImages).map((color) => ({
+                        name: groupedImages[color].displayName,
+                        varImg: groupedImages[color].varImg,
+                    }));
+                
+                    // Log the final grouped structure
+                    console.log('Grouped Images:', JSON.stringify(varImgGroupArray, null, 2));
+                 
+                }
+                
+                
+                
+                if (req.files) {
+                    req.files.forEach(file => {
+                        const fieldname = file.fieldname;
+                        if (file.fieldname === 'meta_Image') {
+                            meta_Image = file;
+                        }
+
+                        if (fieldname === 'thumbnail_image') {
+                            thumbnail_image = file;
+
+                        }
+                        if (fieldname === 'Gallery_Images') {
+                            Gallery_Images.push(file);
+
+                            // galleryImages = Gallery_Images.map(image => ({
+                            //     filename: image.filename,
+                            //     path: image.path
+                            // }));
+                            galleryImagesArray.push({
+                                filename: file.filename,
+                                path: file.path
+                            });
+
+                        }
+                    });
+                }
+
+                // console.log('galleryImagesArray', galleryImagesArray)
+                // return;
+                let parsedVariants = {}; // Initialize parsedVariants as an object
+                // console.log( 'productType',  productType_values.type);
+                // return;
+
+                // console.log(req.files);
+                if (productType_values.type === 'variant') {
+                    const { variantValues, variantImages, variantMetaImage } = req.body;
+
+                    // Initialize parsed_Variant_Images as an object
+                    let parsed_Variant_Images = {};
+                    let parsed_Variant_Meta_Images = {};
+                    const varImgGroup = {};
+
+                    if (req.files) {
+                        // Iterate over each file in req.files
+                        req.files.forEach(file => {
+                            const field = file.fieldname;
+
+                            if (field.startsWith('variantMetaImage[') && field.endsWith(']')) {
+                                const startIdx = field.indexOf('[') + 1;
+                                const endIdx = field.indexOf(']');
+                                const variantKey = field.slice(startIdx, endIdx);
+                                if (!parsed_Variant_Meta_Images[variantKey]) {
+                                    parsed_Variant_Meta_Images[variantKey] = [];
+                                }
+                                parsed_Variant_Meta_Images[variantKey].push({
+                                    filename: file.filename,
+                                    path: file.path,
+                                });
+                            }
+
+
+                            // Check if the fieldname corresponds to variantImages
+                            if (field.startsWith('variantImages[') && field.endsWith(']')) {
+                                const startIdx = field.indexOf('[') + 1;
+                                const endIdx = field.indexOf(']');
+                                const variantKey = field.slice(startIdx, endIdx);
+
+                                // Initialize array for the variant key if it doesn't exist
+                                if (!parsed_Variant_Images[variantKey]) {
+                                    parsed_Variant_Images[variantKey] = [];
+                                }
+
+                                // Push file details to the variant key array
+                                parsed_Variant_Images[variantKey].push({
+                                    filename: file.filename,
+                                    path: file.path,
+                                });
+                            }
+
+                            else if (field.startsWith('varImg[') && field.endsWith(']')) {
+                                const startIdx = field.indexOf('[') + 1;
+                                const endIdx = field.indexOf(']');
+                                const variantKey = field.slice(startIdx, endIdx);
+
+                                if (!varImgGroup[variantKey]) {
+                                    varImgGroup[variantKey] = [];
+                                }
+
+                                // Add the new uploaded image
+                                varImgGroup[variantKey].push({
+                                    filename: file.filename,
+                                    path: file.path,
+                                });
+                            }
+
+                            // After processing all files, merge with the existing images from req.body.variantImages
+                            if (req.body.variantImages) {
+                                const variantImages = req.body.variantImages;
+                                for (const key in variantImages) {
+                                    const color = key.split('-')[1]; // Extract color from key
+                                    if (!varImgGroup[color]) {
+                                        varImgGroup[color] = [];
+                                    }
+
+                                    // Check if variantImages[key] is an array or a single string
+                                    const imagesArray = Array.isArray(variantImages[key]) ? variantImages[key] : [variantImages[key]];
+
+                                    imagesArray.forEach(imageStr => {
+                                        try {
+                                            const image = JSON.parse(imageStr);
+                                            if (!varImgGroup[color].some(img => img.path === image.path)) {
+                                                varImgGroup[color].push(image);
+                                            }
+                                        } catch (e) {
+                                            console.error(`Error parsing JSON for key ${key}:`, e);
+                                        }
+                                    });
+                                }
+                            }
+
+                            varImgGroupArray = Object.keys(varImgGroup).map(variantKey => ({
+                                name: variantKey,
+                                varImg: varImgGroup[variantKey]
+                            }));
+
+                            // console.log("varImgGroupArray", varImgGroupArray);
+
+
+                            // Convert varImgGroup object into an array of documents
+
+
+                        });
+                    }
+                    console.log("varImgGroupArray:", JSON.stringify(varImgGroupArray, null, 2));
+
+                  
+                    
+
+
+                    parsedMetaImages = parsed_Variant_Meta_Images;
+
+                    parsedVariants = parsed_Variant_Images;
+
+
+                    const parsedVariantValues = typeof variantValues === 'string' ? JSON.parse(variantValues) : variantValues;
+                    const parsedVariantImages = typeof variantImages === 'string' ? JSON.parse(variantImages) : variantImages;
+                    const parsedvariantMetaImage = typeof variantMetaImage === 'string' ? JSON.parse(variantMetaImage) : variantMetaImage;
+                    // console.log("parsedVariantValues", parsedVariantValues);
+                    // return;
+                    for (const key in parsedVariantValues) {
+                        if (Object.hasOwnProperty.call(parsedVariantValues, key)) {
+                            const variantValue = parsedVariantValues[key];
+                            const parsedVariant = parsedVariants[key] || [];
+                            const variantmetaImage = parsedMetaImages[key] || [];
+
+                            let images = parsedVariant;
+                            if (parsedVariantImages && parsedVariantImages[key]) {
+                                // Check if parsedVariantImages[key] is an array or a single string
+                                const existingImages = Array.isArray(parsedVariantImages[key])
+                                    ? parsedVariantImages[key].map(imageStr => {
+                                        try {
+                                            return JSON.parse(imageStr);
+                                        } catch (e) {
+                                            console.error('Invalid JSON in variantImages:', e);
+                                            return null;
+                                        }
+                                    }).filter(image => image !== null)
+                                    : (() => {
+                                        try {
+                                            return [JSON.parse(parsedVariantImages[key])];
+                                        } catch (e) {
+                                            console.error('Invalid JSON in variantImages:', e);
+                                            return [];
+                                        }
+                                    })();
+
+                                images = images.concat(existingImages);
+                            }
+
+
+                            // Further processing of images if needed
+                            // console.log('Images:', images);
+
+                            // return;
+
+                            let variantMetaImageObject = null;
+                            if (parsedvariantMetaImage && parsedvariantMetaImage[key]) {
+                                try {
+                                    const variantMetaImage = JSON.parse(parsedvariantMetaImage[key]);
+                                    if (Array.isArray(variantMetaImage)) {
+                                        variantMetaImageObject = {
+                                            filename: variantMetaImage[0].filename,
+                                            path: variantMetaImage[0].path
+                                        };
+                                    } else if (typeof variantMetaImage === 'object') {
+                                        variantMetaImageObject = {
+                                            filename: variantMetaImage.filename,
+                                            path: variantMetaImage.path
+                                        };
+                                    }
+                                } catch (e) {
+                                    console.error('Invalid JSON in parsedvariantMetaImage:', e);
+                                }
+                            }
+                            // console.log('Variant:', key.trim(), 'variantMetaImageObject:', variantMetaImageObject);
+                            variantValuesArray.push({
+                                name: key.trim(),
+                                variantImages: images || parsedVariant,
+                                Cost: variantValue.Cost || null,
+                                Price: variantValue.Price || null,
+                                Quantity: variantValue.Quantity || null,
+                                SKU: variantValue.SKU || null,
+                                EIN: variantValue.EIN || null,
+                                salePrice: variantValue.salePrice || null,
+                                metaTitle: variantValue.metaTitle || null,
+                                metaDescription: variantValue.metaDescription || null,
+                                metaKeywords: variantValue.metaKeywords || null,
+                                metaSchemas: variantValue.metaSchemas || null,
+                                // metaImage: variantmetaImage.length > 0 ? variantmetaImage[0] : null
+                                metaImage: variantmetaImage.length > 0 ? variantmetaImage[0] : variantMetaImageObject,
+                                MPN:  variantValue.MPN || null,
+                            });
+                        }
+                    }
+
+                    const variantNamesData = JSON.parse(req.body.variantNames);
+                    variantNamesData.forEach(variantName => {
+                        const { name, options } = variantName;
+                        variantNamesArray.push({
+                            name,
+                            options
+                        });
+                    });
+                }
+                // console.log(seeAccessoriesWeDontNeed);
+                // return;
+
+
+                product.name = name;
+                product.producturl = producturl;
+                product.category = category;
+                product.tags = tags;
+                product.subCategory = subcategory;
+                product.brand = brand;
+                product.battery = battery || null;
+
+                product.condition = condition;
+                product.is_featured = is_featured;
+                product.seeAccessoriesWeDontNeed = seeAccessoriesWeDontNeed === 'true' ? true : seeAccessoriesWeDontNeed === 'false' ? false : null;
+                product.is_refundable = {
+                    status: is_refundable_Values.status,
+                    refund_duration: is_refundable_Values.refund_duration,
+                    refund_type: is_refundable_Values.refund_type
+
+                },
+                    product.is_authenticated = is_authenticated;
+                // product.low_stock_quantity_alert = low_stock_quantity_alert || null;
+                product.low_stock_quantity_alert = low_stock_quantity_alert !== null && low_stock_quantity_alert !== undefined && !isNaN(Number(low_stock_quantity_alert))
+                    ? Number(low_stock_quantity_alert)
+                    : null;
+
+                // product.Shipping_Information = {
+                //     Weight: Shipping_InformationValues.Weight,
+                //     Height: Shipping_InformationValues.Height,
+                //     Width: Shipping_InformationValues.Width,
+                //     Length: Shipping_InformationValues.Length
+                // };
+                product.thumbnail_image = {
+                    filename: thumbnail_image.filename || thumbnail_imageObject.filename,
+                    path: thumbnail_image.path || thumbnail_imageObject.path
+                };
+
+                product.Gallery_Images = galleryImagesArray.length > 0 ? galleryImagesArray : galleryImages;
+                product.has_warranty = {
+                    status: has_warrantyvalues.status,
+                    has_replacement_warranty: has_warrantyvalues.has_replacement_warranty,
+                    Warranty_duration: has_warrantyvalues.Warranty_duration,
+                    Warranty_type: has_warrantyvalues.Warranty_type
+
+                },
+                    product.productType = {
+                        type: productType_values.type
+                    };
+
+                product.variantNames = variantNamesArray;
+                product.variantValues = variantValuesArray;
+                product.variantDescription = variantDesc_values || null;
+
+                product.varImgGroup = varImgGroupArray || null,
+
+
+                    product.sim_options = sim_options || null,
+                    product.product_Specifications = specifications_values,
+
+                    product.comes_With = {
+                        powerAdapter: comes_with_values.powerAdapter,
+                        powerCable: comes_with_values.powerCable,
+                        protectionBundle: comes_with_values.protectionBundle,
+                        treePlanted: comes_with_values.treePlanted,
+                        hdmi: comes_with_values.hdmi,
+                        powerCableNewIncluded: comes_with_values.powerCableNewIncluded,
+                        onexcontroller: comes_with_values.onexcontroller,
+                        twoxcontroller: comes_with_values.twoxcontroller,
+                        freeSim: comes_with_values.freeSim,
+                        onexBackCover:comes_with_values.onexBackCover,
+                        onexScreenProtector:comes_with_values.onexScreenProtector,
+
+                    };
+
+                // product.discount = {
+                //     discount_value: discount_values.discount_value,
+                //     discount_type: discount_values.discount_type
+                // };
+
+                // product.Purchase_Quantity = {
+                //     min_quantity: Purchase_Quantity_values.min_quantity,
+                //     max_quantity: Purchase_Quantity_values.max_quantity
+                // };
+                product.Product_summary = Product_summary;
+                product.Product_description = Product_description;
+                product.Seo_Meta = Seo_MetaObject || null;
+                product.status = status;
+                product.meta_Image = {
+                    filename: meta_ImageObject.filename || meta_Image.fieldname,
+                    path: meta_ImageObject.path || meta_Image.path
+                };
+                const updatedProduct = product.updatedAt = Date.now();
+                console.log('updatedProduct', updatedProduct);
+                
+
+                const savedProduct = await product.save().catch(error => {
+                    console.error('Error saving product:', error);
+                    throw error;
+                });
+
+                return res.json({ message: 'Product updated successfully', product: savedProduct, status: 201 });
+            });
+
+        } catch (error) {
+            console.error('Error updating product:', error);
+            return res.json({ message: 'Failed to update product', status: 500 });
+        }
+    },
+
+    deleteProduct: async (req, res) => {
+        try {
+            const { id } = req.params;
+            console.log(req.params);
+            console.log(id);
+
+           
+            const deletedProduct = await Product.findByIdAndUpdate(id, { isdeleted: true },{ status: false }, { new: true });
+            if (!deletedProduct) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product deleted successfully', deletedProduct, status: 201 });
+        } catch (error) {
+            console.error('Error deleting product:', error);
+            return res.json({ message: 'Failed to delete product', status: 500 });
+        }
+    },
+
+    deleteProductPermanent: async (req, res) => {
+        try {
+            const { id } = req.params;
+            console.log(req.params);
+            console.log(id);
+
+           
+            const deletedProduct = await Product.findByIdAndDelete(id);
+            if (!deletedProduct) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product deleted successfully', deletedProduct, status: 201 });
+        } catch (error) {
+            console.error('Error deleting product:', error);
+            return res.json({ message: 'Failed to delete product', status: 500 });
+        }
+    },
+
+    restoreDeleteProduct: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const restoredProduct = await Product.findByIdAndUpdate(id, { isdeleted: false }, { new: true });
+            if (!restoredProduct) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product restored successfully', restoredProduct, status: 201 });
+        } catch (error) {
+            console.error('Error restoring deleted product:', error);
+            return res.json({ message: 'Failed to restore deleted product', status: 500 });
+        }
+    },
+    getDeletedProduct: async (req, res) => {
+        try {
+            const deletedProducts = await Product.find({ isdeleted: true });
+            if (!deletedProducts) {
+                return res.json({ message: 'No deleted products found', status: 404 });
+            }
+            return res.json({ message: 'Deleted products retrieved successfully', deletedProducts, status: 201 });
+        } catch (error) {
+            console.error('Error getting deleted products:', error);
+            return res.json({ message: 'Failed to get deleted products', status: 500 });
+        }
+    },
+
+
+    statusProduct: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { status } = req.body;
+            console.log(status);
+            
+            const updatedStatus = status === true ? true : false;
+
+            const updatedProduct = await Product.findByIdAndUpdate(id, { status: status });
+            console.log(updatedProduct)
+            if (!updatedProduct) {
+                return res.json({ error: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product status updated successfully', updatedProduct, status: 201 });
+        } catch (error) {
+            console.error('Error updating product status:', error);
+            return res.json({ error: 'Failed to update product status', status: 500 });
+        }
+    },
+
+    featureProduct: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { is_featured } = req.body;
+            console.log(is_featured)
+            const updatedProduct = await Product.findByIdAndUpdate(id, { is_featured: req.body.is_featured });
+            console.log(updatedProduct)
+            if (!updatedProduct) {
+                return res.json({ error: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product featured updated successfully', updatedProduct, status: 201 });
+        } catch (error) {
+            console.error('Error updating product featured:', error);
+            return res.json({ error: 'Failed to update product featured', status: 500 });
+        }
+    },
+
+    dublicateProductImage: async (req, res) => {
+        try {
+            const { id } = req.params;
+
+            // Step 1: Retrieve the product with the given ID
+            const originalProduct = await Product.findById(id);
+            if (!originalProduct) {
+                return res.status(404).json({ message: 'Product not found', status: 404 });
+            }
+
+            // Step 2: Create a copy of the product with a new ID and modified name
+            const productObject = originalProduct.toObject();
+
+            // Generate a unique producturl by appending timestamp
+            const timestamp = Date.now();
+            const uniqueProductUrl = `${originalProduct.producturl}-copy-${timestamp}`;
+
+            const copiedProduct = new Product({
+                ...productObject,
+                name: `${originalProduct.name} (Copy)`,
+                producturl: uniqueProductUrl,
+                _id: new mongoose.Types.ObjectId(),
+                status: false // Set the status of the duplicated product to false
+            });
+
+            // Step 3: Modify the filenames for images before saving
+            if (copiedProduct.thumbnail_image && copiedProduct.thumbnail_image.filename) {
+                copiedProduct.thumbnail_image.filename += ' (copy)';
+            }
+
+            if (copiedProduct.Gallery_Images && Array.isArray(copiedProduct.Gallery_Images)) {
+                copiedProduct.Gallery_Images.forEach(image => {
+                    if (image && image.filename) {
+                        image.filename += ' (copy)';
+                    }
+                });
+            }
+
+            // Step 4: Save the copied product
+            const savedCopiedProduct = await copiedProduct.save();
+
+            // Return the response with the duplicated product
+            return res.status(201).json({ message: 'Product duplicated successfully', copiedProduct: savedCopiedProduct, status: 201 });
+        } catch (error) {
+            console.error('Error duplicating product:', error);
+            return res.status(500).json({ message: 'Failed to duplicate product', error: error.message, status: 500 });
+        }
+    },
+    getProductByName: async (req, res) => {
+        try {
+            const { productname } = req.params;
+            console.log(req.params);
+          
+            // Normalize the input product name
+            // const normalizedProductName = productname.toLowerCase().trim(); // Trim to remove any leading/trailing spaces
+            // console.log("Normalized product Name:", normalizedProductName);
+
+            // Use Mongoose's `findOne` method with a case-insensitive regex search
+            // const product = await Product.findOne({
+            //     name: { $regex: new RegExp(normalizedProductName.replace(/[-() ]+/g, '[-() ]*'), 'i') }  // Case-insensitive regex
+            // });
+
+            const product = await Product.findById(productname); 
+
+            console.log("Products found: by name", product);
+            // return;
+
+            if (!product) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product retrieved', product, status: 201 });
+        } catch (error) {
+            console.error('Error getting product:', error);
+            return res.json({ message: 'Failed to get product', status: 500 });
+        }
+    },
+
+    getProductByproducturl: async (req, res) => {
+        try {
+            const { producturl } = req.body;
+            console.log(req.body);
+           
+           
+            const product = await Product.findOne({ producturl });
+
+            console.log("Products found  by producturl:", product);    
+            // return
+
+            if (!product) { 
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+            return res.json({ message: 'Product retrieved', product, status: 201 });
+        } catch (error) {
+            console.error('Error getting product:', error);
+            return res.json({ message: 'Failed to get product', status: 500 });
+        }
+
+    },
+
+    getProductmetadataByproducturl: async (req, res) => {
+        try {
+            const { producturl } = req.params;
+            console.log(req.params);
+            console.log(producturl);
+    
+            // Find the product by producturl
+            const product = await Product.findOne({ producturl });
+            if (!product) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+    
+            // Extract necessary fields from the product
+            const productMetaData = product.Seo_Meta || {};
+            const { name, productType, rating, meta_Image, variantValues } = product;
+    
+            // Map over variantValues to get metadata
+            const variantMetaDatas = variantValues.map(variant => ({
+                metaImage: variant.metaImage,
+                name: variant.name,
+                metaTitle: variant.metaTitle,
+                metaKeywords: variant.metaKeywords,
+                metaDescription: variant.metaDescription,
+                metaSchemas: variant.metaSchemas,
+                _id: variant._id
+            }));
+    
+            // Construct the response
+            const response = {
+                message: 'Product metadata retrieved',
+                productMetaData: {
+                    metaTitle: productMetaData.metaTitle || null,
+                    metaDescription: productMetaData.metaDescription || null,
+                    metaKeywords: productMetaData.metaKeywords || null,
+                    metaSchemas: productMetaData.metaSchemas || []
+                },
+                name,
+                productType,
+                producturl,
+                rating,
+                meta_Image,
+                variantMetaDatas,
+                status: 201
+            };
+    
+            return res.json(response);
+        } catch (error) {
+            console.error('Error getting product metadata:', error);
+            return res.json({ message: 'Failed to get product metadata', status: 500 });
+        }
+    },
+    
+    getProductsHomepage: async (req, res) => {
+        try {
+            const products = await Product.aggregate([
+                { $match: { status: true } },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: { $avg: "$reviewDetails.rating" },
+                        condition: 1,
+                        category: 1,
+                        subCategory: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                    },
+                },
+            ]);
+    
+            if (!products || products.length === 0) {
+                return res.status(404).json({ message: 'Products not found' });
+            }
+    
+            return res.status(201).json({ message: 'Products retrieved', products ,status : 201});
+        } catch (error) {
+            console.error('Error getting products:', error);
+            return res.status(500).json({ message: 'Failed to get products' });
+        }
+    },
+
+   
+    getLatestProductsHomepage: async (req, res) => {
+        try {
+            const products = await Product.aggregate([
+                { $match: { status: true } },
+                { $sort: { createdAt: -1 } }, // Sort by createdAt in descending order
+                { $limit: 10 }, // Limit the results to 10
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: { $avg: "$reviewDetails.rating" },
+                        condition: 1,
+                        category: 1,
+                        subCategory: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                    },
+                },
+            ]);
+    
+            if (!products || products.length === 0) {
+                return res.status(404).json({ message: 'Products not found' });
+            }
+    
+            return res.status(201).json({ message: 'Products retrieved', products, status: 201 });
+        } catch (error) {
+            console.error('Error getting products:', error);
+            return res.status(500).json({ message: 'Failed to get products' });
+        }
+    },
+    
+    getFeatureProductsHomepage: async (req, res) => {
+        try {
+            const products = await Product.aggregate([
+                { $match: { status: true, is_featured: true } }, // Match products where status and is_featured are true
+                { $sort: { createdAt: -1 } }, // Sort by createdAt in descending order
+                { $limit: 10 }, // Limit the results to 10 products
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: { $avg: "$reviewDetails.rating" },
+                        condition: 1,
+                        category: 1,
+                        subCategory: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                    },
+                },
+            ]);
+    
+            if (!products || products.length === 0) {
+                return res.status(404).json({ message: 'Products not found' });
+            }
+    
+            return res.status(201).json({ message: 'Products retrieved', products, status: 201 });
+        } catch (error) {
+            console.error('Error getting products:', error);
+            return res.status(500).json({ message: 'Failed to get products' });
+        }
+    },
+
+
+    getRefurbishedProductsHomepage: async (req, res) => {
+        try {
+            const products = await Product.aggregate([
+                {
+                    $match: {
+                        $or: [{ condition: "Refurbished" }, { condition: "Brand New" }],
+                        $expr: {
+                            $regexMatch: {
+                                input: { $toString: "$subCategory" },
+                                regex: "iPhone",
+                                options: "i"
+                            }
+                        }
+                    }
+                },
+                { $sort: { createdAt: -1 } },
+                { $limit: 10 },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: { $avg: "$reviewDetails.rating" },
+                        condition: 1,
+                        category: 1,
+                        subCategory: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                    }
+                }
+            ]);
+
+            if (!products || products.length === 0) {
+                return res.status(404).json({ message: 'Products not found' });
+            }
+
+            return res.status(201).json({ message: 'Products retrieved', products, status: 201 });
+
+        } catch (error) {
+            console.error('Error getting products:', error);
+            return res.status(500).json({ message: 'Failed to get products' });
+        }
+    },
+
+    getTabletsAndIpadsHomepage: async (req, res) => {
+        try {
+            const products = await Product.aggregate([
+                {
+                    $match: {
+                        status: true,
+                        isdeleted: { $ne: true },
+                        $or: [
+                            {
+                                // Apple iPads: category includes "Apple" AND subCategory includes "iPad"
+                                $and: [
+                                    { category: { $regex: /\bApple\b/i } },
+                                    {
+                                        $expr: {
+                                            $regexMatch: {
+                                                input: { $toString: "$subCategory" },
+                                                regex: "iPad",
+                                                options: "i"
+                                            }
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                // General Tablets: category includes "iPads-and-Tablets"
+                                category: { $regex: /\biPads-and-Tablets\b/i }
+                            }
+                        ]
+                    }
+                },
+                { $sort: { createdAt: -1 } },
+                { $limit: 10 },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: { $avg: "$reviewDetails.rating" },
+                        condition: 1,
+                        category: 1,
+                        subCategory: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                    }
+                }
+            ]);
+
+            if (!products || products.length === 0) {
+                return res.status(404).json({ message: 'Tablets & iPads not found' });
+            }
+
+            return res.status(201).json({
+                message: 'Tablets & iPads retrieved successfully',
+                products,
+                status: 201,
+                totalCount: products.length
+            });
+
+        } catch (error) {
+            console.error('Error getting tablets & iPads:', error);
+            return res.status(500).json({ message: 'Failed to get tablets & iPads' });
+        }
+    },
+
+    getLaptopsAndMacbooksHomepage: async (req, res) => {
+        try {
+            const products = await Product.aggregate([
+                {
+                    $match: {
+                        status: true,
+                        isdeleted: { $ne: true },
+                        is_featured: true, // Only featured products
+                        category: { $regex: /\bLaptops\b/i }
+                    }
+                },
+                { $sort: { createdAt: -1 } },
+                { $limit: 10 },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: { $avg: "$reviewDetails.rating" },
+                        condition: 1,
+                        category: 1,
+                        subCategory: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                    }
+                }
+            ]);
+
+            if (!products || products.length === 0) {
+                return res.status(404).json({ message: 'Laptops & Macbooks not found' });
+            }
+
+            return res.status(201).json({
+                message: 'Laptops & Macbooks retrieved successfully',
+                products,
+                status: 201,
+                totalCount: products.length
+            });
+
+        } catch (error) {
+            console.error('Error getting laptops & macbooks:', error);
+            return res.status(500).json({ message: 'Failed to get laptops & macbooks' });
+        }
+    },
+
+    getProductsByCategoryname: async (req, res) => {
+        try {
+            const { categoryname } = req.params;
+            console.log('Category query:', categoryname);
+
+            // Fetch products by category name using aggregation
+            const products = await Product.aggregate([
+                {
+                    $match: {
+                        category: { $regex: new RegExp(categoryname, 'i') },
+                        status: true,
+                    },
+                },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        variantValues: {
+                            $map: {
+                                input: "$variantValues",
+                                as: "variant",
+                                in: {
+                                    name: "$$variant.name",
+                                    Price: "$$variant.Price",
+                                    salePrice: "$$variant.salePrice",
+                                    Quantity: "$$variant.Quantity",
+                                    SKU: "$$variant.SKU"
+                                }
+                            }
+                        },
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: {
+                            $cond: {
+                                if: { $gt: [{ $size: "$reviewDetails" }, 0] },
+                                then: { $avg: "$reviewDetails.rating" },
+                                else: null,
+                            },
+                        },
+                        condition: 1,
+                        subCategory: 1,
+                        category: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                        totalVariants: { $size: { $ifNull: ["$variantValues", []] } },
+                        availableVariants: {
+                            $size: {
+                                $filter: {
+                                    input: { $ifNull: ["$variantValues", []] },
+                                    as: "variant",
+                                    cond: { $gt: [{ $ifNull: ["$$variant.Quantity", 0] }, 0] }
+                                }
+                            }
+                        },
+                        availabilityPercentage: {
+                            $cond: {
+                                if: { $gt: [{ $size: { $ifNull: ["$variantValues", []] } }, 0] },
+                                then: {
+                                    $multiply: [
+                                        {
+                                            $divide: [
+                                                {
+                                                    $size: {
+                                                        $filter: {
+                                                            input: { $ifNull: ["$variantValues", []] },
+                                                            as: "variant",
+                                                            cond: { $gt: [{ $ifNull: ["$$variant.Quantity", 0] }, 0] }
+                                                        }
+                                                    }
+                                                },
+                                                { $size: { $ifNull: ["$variantValues", []] } }
+                                            ]
+                                        },
+                                        100
+                                    ]
+                                },
+                                else: 0
+                            }
+                        }
+                    },
+                },
+                {
+                    $sort: { availabilityPercentage: -1, createdAt: -1 }
+                },
+            ]);
+
+            console.log('Products found by category:', products);
+
+            // If no products are found
+            if (!products || products.length === 0) {
+                return res.status(404).json({
+                    message: 'No products found for this category',
+                    status: 404,
+                });
+            }
+
+            // Return the retrieved products in the API response
+            return res.status(201).json({
+                message: 'Products retrieved successfully',
+                products,
+                status: 201,
+            });
+        } catch (error) {
+            console.error('Error getting products by category:', error);
+            return res.status(500).json({ message: 'Failed to get products', status: 500 });
+        }
+    },
+    
+
+    getProductsBySubCategoryname: async (req, res) => {
+        try {
+            const { subcategoryname } = req.params;
+            console.log('SubCategory Name:', subcategoryname);
+
+            // Use aggregation for optimized querying and processing
+            const products = await Product.aggregate([
+                {
+                    $match: {
+                        subCategory: { $regex: new RegExp(subcategoryname, 'i') },
+                        status: true,
+                    },
+                },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        variantValues: {
+                            $map: {
+                                input: "$variantValues",
+                                as: "variant",
+                                in: {
+                                    name: "$$variant.name",
+                                    Price: "$$variant.Price",
+                                    salePrice: "$$variant.salePrice",
+                                    Quantity: "$$variant.Quantity",
+                                    SKU: "$$variant.SKU"
+                                }
+                            }
+                        },
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: {
+                            $cond: {
+                                if: { $gt: [{ $size: "$reviewDetails" }, 0] },
+                                then: { $avg: "$reviewDetails.rating" },
+                                else: null,
+                            },
+                        },
+                        condition: 1,
+                        subCategory: 1,
+                        category: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                        totalVariants: { $size: { $ifNull: ["$variantValues", []] } },
+                        availableVariants: {
+                            $size: {
+                                $filter: {
+                                    input: { $ifNull: ["$variantValues", []] },
+                                    as: "variant",
+                                    cond: { $gt: [{ $ifNull: ["$$variant.Quantity", 0] }, 0] }
+                                }
+                            }
+                        },
+                        availabilityPercentage: {
+                            $cond: {
+                                if: { $gt: [{ $size: { $ifNull: ["$variantValues", []] } }, 0] },
+                                then: {
+                                    $multiply: [
+                                        {
+                                            $divide: [
+                                                {
+                                                    $size: {
+                                                        $filter: {
+                                                            input: { $ifNull: ["$variantValues", []] },
+                                                            as: "variant",
+                                                            cond: { $gt: [{ $ifNull: ["$$variant.Quantity", 0] }, 0] }
+                                                        }
+                                                    }
+                                                },
+                                                { $size: { $ifNull: ["$variantValues", []] } }
+                                            ]
+                                        },
+                                        100
+                                    ]
+                                },
+                                else: 0
+                            }
+                        }
+                    },
+                },
+                {
+                    $sort: { availabilityPercentage: -1, createdAt: -1 }
+                },
+            ]);
+
+            console.log('Products found by subcategory name:', products);
+
+            // If no products are found
+            if (!products || products.length === 0) {
+                return res.status(201).json({
+                    message: 'No products found for this category',
+                    products,
+                    status: 201,
+                });
+            }
+
+            // Return the processed products in the API response
+            return res.status(201).json({
+                message: 'Products retrieved successfully',
+                products,
+                status: 201,
+            });
+        } catch (error) {
+            console.error('Error fetching category details:', error);
+            return res.status(500).json({
+                message: 'Failed to fetch category details',
+                status: 500,
+            });
+        }
+    },
+    
+
+    getProductsBySearch: async (req, res) => {
+        try {
+            const { searchname } = req.params;
+            console.log('Search query:', searchname);
+
+            // Use aggregation for optimized querying and processing
+            const products = await Product.aggregate([
+                {
+                    $match: {
+                        status: true,
+                        $or: [
+                            { name: { $regex: new RegExp(searchname, 'i') } },
+                            { producturl: { $regex: new RegExp(searchname, 'i') } },
+                            { category: { $regex: new RegExp(searchname, 'i') } },
+                            { subCategory: { $regex: new RegExp(searchname, 'i') } }
+                        ],
+                    },
+                },
+                {
+                    $project: {
+                        name: 1,
+                        thumbnail_image: 1,
+                        is_featured: 1,
+                        _id: 1,
+                        variantValues: {
+                            $map: {
+                                input: "$variantValues",
+                                as: "variant",
+                                in: {
+                                    name: "$$variant.name",
+                                    Price: "$$variant.Price",
+                                    salePrice: "$$variant.salePrice",
+                                    Quantity: "$$variant.Quantity",
+                                    SKU: "$$variant.SKU"
+                                }
+                            }
+                        },
+                        minPrice: { $min: "$variantValues.Price" },
+                        minSalePrice: { $min: "$variantValues.salePrice" },
+                        averageRating: {
+                            $cond: {
+                                if: { $gt: [{ $size: "$reviewDetails" }, 0] },
+                                then: { $avg: "$reviewDetails.rating" },
+                                else: null,
+                            },
+                        },
+                        condition: 1,
+                        subCategory: 1,
+                        category: 1,
+                        producturl: 1,
+                        createdAt: 1,
+                        updatedAt: 1,
+                        totalVariants: { $size: { $ifNull: ["$variantValues", []] } },
+                        availableVariants: {
+                            $size: {
+                                $filter: {
+                                    input: { $ifNull: ["$variantValues", []] },
+                                    as: "variant",
+                                    cond: { $gt: [{ $ifNull: ["$$variant.Quantity", 0] }, 0] }
+                                }
+                            }
+                        },
+                        isAccessory: {
+                            $cond: {
+                                if: { $regexMatch: { input: "$category", regex: /accessories/i } },
+                                then: 1,
+                                else: 0
+                            }
+                        },
+                        availabilityPercentage: {
+                            $cond: {
+                                if: { $gt: [{ $size: { $ifNull: ["$variantValues", []] } }, 0] },
+                                then: {
+                                    $multiply: [
+                                        {
+                                            $divide: [
+                                                {
+                                                    $size: {
+                                                        $filter: {
+                                                            input: { $ifNull: ["$variantValues", []] },
+                                                            as: "variant",
+                                                            cond: { $gt: [{ $ifNull: ["$$variant.Quantity", 0] }, 0] }
+                                                        }
+                                                    }
+                                                },
+                                                { $size: { $ifNull: ["$variantValues", []] } }
+                                            ]
+                                        },
+                                        100
+                                    ]
+                                },
+                                else: 0
+                            }
+                        }
+                    },
+                },
+                {
+                    $sort: { isAccessory: 1, availabilityPercentage: -1, createdAt: -1 }
+                },
+            ]);
+
+            console.log('Products found by search:', products);
+
+            // If no products are found
+            if (!products || products.length === 0) {
+                return res.status(404).json({
+                    message: 'No products found for this search query',
+                    status: 404,
+                });
+            }
+
+            // Return the processed products in the API response
+            return res.status(201).json({
+                message: 'Products retrieved successfully',
+                products,
+                status: 201,
+            });
+        } catch (error) {
+            console.error('Error fetching products by search:', error);
+            return res.status(500).json({
+                message: 'Failed to fetch products',
+                status: 500,
+            });
+        }
+    },
+    
+    
+
+    updateStatusProduct: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { status } = req.body;
+    
+            // Update the status to true or false based on the incoming status value
+            const updatedStatus = status === true ? true : false;
+    
+            // Find the product and update its status
+            const product = await Product.findByIdAndUpdate(id, { status: updatedStatus }, { new: true });
+    
+            // If the product is not found
+            if (!product) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+    
+            // Return success message with the updated product
+            return res.json({ message: 'Product status updated successfully', product, status: 200 });
+        } catch (error) {
+            console.error('Error updating product status:', error);
+            return res.json({ error: 'Failed to update product status', status: 500 });
+        }
+    },
+
+    getAllActiveProductForSidebar: async (req, res) => {
+        try {
+            const products = await Product.find({ status: true });
+            return res.json({ message: 'Products retrieved', products, status: 201 });
+        } catch (error) {
+            console.error('Error fetching products:', error);
+            return res.json({ error: 'Failed to fetch products', status: 500 });
+        }
+    },
+    getAllActiveProductForAdminPanel: async (req, res) => {
+        try {
+            // const products = await Product.find();
+            const products = await Product.find({ status: 'true' });
+            if (!products) {
+                return res.json({ message: 'Products not found', status: 404 });
+            }
+
+            return res.json({ message: 'Products retrieved', products, status: 201 });
+        } catch (error) {
+            console.error('Error getting products:', error);
+            return res.json({ message: 'Failed to get products', status: 500 });
+        }
+
+    },
+
+    getProductsAdminpage: async (req, res) => {
+        try {
+            // Validate and parse query parameters
+            const batchSize = Math.max(parseInt(req.query.batchSize), 1) || 20; // Default batch size of 20
+            const skipCount = Math.max(parseInt(req.query.skip), 0) || 0;       // Default skip count of 0
+            const brandFilter = req.query.brand; // Get brand filter from query parameters
+        
+            // Build filter query
+            let filterQuery = { status: true };
+            
+            // Add brand filter if provided
+            if (brandFilter) {
+                filterQuery.brand = brandFilter;
+            }
+        
+            // Fetch products and count in parallel for better performance
+            const [products, totalProductsCount] = await Promise.all([
+              Product.find(filterQuery)
+                .select('-Seo_Meta -comes_With -Product_description -meta_Image -reviewDetails -rating -product_Specifications -variantDescription -is_refundable -has_warranty -battery -tags -seeAccessoriesWeDontNeed -is_authenticated -low_stock_quantity_alert -sim_options -variantNames -varImgGroup') 
+                .sort({ createdAt: -1 })   
+                .skip(skipCount)
+                .limit(batchSize),
+              Product.countDocuments(filterQuery)
+            ]);
+        
+            // Send response with status code 200
+            res.status(201).json({
+              message: `Batch of products retrieved${brandFilter ? ` for brand: ${brandFilter}` : ''}`,
+              products,
+              totalProductsCount,
+              status: 201,
+            });
+          } catch (error) {
+            console.error('Error getting products:', error.message);
+            res.status(500).json({ message: 'Failed to get products', status: 500 });
+          }
+    },
+    // getProductsAdminpage: async (req, res) => {
+    //     try {
+    //         const batchSize = parseInt(req.query.batchSize) || 20; // Default batch size
+    //         const skipCount = parseInt(req.query.skip) || 0; // Number of products to skip
+    
+    //         const products = await Product.find({ status: 'true' })
+    //             .sort({ createdAt: -1 })
+    //             .skip(skipCount)
+    //             .limit(batchSize);
+    
+    //         const totalProductsCount = await Product.countDocuments({ status: 'true' });
+    
+    //         res.status(200).json({
+    //             message: 'Batch of products retrieved',
+    //             products,
+    //             totalProductsCount,
+    //             status: 201,
+    //         });
+    //     } catch (error) {
+    //         console.error('Error getting products:', error);
+    //         res.status(500).json({ message: 'Failed to get products', status: 500 });
+    //     }
+    // },      
+
+    getProductsHomepageCustomized: async (req, res) => {
+        try {
+            const batchSize = parseInt(req.query.batchSize) || 20; // Default batch size
+            const skipCount = parseInt(req.query.skip) || 0; // Number of products to skip
+    
+            const products = await Product.find({ status: 'true' })
+                .sort({ createdAt: -1 })
+                .skip(skipCount)
+                .limit(batchSize);
+    
+            const totalProductsCount = await Product.countDocuments({ status: 'true' });
+    
+            res.status(200).json({
+                message: 'Batch of products retrieved',
+                products,
+                totalProductsCount,
+                status: 201,
+            });
+        } catch (error) {
+            console.error('Error getting products:', error);
+            res.status(500).json({ message: 'Failed to get products', status: 500 });
+        }
+    },
+    getProductsAdminpageforcsv: async (req, res) => {
+        try {
+            // Define the fields to return
+            const selectedFields = {
+                Gallery_Images: 1,
+                Product_summary: 1,
+                is_featured: 1,
+                brand: 1,
+                category: 1,
+                condition: 1,
+                createdAt: 1,
+                name: 1,
+                productType: 1,
+                producturl: 1,
+                status: 1,
+                subCategory: 1,
+                thumbnail_image: 1,
+                updatedAt: 1,
+                variantValues: 1,
+                _id: 1
+            };
+    
+            // Fetch all products where status is 'true' and select required fields
+            const products = await Product.find({ status: 'true' }).select(selectedFields).sort({ createdAt: -1 });
+    
+            const totalProductsCount = products.length; // Count all retrieved products
+    
+            res.status(200).json({
+                message: 'All products retrieved',
+                products,
+                totalProductsCount,
+                status: 201,
+            });
+        } catch (error) {
+            console.error('Error getting products:', error);
+            res.status(500).json({ message: 'Failed to get products', status: 500 });
+        }
+    },
+    
+    getAllActiveProductForBlog: async (req, res) => {
+            try {
+                const products = await Product.aggregate([
+                    { $match: { status: true } },
+                    {
+                        $project: {
+                            name: 1,
+                            thumbnail_image: 1,
+                            is_featured: 1,
+                            _id: 1,
+                            minPrice: { $min: "$variantValues.Price" },
+                            minSalePrice: { $min: "$variantValues.salePrice" },
+                            averageRating: { $avg: "$reviewDetails.rating" },
+                            condition: 1,
+                            category: 1,
+                            subCategory: 1,
+                            producturl: 1,
+                            createdAt: 1,
+                            updatedAt: 1,
+                        },
+                    },
+                ]);
+
+                if (!products || products.length === 0) {
+                    return res.status(404).json({ message: 'Products not found' });
+                }
+
+                return res.status(201).json({ message: 'Products retrieved', products ,status : 201});
+            } catch (error) {
+                console.error('Error getting products:', error);
+                return res.status(500).json({ message: 'Failed to get products' });
+            }
+        },
+
+    // Optimized endpoint for navbar search suggestions
+    getNavbarSuggestions: async (req, res) => {
+        try {
+            const { q } = req.query; 
+
+            // Validate search query
+            if (!q || q.trim().length < 2) {
+                return res.status(200).json({
+                    message: 'Search query too short',
+                    suggestions: [],
+                    status: 200
+                });
+            }
+
+            const searchTerm = q.trim().toLowerCase();
+            const limit = parseInt(req.query.limit) || 5; // Default to 5 suggestions
+
+            // Build search query with case-insensitive regex
+            const searchQuery = {
+                status: true, // Only active products
+                category: { $not: /accessories/i }, // Exclude products with "Accessories" in category
+                $or: [
+                    { name: { $regex: searchTerm, $options: 'i' } },
+                    { producturl: { $regex: searchTerm, $options: 'i' } },
+                    { condition: { $regex: searchTerm, $options: 'i' } },
+                    { brand: { $regex: searchTerm, $options: 'i' } },
+                    { subCategory: { $regex: searchTerm, $options: 'i' } }
+                ]
+            };
+
+            // Fetch minimal fields for suggestions
+            const suggestions = await Product.find(searchQuery)
+                .select('name producturl condition category brand subCategory _id')
+                .limit(limit)
+                .lean(); // Use lean() for better performance
+
+            return res.status(200).json({
+                message: 'Suggestions retrieved',
+                suggestions,
+                count: suggestions.length,
+                status: 200
+            });
+
+        } catch (error) {
+            console.error('Error getting navbar suggestions:', error);
+            return res.status(500).json({
+                message: 'Failed to get suggestions',
+                suggestions: [],
+                status: 500
+            });
+        }
+    },
+
+};
+
+module.exports = adminProductController
