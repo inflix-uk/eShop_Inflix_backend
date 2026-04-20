@@ -3,6 +3,7 @@ require('dotenv').config();
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.ADMINPANEL_URL,
+  'https://aroma-adminpanle.vercel.app',
 ].filter(Boolean);
 
 const corsConfig = {
