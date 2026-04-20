@@ -20,7 +20,7 @@ const corsConfig = {
         console.warn(`⚠️ CORS: Origin ${origin} not in whitelist (dev mode - allowing)`);
         callback(null, true);
       }
-    }
+    }  
   },
 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
