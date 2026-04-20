@@ -4,6 +4,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.ADMINPANEL_URL,
   'https://aroma-adminpanle.vercel.app',
+  'https://aroma-website-mu.vercel.app',
 ].filter(Boolean);
 
 const corsConfig = {
