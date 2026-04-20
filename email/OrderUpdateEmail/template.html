@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: #1a237e;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+        }
+        .content {
+            background: #ffffff;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 0 0 8px 8px;
+        }
+        .order-info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .status {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: white;
+        }
+        .customer-details {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #1a237e;
+            background: #f8f9fa;
+        }
+        .items-list {
+            list-style: none;
+            padding: 0;
+        }
+        .item {
+            border: 1px solid #e0e0e0;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .total {
+            font-size: 1.2em;
+            font-weight: bold;
+            text-align: right;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #e0e0e0;
+        }
+        .note {
+            background: #fff3e0;
+            padding: 15px;
+            border-left: 4px solid #ff9800;
+            margin: 15px 0;
+        }
+        .shipping {
+            background: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #2196f3;
+            margin: 15px 0;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Order Status Update</h1>
+    </div>
+    <div class="content">
+        <div class="order-info">
+            <h2>Order #{{orderNumber}}</h2>
+            <p>Status: <span class="status" style="background-color: {{statusColor}}">{{status}}</span></p>
+            {{#if shippingOption}}
+            <div class="shipping">
+                <strong>Shipping Option:</strong>
+                <p>{{shippingOption}}</p>
+            </div>
+            {{/if}}
+            {{#if note}}
+            <div class="note">
+                <strong>Note:</strong>
+                <p>{{note}}</p>
+            </div>
+            {{/if}}
+        </div>
+
+        <div class="customer-details">
+            <h3>Customer Details</h3>
+            <p><strong>Name:</strong> {{user.firstname}} {{user.lastname}}</p>
+            <p><strong>Email:</strong> {{user.email}}</p>
+            <p><strong>Phone:</strong> {{user.phoneNumber}}</p>
+            {{#if user.address}}
+            <p><strong>Address:</strong><br>
+                {{user.address.address}}<br>
+                {{#if user.address.apartment}}{{user.address.apartment}}<br>{{/if}}
+                {{user.address.city}}, {{user.address.county}}<br>
+                {{user.address.postalCode}}<br>
+                {{user.address.country}}
+            </p>
+            {{/if}}
+        </div>
+
+        <h3>Order Summary</h3>
+        <ul class="items-list">
+            {{#each order.items}}
+            <li class="item">
+                <h4>{{deviceName}} {{brandName}}</h4>
+                <p><strong>Storage:</strong> {{selectedStorageLabel}}</p>
+                <p><strong>Condition:</strong> {{selectedCondition}}</p>
+                <p><strong>Quantity:</strong> {{quantity}}</p>
+                <p><strong>Price:</strong> £{{totalPrice}}</p>
+                {{#if imeiNumbers.[0]}}
+                <p><strong>IMEI:</strong> {{imeiNumbers.[0]}}</p>
+                {{/if}}
+            </li>
+            {{/each}}
+        </ul>
+
+        <div class="total">
+            <p>Total Order Value: £{{order.totalOrderValue}}</p>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>Thank you for choosing Zextons!</p>
+        <p>If you have any questions, please contact our support team.</p>
+    </div>
+</body>
+</html>
