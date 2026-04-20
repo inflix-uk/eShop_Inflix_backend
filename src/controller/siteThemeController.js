@@ -1,4 +1,8 @@
 const SiteTheme = require('../models/siteTheme');
+const {
+  sanitizeTypography,
+  mergeStoredTypography,
+} = require('../utils/typographyConstants');
 
 const HEX6 = /^#[0-9A-Fa-f]{6}$/;
 
@@ -15,6 +19,14 @@ function normalizeHex(input) {
   return null;
 }
 
+function typographyPayload(themeDoc) {
+  const raw =
+    themeDoc.typography && typeof themeDoc.typography.toObject === 'function'
+      ? themeDoc.typography.toObject()
+      : themeDoc.typography;
+  return mergeStoredTypography(raw);
+}
+
 const siteThemeController = {
   async getThemeAdmin(req, res) {
     try {
@@ -24,6 +36,7 @@ const siteThemeController = {
         data: {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
+          typography: typographyPayload(theme),
           updatedAt: theme.updatedAt,
         },
       });
@@ -44,6 +57,7 @@ const siteThemeController = {
         data: {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
+          typography: typographyPayload(theme),
         },
       });
     } catch (error) {
@@ -53,7 +67,52 @@ const siteThemeController = {
         data: {
           primaryColor: '#16a34a',
           secondaryColor: '#15803d',
+          typography: mergeStoredTypography(null),
         },
+      });
+    }
+  },
+
+  /** Public: typography only (alias for storefronts that read `/api/theme`). */
+  async getTypographyPublic(req, res) {
+    try {
+      const theme = await SiteTheme.getTheme();
+      return res.status(200).json({
+        success: true,
+        data: {
+          typography: typographyPayload(theme),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching typography theme:', error);
+      return res.status(200).json({
+        success: true,
+        data: { typography: mergeStoredTypography(null) },
+      });
+    }
+  },
+
+  /** Admin: update typography only (validated). */
+  async updateTypography(req, res) {
+    try {
+      const nextTypography = sanitizeTypography(req.body);
+      let theme = await SiteTheme.findOne();
+      if (!theme) {
+        theme = new SiteTheme({});
+      }
+      theme.typography = nextTypography;
+      await theme.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Typography saved',
+        data: { typography: typographyPayload(theme), updatedAt: theme.updatedAt },
+      });
+    } catch (error) {
+      console.error('Error saving typography:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save typography',
       });
     }
   },
@@ -76,6 +135,9 @@ const siteThemeController = {
         theme.primaryColor = primary;
         theme.secondaryColor = secondary;
       }
+      if (!theme.typography || Object.keys(theme.typography || {}).length === 0) {
+        theme.typography = mergeStoredTypography(null);
+      }
       await theme.save();
 
       return res.status(200).json({
@@ -84,6 +146,7 @@ const siteThemeController = {
         data: {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
+          typography: typographyPayload(theme),
           updatedAt: theme.updatedAt,
         },
       });

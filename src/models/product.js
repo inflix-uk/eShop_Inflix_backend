@@ -285,6 +285,11 @@ const productSchema = new Schema({
         type: String,
         default: null
     },
+    /** Homepage-style row/column block JSON (same shape as admin BlockEditor). */
+    Product_description_blocks: {
+        type: mongoose.Schema.Types.Mixed,
+        default: null
+    },
 
     Seo_Meta: {
         metaTitle: {

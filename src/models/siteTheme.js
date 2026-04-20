@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const { typographySchema } = require('./typographyLevelSchema');
 
 const siteThemeSchema = new Schema(
   {
@@ -12,6 +13,10 @@ const siteThemeSchema = new Schema(
       type: String,
       default: '#15803d',
       trim: true,
+    },
+    typography: {
+      type: typographySchema,
+      default: undefined,
     },
   },
   {

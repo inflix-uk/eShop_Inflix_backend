@@ -707,5 +707,7 @@ module.exports = {
   saveHomepageData,
   uploadHomepageImage,
   handleHomepageImageUpload,
-  handleHomepageDataSave
+  handleHomepageDataSave,
+  /** Reused when saving product description blocks (multipart image placeholders). */
+  replaceFileReferenceInBlocks,
 };
