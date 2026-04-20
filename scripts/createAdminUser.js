@@ -1,12 +1,12 @@
 // scripts/createAdminUser.js
 // Script to create an admin user in the database
 
+require('dotenv').config();
 const mongoose = require('../connections/mongo');
-const User = require('../models/user');
-const RoleAndPermissons = require('../models/roleAndPermissons');
+const User = require('../src/models/user');
+const RoleAndPermissons = require('../src/models/roleAndPermissons');
 const bcrypt = require('bcrypt');
 const readline = require('readline');
-require('dotenv').config();
 
 // Admin user configuration
 const ADMIN_CONFIG = {
