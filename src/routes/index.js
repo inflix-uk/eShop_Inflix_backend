@@ -68,6 +68,7 @@ router.get('/config',                           paymentsController.config);
 router.post('/create-payment-intent',           paymentsController.createPaymentIntent);
 router.post('/update-payment-intent-metadata',  paymentsController.updatePaymentIntentMetadata);
 router.post('/update-payment-intent-amount',    paymentsController.updatePaymentIntentAmount);
+router.post('/checkout-log',                    paymentsController.logCheckoutEvent);
 router.post('/retrieve-payment-details',        paymentsController.retrievePaymentDetails);
 router.post('/retrieve-payment-details-session',paymentsController.retrievePaymentDetailsSession);
 router.post("/create-checkout-session",         paymentsController.createCheckoutSession);
