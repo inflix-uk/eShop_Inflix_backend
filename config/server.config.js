@@ -9,7 +9,7 @@ const serverConfig = {
   logLevel: process.env.NODE_ENV === 'production' ? 'combined' : 'dev',
   
   // Request limits
-  payloadLimit: process.env.PAYLOAD_LIMIT || '100mb',
+  payloadLimit: process.env.PAYLOAD_LIMIT || '100mb',     
   
   // Timeouts (in milliseconds)
   requestTimeout: parseInt(process.env.REQUEST_TIMEOUT) || 600000, // 10 minutes
