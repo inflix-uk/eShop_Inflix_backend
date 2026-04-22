@@ -1,6 +1,7 @@
 var createError = require('http-errors');
 var express = require('express');
 var path = require('path');
+const uploadsRoot = path.join(__dirname, 'uploads');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 const cors = require('cors');
@@ -8,7 +9,18 @@ var router = require('./routes/index');
 require('dotenv').config();
 
 var app = express();
-app.use('/uploads', express.static('uploads')); // Serve static files from uploads folder
+// Favicons: versioned filenames + strict no-cache (browsers cache /favicon aggressively)
+app.use(
+  '/uploads/favicon',
+  express.static(path.join(uploadsRoot, 'favicon'), {
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    },
+  })
+);
+app.use('/uploads', express.static(uploadsRoot));
 
 const port = process.env.PORT || 4000; // Set the port from environment or default to 4000
 

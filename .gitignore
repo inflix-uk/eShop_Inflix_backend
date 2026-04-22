@@ -14,13 +14,15 @@ node_modules
 dist
 dist-ssr
 
-# Environment variables
+# ------------------------------------------------------------------------------
+# Environment variables & secrets (do not commit)
+# ------------------------------------------------------------------------------
 .env
-.env.local
-.env.development
-.env.production
-.env.test
-.env*.local
+.env.*
+!.env.example
+!.env.sample
+.envrc
+.direnv
 
 # Local files
 *.local

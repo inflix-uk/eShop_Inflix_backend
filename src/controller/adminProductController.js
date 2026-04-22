@@ -4,7 +4,6 @@ const Product = require("../models/product");
 const productCategory = require("../models/productCategories");
 
 const bcrypt = require("bcrypt");
-const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { features } = require("process");
 const fs = require('fs');

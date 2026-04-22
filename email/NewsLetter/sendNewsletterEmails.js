@@ -1,4 +1,4 @@
-const { getNewsletterTransporter, getNewsletterFromAddress } = require("./transporter");
+const { sendMail } = require("../../src/utils/mailer");
 const {
   getWelcomeResolved,
   getHotUkDealsResolved,
@@ -271,9 +271,7 @@ function buildHotUkDealsHtml(f) {
 async function sendNewsletterSubscriberWelcome(opts) {
   const { to, fullName } = opts;
   const resolved = await getWelcomeResolved();
-  const transporter = getNewsletterTransporter();
-  const info = await transporter.sendMail({
-    from: getNewsletterFromAddress(),
+  const info = await sendMail({
     to,
     subject: resolved.subject,
     html: buildWelcomeHtml(fullName, resolved.fields),
@@ -288,9 +286,7 @@ async function sendNewsletterSubscriberWelcome(opts) {
 async function sendHotUkDealsWelcome(opts) {
   const { to } = opts;
   const resolved = await getHotUkDealsResolved();
-  const transporter = getNewsletterTransporter();
-  const info = await transporter.sendMail({
-    from: getNewsletterFromAddress(),
+  const info = await sendMail({
     to,
     subject: resolved.subject,
     html: buildHotUkDealsHtml(resolved.fields),

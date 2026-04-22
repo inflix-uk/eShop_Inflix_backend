@@ -84,33 +84,33 @@
 </head>
 <body>
     <div class="header">
-        <h1>Order Status Update</h1>
+        <h1>{{ST_headerTitle}}</h1>
     </div>
     <div class="content">
         <div class="order-info">
-            <h2>Order #{{orderNumber}}</h2>
-            <p>Status: <span class="status" style="background-color: {{statusColor}}">{{status}}</span></p>
+            <h2>{{ST_labelOrderPrefix}}{{orderNumber}}</h2>
+            <p>{{ST_labelStatus}} <span class="status" style="background-color: {{statusColor}}">{{status}}</span></p>
             {{#if shippingOption}}
             <div class="shipping">
-                <strong>Shipping Option:</strong>
+                <strong>{{ST_labelShippingOption}}</strong>
                 <p>{{shippingOption}}</p>
             </div>
             {{/if}}
             {{#if note}}
             <div class="note">
-                <strong>Note:</strong>
+                <strong>{{ST_labelNote}}</strong>
                 <p>{{note}}</p>
             </div>
             {{/if}}
         </div>
 
         <div class="customer-details">
-            <h3>Customer Details</h3>
-            <p><strong>Name:</strong> {{user.firstname}} {{user.lastname}}</p>
-            <p><strong>Email:</strong> {{user.email}}</p>
-            <p><strong>Phone:</strong> {{user.phoneNumber}}</p>
+            <h3>{{ST_sectionCustomerDetails}}</h3>
+            <p><strong>{{ST_labelName}}</strong> {{user.firstname}} {{user.lastname}}</p>
+            <p><strong>{{ST_labelEmail}}</strong> {{user.email}}</p>
+            <p><strong>{{ST_labelPhone}}</strong> {{user.phoneNumber}}</p>
             {{#if user.address}}
-            <p><strong>Address:</strong><br>
+            <p><strong>{{ST_labelAddress}}</strong><br>
                 {{user.address.address}}<br>
                 {{#if user.address.apartment}}{{user.address.apartment}}<br>{{/if}}
                 {{user.address.city}}, {{user.address.county}}<br>
@@ -120,30 +120,30 @@
             {{/if}}
         </div>
 
-        <h3>Order Summary</h3>
+        <h3>{{ST_sectionOrderSummary}}</h3>
         <ul class="items-list">
             {{#each order.items}}
             <li class="item">
                 <h4>{{deviceName}} {{brandName}}</h4>
-                <p><strong>Storage:</strong> {{selectedStorageLabel}}</p>
-                <p><strong>Condition:</strong> {{selectedCondition}}</p>
-                <p><strong>Quantity:</strong> {{quantity}}</p>
-                <p><strong>Price:</strong> £{{totalPrice}}</p>
+                <p><strong>{{ST_labelStorage}}</strong> {{selectedStorageLabel}}</p>
+                <p><strong>{{ST_labelCondition}}</strong> {{selectedCondition}}</p>
+                <p><strong>{{ST_labelQuantity}}</strong> {{quantity}}</p>
+                <p><strong>{{ST_labelPrice}}</strong> £{{totalPrice}}</p>
                 {{#if imeiNumbers.[0]}}
-                <p><strong>IMEI:</strong> {{imeiNumbers.[0]}}</p>
+                <p><strong>{{ST_labelImei}}</strong> {{imeiNumbers.[0]}}</p>
                 {{/if}}
             </li>
             {{/each}}
         </ul>
 
         <div class="total">
-            <p>Total Order Value: £{{order.totalOrderValue}}</p>
+            <p>{{ST_labelTotalOrderValue}} £{{order.totalOrderValue}}</p>
         </div>
     </div>
     
     <div class="footer">
-        <p>Thank you for choosing Zextons!</p>
-        <p>If you have any questions, please contact our support team.</p>
+        <p>{{ST_footerLine1}}</p>
+        <p>{{ST_footerLine2}}</p>
     </div>
 </body>
 </html>

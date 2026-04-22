@@ -6,7 +6,6 @@ const ReturnOrder = require("../models/returnOrder");
 const RequestOrder = require("../models/requestOrder");
 const ConversationTag = require("../models/conversationTag");
 const bcrypt = require("bcrypt");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const path = require('path');
 const fs = require('fs');

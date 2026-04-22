@@ -4,19 +4,6 @@ const bcrypt = require("bcrypt");
 const User = require("../models/user");
 const Order = require("../models/order");
 const StripeSettings = require("../models/stripeSettings");
-const CheckoutLog = require("../models/checkoutLog");
-
-// Fire-and-forget logger — never throws, never blocks the caller
-const writeLog = (entry) => {
-  try {
-    CheckoutLog.create(entry).catch((e) => {
-      console.error('[CheckoutLog] write failed:', e.message);
-    });
-  } catch (e) {
-    console.error('[CheckoutLog] write threw:', e.message);
-  }
-};
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const dotenv = require("dotenv");
 const router = require("../routes");
@@ -72,28 +59,6 @@ const calculateOrderAmount = (items) => {
 
 const paymentsController = {
 
-    // Accept a log entry from the frontend and persist it. Always 200 so
-    // the client never retries or blocks the checkout flow on logging errors.
-    logCheckoutEvent: async (req, res) => {
-        try {
-            const { event, paymentIntentId, orderNumber, paymentMethodType, data } = req.body || {};
-            if (!event) {
-                return res.status(200).json({ ok: false, reason: 'missing event' });
-            }
-            writeLog({
-                event: String(event).substring(0, 120),
-                source: 'frontend',
-                paymentIntentId: paymentIntentId || undefined,
-                orderNumber: orderNumber || undefined,
-                paymentMethodType: paymentMethodType || undefined,
-                data: data || undefined,
-            });
-            res.status(200).json({ ok: true });
-        } catch (error) {
-            console.error('logCheckoutEvent error:', error.message);
-            res.status(200).json({ ok: false });
-        }
-    },
 
     config: async (req, res, next) => {
         try {
@@ -366,21 +331,7 @@ const paymentsController = {
         try {
             const { paymentIntentId, orderNumber, email, phoneNumber, customerName, shippingAddress, shippingMethod } = req.body;
 
-            writeLog({
-                event: 'backend.updatePaymentIntentMetadata.start',
-                source: 'backend',
-                paymentIntentId,
-                orderNumber,
-                data: { email, customerName },
-            });
-
             if (!paymentIntentId || !orderNumber) {
-                writeLog({
-                    event: 'backend.updatePaymentIntentMetadata.missing_params',
-                    source: 'backend',
-                    paymentIntentId,
-                    orderNumber,
-                });
                 return res.status(400).json({ error: 'paymentIntentId and orderNumber are required' });
             }
 
@@ -449,14 +400,6 @@ const paymentsController = {
 
             console.log('✅ PaymentIntent metadata updated successfully');
 
-            writeLog({
-                event: 'backend.updatePaymentIntentMetadata.success',
-                source: 'backend',
-                paymentIntentId: paymentIntent.id,
-                orderNumber,
-                data: { metadataOrderNumber: paymentIntent.metadata?.orderNumber },
-            });
-
             res.json({
                 success: true,
                 paymentIntentId: paymentIntent.id,
@@ -464,13 +407,6 @@ const paymentsController = {
             });
         } catch (error) {
             console.error('Error updating PaymentIntent metadata:', error);
-            writeLog({
-                event: 'backend.updatePaymentIntentMetadata.error',
-                source: 'backend',
-                paymentIntentId: req.body?.paymentIntentId,
-                orderNumber: req.body?.orderNumber,
-                data: { message: error.message },
-            });
             res.status(500).json({ error: error.message });
         }
     },
@@ -1178,21 +1114,6 @@ const paymentsController = {
                     // Find and update the order by paymentIntentId stored in metadata or by matching
                     const orderNumber = paymentIntent.metadata?.orderNumber;
 
-                    writeLog({
-                        event: 'backend.webhook.payment_intent.succeeded',
-                        source: 'backend',
-                        paymentIntentId: paymentIntent.id,
-                        orderNumber: orderNumber || undefined,
-                        paymentMethodType: paymentType,
-                        data: {
-                            metadataOrderNumberRaw: paymentIntent.metadata?.orderNumber,
-                            metadataKeys: Object.keys(paymentIntent.metadata || {}),
-                            amount: paymentIntent.amount / 100,
-                            currency: paymentIntent.currency,
-                            isExpressCheckout: paymentIntent.metadata?.isExpressCheckout,
-                        },
-                    });
-
                     if (orderNumber) {
                         const updatedOrder = await Order.findOneAndUpdate(
                             { orderNumber: orderNumber },
@@ -1214,35 +1135,14 @@ const paymentsController = {
 
                         if (updatedOrder) {
                             console.log('✅ Order updated successfully:', orderNumber);
-                            writeLog({
-                                event: 'backend.webhook.order_updated_to_pending',
-                                source: 'backend',
-                                paymentIntentId: paymentIntent.id,
-                                orderNumber,
-                                paymentMethodType: paymentType,
-                            });
 
                             // TODO: Send confirmation email here if needed
                             // You can add email sending logic here
                         } else {
                             console.log('⚠️ No order found with orderNumber:', orderNumber);
-                            writeLog({
-                                event: 'backend.webhook.order_not_found',
-                                source: 'backend',
-                                paymentIntentId: paymentIntent.id,
-                                orderNumber,
-                                paymentMethodType: paymentType,
-                            });
                         }
                     } else {
                         console.log('⚠️ No orderNumber in paymentIntent metadata');
-                        writeLog({
-                            event: 'backend.webhook.no_ordernumber_in_metadata',
-                            source: 'backend',
-                            paymentIntentId: paymentIntent.id,
-                            paymentMethodType: paymentType,
-                            data: { metadataKeys: Object.keys(paymentIntent.metadata || {}) },
-                        });
                     }
                 } catch (error) {
                     console.error('❌ Error processing payment_intent.succeeded:', error);

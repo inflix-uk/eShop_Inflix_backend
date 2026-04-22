@@ -1,16 +1,11 @@
-const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
-
-const transporter = nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com', 
-    port: 465, 
-    secure: true, // Use SSL
-    auth: {
-        user: '7da4db001@smtp-brevo.com', // Your SMTP login
-        pass: 'UbpWm568BQ4M1tfI', // Your SMTP password
-    },
-});
+const { sendMail } = require('../../src/utils/mailer');
+const {
+    getOrderStatusAdminResolved,
+    applyOrderStatusCopyToHtml,
+    interpolateSubjectPattern,
+} = require('../../src/services/email/orderEmailCopyService');
 
 const getStatusColor = (status) => {
     const statusMap = {
@@ -107,21 +102,25 @@ const replaceTemplateVariables = (template, data) => {
 
 const sendOrderUpdateEmail = async (orderData) => {
     try {
-        // Read the email template
+        const statusCopy = await getOrderStatusAdminResolved();
         const templatePath = path.join(__dirname, 'template.html');
-        const templateContent = await fs.readFile(templatePath, 'utf-8');
-        
-        // Replace variables in the template
+        let templateContent = await fs.readFile(templatePath, 'utf-8');
+        templateContent = applyOrderStatusCopyToHtml(templateContent, statusCopy.fields);
+
         const htmlContent = replaceTemplateVariables(templateContent, orderData);
 
+        const subject = interpolateSubjectPattern(statusCopy.fields.emailSubjectPattern, {
+            orderNumber: orderData.orderNumber,
+            status: orderData.status,
+        });
+
         const mailOptions = {
-            from: 'Zextons <order@zextons.co.uk>',
             to: 'order@zextons.co.uk',
-            subject: `Order ${orderData.orderNumber} Status Update - ${orderData.status}`,
+            subject,
             html: htmlContent
         };
 
-        await transporter.sendMail(mailOptions);
+        await sendMail(mailOptions);
         console.log('Order update email sent successfully');
     } catch (error) {
         console.error('Error sending order update email:', error);

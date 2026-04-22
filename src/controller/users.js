@@ -2,8 +2,8 @@
 const db = require("../../connections/mongo");
 const User = require("../models/user");
 const bcrypt = require("bcrypt");
-const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const { sendMail } = require('../utils/mailer');
 
 
 const usersController = {
@@ -58,17 +58,7 @@ const usersController = {
             
              // Function to send welcome email
             const sendWelcomeEmail = async () => {
-                return new Promise((resolve, reject) => {
-                    const transporter = nodemailer.createTransport({
-                        service: 'gmail',
-                        auth: {
-                            user: 'zextonshamzahashmi@gmail.com',
-                            pass: 'yzwj cscq ybrb moau',
-                        },
-                    });
-
-                    // HTML template for welcome email
-                    const emailContent = `
+                const emailContent = `
                         <!DOCTYPE html>
                         <html lang="en">
                         <head>
@@ -89,22 +79,10 @@ const usersController = {
                         </html>
                     `;
 
-                    const mailOptions = {
-                        from: 'zextonshamzahashmi@gmail.com',
-                        to: newUser.email,
-                        subject: 'Welcome to Zextons!',
-                        html: emailContent
-                    };
-
-                    transporter.sendMail(mailOptions, (error, info) => {
-                        if (error) {
-                            console.error("Error sending welcome email:", error);
-                            reject(error);
-                        } else {
-                            console.log('Welcome email sent: ' + info.response);
-                            resolve(info);
-                        }
-                    });
+                return sendMail({
+                    to: newUser.email,
+                    subject: 'Welcome to Zextons!',
+                    html: emailContent
                 });
             };
 
@@ -180,15 +158,6 @@ const usersController = {
             await newUser.save();
 
             
-             // Send reset password email
-             const transporter = nodemailer.createTransport({
-                service: 'gmail',
-                auth: {
-                    user: 'zextonshamzahashmi@gmail.com',
-                    pass: 'yzwj cscq ybrb moau',
-                },
-            });
-
             // HTML template for welcome email
             const emailContent = `
                 <!DOCTYPE html>
@@ -214,24 +183,11 @@ const usersController = {
                 </html>
             `;
 
-              // Include the HTML content in the mailOptions
-              const mailOptions = {
-                from: 'zextonshamzahashmi@gmail.com',
+              sendMail({
                 to: newUser.email,
                 subject: 'Welcome to Zextons!',
-                html: emailContent // Use the HTML content instead of plain text
-            };
-
-
-            transporter.sendMail(mailOptions, (error, info) => {
-                if (error) {
-                    console.log("Error sending welcome email:", error);
-                    return res.json({ message: 'Error sending welcome email', status: 500 });
-                }
-                console.log('Welcome email sent: ' + info.response);
-            });
-
-
+                html: emailContent
+            }).catch((err) => console.log("Error sending welcome email:", err));
 
             // Respond with success message
             res.json({ message: "User registered successfully", status: 201, user: newUser });
@@ -399,28 +355,6 @@ const usersController = {
 
             await user.save();
 
-            // Send reset password email
-            // const transporter = nodemailer.createTransport({
-            //     service: 'gmail',
-            //     auth: {
-            //         user: 'zextonshamzahashmi@gmail.com',
-            //         pass: 'yzwj cscq ybrb moau',
-            //     },
-            // });
-
-                            // Setup nodemailer transporter
-            const transporter = nodemailer.createTransport({
-                host: 'smtp-relay.brevo.com', 
-                port: 465, 
-                secure: true, // Use SSL
-                auth: {
-                    user: '7da4db001@smtp-brevo.com', // Your SMTP login
-                    pass: 'UbpWm568BQ4M1tfI', // Your SMTP password
-                },
-            });
-            
-                            
-
             // Create the HTML content for the email template
             const emailContent = `
             <!DOCTYPE html>
@@ -450,23 +384,18 @@ const usersController = {
             
             `;
 
-            // Include the HTML content in the mailOptions
-            const mailOptions = {
-                from: 'order@zextons.co.uk',
-                to: user.email,
-                subject: 'Reset Password', 
-                html: emailContent // Use the HTML content instead of plain text
-            };
-
-
-            transporter.sendMail(mailOptions, (error, info) => {
-                if (error) {
-                    console.log(error);
-                    return res.json({ message: 'Error sending reset password email', status: 500 });
-                }
-                console.log('Reset password email sent: ' + info.response);
-                res.json({ message: 'Reset password email sent', status: 201 });
-            });
+            try {
+                await sendMail({
+                    to: user.email,
+                    subject: 'Reset Password',
+                    html: emailContent
+                });
+                console.log('Reset password email sent');
+                return res.json({ message: 'Reset password email sent', status: 201 });
+            } catch (emailErr) {
+                console.log(emailErr);
+                return res.json({ message: 'Error sending reset password email', status: 500 });
+            }
         } catch (error) {
             console.error("Error in forgotPassword:", error);
             res.json({ message: 'Internal server error', status: 500 });
