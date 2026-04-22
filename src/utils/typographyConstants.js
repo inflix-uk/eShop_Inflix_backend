@@ -1,8 +1,15 @@
 /**
  * Shared typography rules for SiteTheme (Mongo) and API validation.
- * Google families + Georgia (system stack). Keep in sync with Next `app/lib/fonts.ts`.
+ * Google families (incl. Cormorant Garamond) + Georgia (system stack). Keep in sync with Next `app/lib/fonts.ts`.
  */
-const ALLOWED_FONTS = ['Poppins', 'Roboto', 'Inter', 'Montserrat', 'Georgia'];
+const ALLOWED_FONTS = [
+  'Poppins',
+  'Roboto',
+  'Inter',
+  'Montserrat',
+  'Cormorant Garamond',
+  'Georgia',
+];
 const ALLOWED_WEIGHTS = [400, 500, 600, 700];
 const ALLOWED_STYLES = ['normal', 'italic'];
 
@@ -19,6 +26,9 @@ const FONT_BY_LC = {
   roboto: 'Roboto',
   inter: 'Inter',
   montserrat: 'Montserrat',
+  'cormorant garamond': 'Cormorant Garamond',
+  cormorantgaramond: 'Cormorant Garamond',
+  cormorant_garamond: 'Cormorant Garamond',
   georgia: 'Georgia',
 };
 

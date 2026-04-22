@@ -1,37 +1,15 @@
 /**
- * Newsletter-only SMTP (Brevo). Same relay/credentials as other Zextons transactional mail;
- * kept under email/NewsLetter so this feature is isolated from order/support email modules.
+ * Newsletter emails use the shared DB/env SMTP stack via {@link ../../src/utils/mailer}.
+ * This file is kept for backwards compatibility if anything still imports it.
  */
-const nodemailer = require("nodemailer");
+const { createTransporter, getDefaultFrom } = require("../../src/utils/mailer");
 
-const DEFAULT_HOST = "smtp-relay.brevo.com";
-const DEFAULT_PORT = 465;
-
-function getNewsletterTransporter() {
-  const port = Number(process.env.NEWSLETTER_EMAIL_PORT || process.env.EMAIL_PORT) || DEFAULT_PORT;
-  return nodemailer.createTransport({
-    host: process.env.NEWSLETTER_EMAIL_HOST || process.env.EMAIL_HOST || DEFAULT_HOST,
-    port,
-    secure: port === 465,
-    auth: {
-      user:
-        process.env.NEWSLETTER_EMAIL_USER ||
-        process.env.EMAIL_USER ||
-        "7da4db001@smtp-brevo.com",
-      pass:
-        process.env.NEWSLETTER_EMAIL_PASS ||
-        process.env.EMAIL_PASS ||
-        "UbpWm568BQ4M1tfI",
-    },
-  });
+async function getNewsletterTransporter() {
+  return createTransporter();
 }
 
-function getNewsletterFromAddress() {
-  return (
-    process.env.NEWSLETTER_FROM ||
-    process.env.EMAIL_FROM ||
-    '"Zextons" <order@zextons.co.uk>'
-  );
+async function getNewsletterFromAddress() {
+  return getDefaultFrom();
 }
 
 module.exports = {

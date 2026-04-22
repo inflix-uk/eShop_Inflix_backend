@@ -1,8 +1,12 @@
 // services/orderService/updateOrder.js
 const Order = require("../../models/order");
-const nodemailer = require("nodemailer");
 const path = require('path');
 const fs = require('fs');
+const { sendMail } = require('../../utils/mailer');
+const {
+  getOrderConfirmationResolved,
+  applyOrderConfirmationCopyToHtml,
+} = require('../email/orderEmailCopyService');
 
 
 const updateOrderService = async (id, orderData) => {
@@ -170,39 +174,28 @@ const updateOrderService = async (id, orderData) => {
                 `;
 
 
-            // Setup nodemailer transporter
-            const transporter = nodemailer.createTransport({
-                host: 'smtp-relay.brevo.com',
-                port: 465,
-                secure: true, // Use SSL
-                auth: {
-                    user: '7da4db001@smtp-brevo.com', // Your SMTP login
-                    pass: 'UbpWm568BQ4M1tfI', // Your SMTP password
-                },
-            });
-
             // Email options for the user
             const mailOptions = {
-                from: '"Zextons Tech Store" <order@zextons.co.uk>', // Sender address
                 to: updatedOrder.contactDetails.email, // User's email address
                 subject: 'Your Order Has Shipped!',
                 html: emailTemplate // Use the HTML template with dynamic content
             };
 
-            // Send email to the user
-            transporter.sendMail(mailOptions, (error, info) => {
-                if (error) {
-                    console.log('Error sending shipment email:', error);
-                } else {
-                    console.log('Shipment email sent:', info.response);
-                }
-            });
+            sendMail(mailOptions).then(
+                (info) => console.log('Shipment email sent:', info.response || info.messageId),
+                (error) => console.log('Error sending shipment email:', error)
+            );
         }
 
         if (status === 'Pending') {
             // Read the HTML email template
             const emailTemplatePath = path.join(__dirname, '..', '..', 'email', 'orderConfermation', 'index.html');
             let emailTemplate = fs.readFileSync(emailTemplatePath, 'utf8');
+            const confirmationCopy = await getOrderConfirmationResolved();
+            emailTemplate = applyOrderConfirmationCopyToHtml(
+              emailTemplate,
+              confirmationCopy.fields
+            );
 
             // Calculate total order value and apply discounts
             let totalOrderValue = updatedOrder.cart.reduce((sum, item) => sum + (item.qty || 0) * (item.salePrice || item.Price || 0), 0);
@@ -288,64 +281,40 @@ const updateOrderService = async (id, orderData) => {
 </script>`;
             emailTemplate = emailTemplate.replace('</head>', `${trustpilotScript}\n</head>`);
 
-            // Setup nodemailer transporter
-            const transporter = nodemailer.createTransport({
-                host: 'smtp-relay.brevo.com',
-                port: 465,
-                secure: true,
-                auth: {
-                    user: '7da4db001@smtp-brevo.com',
-                    pass: 'UbpWm568BQ4M1tfI'
-                }
-            });
-
             // Email options for the customer and Trustpilot
             const mailOptionsCustomer = {
-                from: '"Zextons Tech Store" <order@zextons.co.uk>',
                 to: updatedOrder.contactDetails.email,
-                subject: 'Order Confirmation - Zextons Tech Store',
+                subject: confirmationCopy.subject,
                 html: emailTemplate
             };
 
             const mailOptionsTrustpilot = {
-                from: '"Zextons Tech Store" <order@zextons.co.uk>',
                 to: '9311f649e0@invite.trustpilot.com',
-                subject: 'Order Confirmation - Zextons Tech Store',
+                subject: confirmationCopy.subject,
                 html: emailTemplate
             };
 
             // Email options for the owner/admin
             const mailOptionsOwner = {
-                from: '"Zextons Tech Store" <order@zextons.co.uk>',
                 to: 'order@zextons.co.uk',
                 subject: `New Order Received - ${updatedOrder.orderNumber}`,
                 html: emailTemplate
             };
 
-            // Send email to customer, Trustpilot, and owner asynchronously
-            transporter.sendMail(mailOptionsCustomer, (error, info) => {
-                if (error) {
-                    console.log("Error sending order confirmation email to customer:", error);
-                } else {
-                    console.log('Order confirmation email sent to customer:', info.response);
-                }
-            });
+            sendMail(mailOptionsCustomer).then(
+                (info) => console.log('Order confirmation email sent to customer:', info.response || info.messageId),
+                (error) => console.log("Error sending order confirmation email to customer:", error)
+            );
 
-            transporter.sendMail(mailOptionsTrustpilot, (error, info) => {
-                if (error) {
-                    console.log("Error sending order confirmation email to Trustpilot:", error);
-                } else {
-                    console.log('Order confirmation email sent to Trustpilot:', info.response);
-                }
-            });
+            sendMail(mailOptionsTrustpilot).then(
+                (info) => console.log('Order confirmation email sent to Trustpilot:', info.response || info.messageId),
+                (error) => console.log("Error sending order confirmation email to Trustpilot:", error)
+            );
 
-            transporter.sendMail(mailOptionsOwner, (error, info) => {
-                if (error) {
-                    console.log("Error sending order confirmation email to owner:", error);
-                } else {
-                    console.log('Order confirmation email sent to owner (zextons.co.uk@gmail.com):', info.response);
-                }
-            });
+            sendMail(mailOptionsOwner).then(
+                (info) => console.log('Order confirmation email sent to owner:', info.response || info.messageId),
+                (error) => console.log("Error sending order confirmation email to owner:", error)
+            );
         }
 
         if (status === 'Refunded') {
@@ -489,20 +458,8 @@ const updateOrderService = async (id, orderData) => {
             </html>
             `;
 
-            // Setup nodemailer transporter
-            const transporter = nodemailer.createTransport({
-                host: 'smtp-relay.brevo.com',
-                port: 465,
-                secure: true,
-                auth: {
-                    user: '7da4db001@smtp-brevo.com',
-                    pass: 'UbpWm568BQ4M1tfI',
-                },
-            });
-
             // Email options for the customer
             const mailOptionsCustomer = {
-                from: '"Zextons Tech Store" <order@zextons.co.uk>',
                 to: updatedOrder.contactDetails.email,
                 subject: `Refund Processed - Order #${updatedOrder.orderNumber}`,
                 html: emailTemplate
@@ -510,7 +467,6 @@ const updateOrderService = async (id, orderData) => {
 
             // Email options for the owner/admin
             const mailOptionsOwner = {
-                from: '"Zextons Tech Store" <order@zextons.co.uk>',
                 to: 'zextons.co.uk@gmail.com',
                 subject: `Refund Processed - Order #${updatedOrder.orderNumber}`,
                 html: `
@@ -626,23 +582,15 @@ const updateOrderService = async (id, orderData) => {
                 `
             };
 
-            // Send email to customer
-            transporter.sendMail(mailOptionsCustomer, (error, info) => {
-                if (error) {
-                    console.log('Error sending refund email to customer:', error);
-                } else {
-                    console.log('Refund email sent to customer:', info.response);
-                }
-            });
+            sendMail(mailOptionsCustomer).then(
+                (info) => console.log('Refund email sent to customer:', info.response || info.messageId),
+                (error) => console.log('Error sending refund email to customer:', error)
+            );
 
-            // Send email to owner
-            transporter.sendMail(mailOptionsOwner, (error, info) => {
-                if (error) {
-                    console.log('Error sending refund email to owner:', error);
-                } else {
-                    console.log('Refund email sent to owner:', info.response);
-                }
-            });
+            sendMail(mailOptionsOwner).then(
+                (info) => console.log('Refund email sent to owner:', info.response || info.messageId),
+                (error) => console.log('Error sending refund email to owner:', error)
+            );
         }
 
         // Return success response with updated order
@@ -706,17 +654,6 @@ const bulkUpdateOrdersService = async (orderIds, updateData) => {
         if (status === 'Shipped') {
             // Fetch all updated orders for email sending
             const updatedOrders = await Order.find({ _id: { $in: orderIds } });
-
-            // Setup nodemailer transporter once
-            const transporter = nodemailer.createTransport({
-                host: 'smtp-relay.brevo.com',
-                port: 465,
-                secure: true,
-                auth: {
-                    user: '7da4db001@smtp-brevo.com',
-                    pass: 'UbpWm568BQ4M1tfI',
-                },
-            });
 
             // Send emails asynchronously (don't wait for all to complete)
             updatedOrders.forEach(order => {
@@ -786,19 +723,15 @@ const bulkUpdateOrdersService = async (orderIds, updateData) => {
                 `;
 
                 const mailOptions = {
-                    from: '"Zextons Tech Store" <order@zextons.co.uk>',
                     to: order.contactDetails?.email,
                     subject: 'Your Order Has Shipped!',
                     html: emailTemplate
                 };
 
-                transporter.sendMail(mailOptions, (error, info) => {
-                    if (error) {
-                        console.log(`Error sending shipment email for order ${order.orderNumber}:`, error);
-                    } else {
-                        console.log(`Shipment email sent for order ${order.orderNumber}:`, info.response);
-                    }
-                });
+                sendMail(mailOptions).then(
+                    (info) => console.log(`Shipment email sent for order ${order.orderNumber}:`, info.response || info.messageId),
+                    (error) => console.log(`Error sending shipment email for order ${order.orderNumber}:`, error)
+                );
             });
         }
 

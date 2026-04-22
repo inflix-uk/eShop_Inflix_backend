@@ -6,7 +6,6 @@ const Order = require("../models/order");
 const Label = require("../models/label");
 
 const bcrypt = require("bcrypt");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const path = require('path');
 const fs = require('fs');

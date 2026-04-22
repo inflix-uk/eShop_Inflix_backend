@@ -58,7 +58,8 @@ const faviconDiskStorage = multer.diskStorage({
     filename: function (req, file, cb) {
         const extension = path.extname(file.originalname).toLowerCase();
         const safeExt = extension === '.ico' ? '.ico' : '.png';
-        cb(null, `zextons-favicon${safeExt}`);
+        // Versioned path — never reuse same filename (avoids aggressive favicon caching)
+        cb(null, `favicon-${Date.now()}${safeExt}`);
     }
 });
 
@@ -150,10 +151,10 @@ const handleFaviconUpload = (req, res, next) => {
 };
 
 // Helper function to upload file to Blob storage
-async function uploadToBlob(file, folder = 'logo') {
+async function uploadToBlob(file, folder = 'logo', preferredBasename = null) {
     if (!file) return null;
     try {
-        const result = await blobStorage.uploadFile(file, folder);
+        const result = await blobStorage.uploadFile(file, folder, preferredBasename);
         return result ? result.url : null;
     } catch (error) {
         console.error('Error uploading to blob:', error);
@@ -213,13 +214,18 @@ const logoController = {
         try {
             const logo = await Logo.getLogo();
             
+            const faviconVersion = logo.updatedAt
+                ? new Date(logo.updatedAt).getTime()
+                : null;
+
             res.status(200).json({
                 success: true,
                 data: {
                     logoUrl: logo.logoUrl || '',
                     altText: logo.altText || 'Logo',
                     faviconUrl: logo.faviconUrl || '',
-                    updatedAt: logo.updatedAt || null
+                    updatedAt: logo.updatedAt || null,
+                    faviconVersion
                 }
             });
         } catch (error) {
@@ -238,14 +244,18 @@ const logoController = {
     getLogoPublic: async (req, res) => {
         try {
             const logo = await Logo.getLogo();
-            
+            const faviconVersion = logo.updatedAt
+                ? new Date(logo.updatedAt).getTime()
+                : null;
+
             res.status(200).json({
                 success: true,
                 data: {
                     logoUrl: logo.logoUrl || '',
                     altText: logo.altText || 'Logo',
                     faviconUrl: logo.faviconUrl || '',
-                    updatedAt: logo.updatedAt || null
+                    updatedAt: logo.updatedAt || null,
+                    faviconVersion
                 }
             });
         } catch (error) {
@@ -406,7 +416,10 @@ const logoController = {
             }
 
             if (useBlobStorage) {
-                faviconUrl = await uploadToBlob(req.file, 'favicon');
+                const extFromName = path.extname(req.file.originalname || '').toLowerCase();
+                const safeExt = extFromName === '.ico' ? '.ico' : '.png';
+                const versionedBasename = `favicon-${Date.now()}${safeExt}`;
+                faviconUrl = await uploadToBlob(req.file, 'favicon', versionedBasename);
             } else {
                 faviconUrl = getFileUrl(req.file);
             }
@@ -421,12 +434,17 @@ const logoController = {
             logo.faviconUrl = faviconUrl;
             await logo.save();
 
+            const updatedAtMs = logo.updatedAt
+                ? new Date(logo.updatedAt).getTime()
+                : Date.now();
+
             res.status(200).json({
                 success: true,
                 message: 'Favicon updated successfully',
                 data: {
                     faviconUrl: logo.faviconUrl,
-                    updatedAt: logo.updatedAt
+                    updatedAt: updatedAtMs,
+                    faviconVersion: updatedAtMs
                 }
             });
         } catch (error) {

@@ -1,7 +1,6 @@
 //  coontroller/couponController.js
 const db = require("../../connections/mongo");
 const bcrypt = require("bcrypt");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 const Coupon = require("../models/coupon");
 

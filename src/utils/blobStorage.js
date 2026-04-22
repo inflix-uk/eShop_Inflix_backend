@@ -14,9 +14,10 @@ class BlobStorage {
      * Upload a single file to Vercel Blob
      * @param {Object} file - Multer file object (with buffer from memoryStorage)
      * @param {string} folder - Folder path in blob storage (e.g., 'products')
+     * @param {string|null} preferredBasename - Optional exact filename under folder (e.g. favicon-171234567.png)
      * @returns {Promise<Object>} - Upload result with url and pathname
      */
-    async uploadFile(file, folder = 'products') {
+    async uploadFile(file, folder = 'products', preferredBasename = null) {
         try {
             if (!file) return null;
 
@@ -28,10 +29,12 @@ class BlobStorage {
                 return null;
             }
 
-            // Generate unique filename
+            // Generate unique filename (or use versioned basename when provided)
             const timestamp = Date.now();
             const safeFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-            const uniqueFilename = `${folder}/${timestamp}_${safeFilename}`;
+            const uniqueFilename = preferredBasename
+                ? `${folder}/${preferredBasename}`
+                : `${folder}/${timestamp}_${safeFilename}`;
 
             console.log(`Uploading to Blob: ${uniqueFilename}`);
 
@@ -66,7 +69,7 @@ class BlobStorage {
         try {
             if (!files || files.length === 0) return [];
 
-            const uploadPromises = files.map(file => this.uploadFile(file, folder));
+            const uploadPromises = files.map((file) => this.uploadFile(file, folder));
             const results = await Promise.all(uploadPromises);
 
             return results.filter(result => result !== null);

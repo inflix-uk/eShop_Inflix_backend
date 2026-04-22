@@ -3,7 +3,6 @@
 const db = require("../../connections/mongo");
 const User = require("../models/user");
 const bcrypt = require("bcrypt");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
 const adminUsersController = {

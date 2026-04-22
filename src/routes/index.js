@@ -38,6 +38,9 @@ const optimizedSitemapController = require('../controller/optimizedSitemapContro
 const categoryDisplayProductsController = require('../controller/categoryDisplayProductsController');
 const footerSettingsController = require('../controller/footerSettingsController');
 const stripeSettingsController = require('../controller/stripeSettingsController');
+const smtpSettingsController = require('../controller/smtpSettingsController');
+const publicContactController = require('../controller/publicContactController');
+const contactUsWidgetController = require('../controller/contactUsWidgetController');
 const shippingSettingsController = require('../controller/shippingSettingsController');
 const homepageDataController = require('../controller/homepageDataController');
 const homepageNavLinksController = require('../controller/homepageNavLinksController');
@@ -68,7 +71,6 @@ router.get('/config',                           paymentsController.config);
 router.post('/create-payment-intent',           paymentsController.createPaymentIntent);
 router.post('/update-payment-intent-metadata',  paymentsController.updatePaymentIntentMetadata);
 router.post('/update-payment-intent-amount',    paymentsController.updatePaymentIntentAmount);
-router.post('/checkout-log',                    paymentsController.logCheckoutEvent);
 router.post('/retrieve-payment-details',        paymentsController.retrievePaymentDetails);
 router.post('/retrieve-payment-details-session',paymentsController.retrievePaymentDetailsSession);
 router.post("/create-checkout-session",         paymentsController.createCheckoutSession);
@@ -82,6 +84,13 @@ router.get('/success',                          paymentsController.successPaymen
 router.get('/stripe/settings',                  requireAdmin, stripeSettingsController.getSettings);
 router.post('/stripe/settings',                 requireAdmin, stripeSettingsController.saveSettings);
 router.post('/stripe/test-connection',          requireAdmin, stripeSettingsController.testConnection);
+
+// ========================================================================
+// SMTP SETTINGS MANAGEMENT
+// ========================================================================
+router.get('/smtp/settings',                    requireAdmin, smtpSettingsController.getSettings);
+router.post('/smtp/settings',                   requireAdmin, smtpSettingsController.saveSettings);
+router.post('/smtp/test-connection',            requireAdmin, smtpSettingsController.testConnection);
 
 // ========================================================================
 // SHIPPING SETTINGS MANAGEMENT
@@ -396,6 +405,17 @@ router.patch('/update/file',                           adminStatsController.rena
 router.delete('/delete/file',                          adminStatsController.deleteFile);
 router.get('/top/product/sold',                        adminStatsController.getTopProductSold);
 
+// Public contact form (legacy fixed fields — uses shared SMTP)
+router.post('/public/contact',                        publicContactController.submitContactForm);
+
+// ========================================================================
+// CONTACT US WIDGET (singleton CMS + public submit)
+// ========================================================================
+router.get('/contact-us-widget/public',               contactUsWidgetController.getPublic);
+router.get('/contact-us-widget',                      requireAdmin, contactUsWidgetController.getAdmin);
+router.post('/contact-us-widget',                    requireAdmin, contactUsWidgetController.saveAdmin);
+router.post('/contact-us-widget/submit',             contactUsWidgetController.submit);
+
 // Newsletter Management
 router.post('/newsletter/subscribers',                 adminStatsController.NewsletterSubscribers);
 router.post('/blackfridaymodal',                       adminStatsController.blackfridaymodal);
@@ -405,6 +425,7 @@ router.get('/get/newsletters',                         adminStatsController.getN
 router.post('/upload/csv',                             adminStatsController.uploadCSV);
 router.post('/upload/csv/all-products',                adminStatsController.uploadCSVAllProducts);
 router.post('/upload/csv/with/accessories',            adminStatsController.uploadCSVWithAccessories);
+router.get('/uploads/feed/:filename',                  adminStatsController.downloadFeedCsv);
 
 // Sitemap Generation
 router.post('/create/sitemap',                         siteMapController.createSitemap);
@@ -808,6 +829,13 @@ router.put(
   requireAdmin,
   newsletterEmailTemplatesController.saveAdmin
 );
+
+// ========================================================================
+// ORDER EMAIL TEMPLATES (admin-editable static copy only)
+// ========================================================================
+const orderEmailTemplatesController = require('../controller/orderEmailTemplatesController');
+router.get('/order-email-templates', requireAdmin, orderEmailTemplatesController.getAdmin);
+router.put('/order-email-templates', requireAdmin, orderEmailTemplatesController.saveAdmin);
 
 // ========================================================================
 // CRON JOB ROUTES
