@@ -1,21 +1,11 @@
-const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
-
-// Create email transporter with configuration
-const transporter = nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com', 
-    port: 465, 
-    secure: true, // Use SSL
-    auth: {
-        user: '7da4db001@smtp-brevo.com', // Your SMTP login
-        pass: 'UbpWm568BQ4M1tfI', // Your SMTP password
-    },
-    // Add connection timeout settings
-    connectionTimeout: 10000, // 10 seconds
-    greetingTimeout: 5000,   // 5 seconds
-    socketTimeout: 30000,    // 30 seconds
-});
+const { sendMail } = require('../../src/utils/mailer');
+const {
+    getOrderStatusCustomerResolved,
+    applyOrderStatusCopyToHtml,
+    interpolateSubjectPattern,
+} = require('../../src/services/email/orderEmailCopyService');
 
 /**
  * Get the appropriate color for order status
@@ -171,10 +161,12 @@ const sendOrderUpdateEmailToCustomer = async (orderData) => {
     }
 
     try {
+        const statusCopy = await getOrderStatusCustomerResolved();
         // Read the email template
         const templatePath = path.join(__dirname, 'template.html');
-        const templateContent = await fs.readFile(templatePath, 'utf-8');
-        
+        let templateContent = await fs.readFile(templatePath, 'utf-8');
+        templateContent = applyOrderStatusCopyToHtml(templateContent, statusCopy.fields);
+
         // Replace variables in the template
         const htmlContent = replaceTemplateVariables(templateContent, orderData);
 
@@ -184,20 +176,25 @@ const sendOrderUpdateEmailToCustomer = async (orderData) => {
             .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
             .trim();
 
+        const subject = interpolateSubjectPattern(
+            statusCopy.fields.emailSubjectPattern,
+            {
+                orderNumber: orderData.orderNumber || 'Update',
+                status: formattedStatus,
+            }
+        );
+
         const mailOptions = {
-            from: 'Zextons <order@zextons.co.uk>',
             to: orderData.user.email,
-            subject: `Order ${orderData.orderNumber || 'Update'} - ${formattedStatus}`,
+            subject,
             html: htmlContent,
-            // Add BCC for monitoring emails if needed
-            // bcc: 'monitoring@zextons.co.uk',
             headers: {
                 'X-Priority': '1', // High priority
                 'X-Order-ID': orderData.orderNumber || 'Unknown'
             }
         };
 
-        const info = await transporter.sendMail(mailOptions);
+        const info = await sendMail(mailOptions);
         console.log(`Order update email sent successfully to ${orderData.user.email}. Message ID: ${info.messageId}`);
         return info;
     } catch (error) {

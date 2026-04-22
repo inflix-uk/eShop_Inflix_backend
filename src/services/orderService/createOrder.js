@@ -11,26 +11,19 @@
 const Order = require("../../models/order");
 const Product = require("../../models/product");
 const Coupon = require("../../models/coupon");
-const nodemailer = require("nodemailer");
 const path = require('path');
 const fs = require('fs');
+const { sendMail } = require('../../utils/mailer');
+const {
+  getOrderConfirmationResolved,
+  applyOrderConfirmationCopyToHtml,
+} = require('../email/orderEmailCopyService');
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
-const EMAIL_CONFIG = {
-    host: 'smtp-relay.brevo.com',
-    port: 465,
-    secure: true,
-    auth: {
-        user: '7da4db001@smtp-brevo.com',
-        pass: 'UbpWm568BQ4M1tfI',
-    },
-};
-
 const EMAIL_ADDRESSES = {
-    from: '"Zextons Tech Store" <order@zextons.co.uk>',
     admin: 'order@zextons.co.uk',
     trustpilot: '9311f649e0@invite.trustpilot.com',
 };
@@ -655,12 +648,24 @@ const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInform
  * Generate email HTML for customer notification
  * Trade-in products are excluded from customer emails
  * @param {Object} params - Order parameters
- * @returns {string} HTML string with Trustpilot script
+ * @returns {Promise<{ html: string, subject: string }>}
  */
-const generateCustomerEmailHTML = ({ orderNumber, cart, totalOrderValue, coupon, discountAmount, discountedOrderValue, totalItems, shippingInformation, contactInformation }) => {
+const generateCustomerEmailHTML = async ({
+  orderNumber,
+  cart,
+  totalOrderValue,
+  coupon,
+  discountAmount,
+  discountedOrderValue,
+  totalItems,
+  shippingInformation,
+  contactInformation,
+}) => {
+    const confirmationCopy = await getOrderConfirmationResolved();
     // Read the HTML email template
     const emailTemplatePath = path.join(__dirname, '..', '..', 'email', 'orderConfermation', 'index.html');
     let emailTemplate = fs.readFileSync(emailTemplatePath, 'utf8');
+    emailTemplate = applyOrderConfirmationCopyToHtml(emailTemplate, confirmationCopy.fields);
 
     // Filter out trade-in products - customers don't need to see trade-in items in their order confirmation
     // Trade-in details are handled separately via SellZextons checkout
@@ -807,7 +812,7 @@ const generateCustomerEmailHTML = ({ orderNumber, cart, totalOrderValue, coupon,
     // Insert Trustpilot script in the <head> section (after <title>)
     emailTemplate = emailTemplate.replace('</head>', `${trustpilotScript}\n</head>`);
 
-    return emailTemplate;
+    return { html: emailTemplate, subject: confirmationCopy.subject };
 };
 
 // ============================================================================
@@ -996,7 +1001,8 @@ const createOrderService = async (orderData) => {
         const discountAmount = calculateDiscount(totalOrderValue, coupon);
 
         // Generate customer email HTML with Trustpilot script
-        const customerEmailHTML = generateCustomerEmailHTML({
+        const { html: customerEmailHTML, subject: customerEmailSubject } =
+            await generateCustomerEmailHTML({
             orderNumber: order_number_fial,
             cart,
             totalOrderValue,
@@ -1008,21 +1014,16 @@ const createOrderService = async (orderData) => {
             contactInformation
         });
 
-        // Setup nodemailer transporter
-        const transporter = nodemailer.createTransport(EMAIL_CONFIG);
-
         // Email options for the customer (with BCC to Trustpilot for review invitations)
         const mailOptionsCustomer = {
-            from: EMAIL_ADDRESSES.from,
             to: contactInformation.email,
             bcc: EMAIL_ADDRESSES.trustpilot,
-            subject: 'Order Confirmation - Zextons Tech Store',
+            subject: customerEmailSubject,
             html: customerEmailHTML
         };
 
         // Email options for the owner
         const mailOptionsOwner = {
-            from: EMAIL_ADDRESSES.from,
             to: EMAIL_ADDRESSES.admin,
             subject: `New Order Received - ${order_number_fial}`,
             html: generateAdminEmailHTML({
@@ -1057,23 +1058,15 @@ const createOrderService = async (orderData) => {
                 console.log(`Coupon usage updated for coupon ${coupon.code}, user ${userId}, order ${orderId}`);
             }
 
-            // Send email to customer asynchronously
-            transporter.sendMail(mailOptionsCustomer, (error, info) => {
-                if (error) {
-                    console.log("Error sending order confirmation email to customer:", error);
-                } else {
-                    console.log('Order confirmation email sent to customer: ' + info.response);
-                }
-            });
+            sendMail(mailOptionsCustomer).then(
+                (info) => console.log('Order confirmation email sent to customer: ' + (info.response || info.messageId)),
+                (error) => console.log("Error sending order confirmation email to customer:", error)
+            );
 
-            // Send email to the owner asynchronously
-            transporter.sendMail(mailOptionsOwner, (error, info) => {
-                if (error) {
-                    console.log("Error sending order confirmation email to owner:", error);
-                } else {
-                    console.log('Order confirmation email sent to owner: ' + info.response);
-                }
-            });
+            sendMail(mailOptionsOwner).then(
+                (info) => console.log('Order confirmation email sent to owner: ' + (info.response || info.messageId)),
+                (error) => console.log("Error sending order confirmation email to owner:", error)
+            );
 
             console.log(`✅ Confirmation emails sent for order ${finalOrder.orderNumber}\n`);
         } else {

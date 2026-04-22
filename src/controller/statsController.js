@@ -21,6 +21,7 @@ const crypto = require("crypto");
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { getFeedUploadPath } = require('../utils/feedUploadPath');
 const { Parser } = require('json2csv');
 
 
@@ -96,7 +97,7 @@ const statsController = {
         try {
             const csv = json2csvParser.parse(products);
     
-            const uploadPath = path.join(__dirname, '../../uploads/feed');
+            const uploadPath = getFeedUploadPath();
             if (!fs.existsSync(uploadPath)) {
                 fs.mkdirSync(uploadPath, { recursive: true });
             }
@@ -160,7 +161,7 @@ const statsController = {
         try {
             const csv = json2csvParser.parse(products);
 
-            const uploadPath = path.join(__dirname, '../../uploads/feed');
+            const uploadPath = getFeedUploadPath();
             if (!fs.existsSync(uploadPath)) {
                 fs.mkdirSync(uploadPath, { recursive: true });
             }
@@ -222,7 +223,7 @@ const statsController = {
         try {
             const csv = json2csvParser.parse(products);
 
-            const uploadPath = path.join(__dirname, '../../uploads/feed');
+            const uploadPath = getFeedUploadPath();
             if (!fs.existsSync(uploadPath)) {
                 fs.mkdirSync(uploadPath, { recursive: true });
             }
@@ -248,6 +249,28 @@ const statsController = {
             });
         }
     },
+
+    /** Serves merchant feed CSV from disk (Lambda/Vercel write to /tmp; static /uploads may miss). */
+    downloadFeedCsv: (req, res) => {
+        const allowed = new Set([
+            'products-feed.csv',
+            'all-products-feed.csv',
+            'products-feed-with-accessories.csv',
+        ]);
+        const filename = path.basename(req.params.filename || '');
+        if (!allowed.has(filename)) {
+            return res.status(404).json({ message: 'Not found' });
+        }
+        const feedDir = getFeedUploadPath();
+        const fullPath = path.join(feedDir, filename);
+        if (!fs.existsSync(fullPath)) {
+            return res.status(404).json({ message: 'File not found' });
+        }
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.sendFile(path.resolve(fullPath));
+    },
+
     getStats: async (req, res, next) => {
         // Define the getDateRange function inside getStats
         const getDateRange = (filter) => {

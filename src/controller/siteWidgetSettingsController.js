@@ -17,6 +17,7 @@ function serialize(doc) {
       promotionalSectionsEnabled: true,
       latestBlogsEnabled: true,
       htmlCssEnabled: true,
+      contactUsEnabled: true,
       updatedAt: null,
     };
   }
@@ -36,6 +37,7 @@ function serialize(doc) {
     promotionalSectionsEnabled: o.promotionalSectionsEnabled !== false,
     latestBlogsEnabled: o.latestBlogsEnabled !== false,
     htmlCssEnabled: o.htmlCssEnabled !== false,
+    contactUsEnabled: o.contactUsEnabled !== false,
     updatedAt: o.updatedAt || null,
   };
 }
@@ -61,6 +63,7 @@ async function getEffectiveSettings() {
       promotionalSectionsEnabled: true,
       latestBlogsEnabled: true,
       htmlCssEnabled: true,
+      contactUsEnabled: true,
     };
   }
   return {
@@ -78,6 +81,7 @@ async function getEffectiveSettings() {
     promotionalSectionsEnabled: doc.promotionalSectionsEnabled !== false,
     latestBlogsEnabled: doc.latestBlogsEnabled !== false,
     htmlCssEnabled: doc.htmlCssEnabled !== false,
+    contactUsEnabled: doc.contactUsEnabled !== false,
   };
 }
 
@@ -130,6 +134,7 @@ const putSiteWidgetSettings = async (req, res) => {
       promotionalSectionsEnabled,
       latestBlogsEnabled,
       htmlCssEnabled,
+      contactUsEnabled,
     } = req.body || {};
 
     const set = {};
@@ -175,12 +180,15 @@ const putSiteWidgetSettings = async (req, res) => {
     if (typeof htmlCssEnabled === 'boolean') {
       set.htmlCssEnabled = htmlCssEnabled;
     }
+    if (typeof contactUsEnabled === 'boolean') {
+      set.contactUsEnabled = contactUsEnabled;
+    }
 
     if (Object.keys(set).length === 0) {
       return res.status(400).json({
         success: false,
         message:
-          'Provide at least one boolean: sliderEnabled, newsletterEnabled, faqEnabled, videoEnabled, mapEnabled, galleryEnabled, iconBoxEnabled, testimonialsEnabled, trustpilotWidgetEnabled, siteBannersEnabled, categoryCardsEnabled, promotionalSectionsEnabled, latestBlogsEnabled, htmlCssEnabled',
+          'Provide at least one boolean: sliderEnabled, newsletterEnabled, faqEnabled, videoEnabled, mapEnabled, galleryEnabled, iconBoxEnabled, testimonialsEnabled, trustpilotWidgetEnabled, siteBannersEnabled, categoryCardsEnabled, promotionalSectionsEnabled, latestBlogsEnabled, htmlCssEnabled, contactUsEnabled',
       });
     }
 

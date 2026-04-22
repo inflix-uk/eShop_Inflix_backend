@@ -7,7 +7,6 @@ const { Blog: NewBlog } = require("../models/newblog/newBlog");
 const Products = require("../models/product");
 const productCategory = require("../models/productCategories");
 const Newsletter = require("../models/newsletter");
-const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
 const optimizedSitemapController = {

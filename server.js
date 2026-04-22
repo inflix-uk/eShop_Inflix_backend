@@ -46,7 +46,7 @@ const verifyStripeKeys = () => {
 verifyStripeKeys();
 
 const router = require('./src/routes/index');
-const { corsConfig } = require('./config/cors.config');
+const { corsConfig, allowedOrigins } = require('./config/cors.config');
 const { serverConfig } = require('./config/server.config');
 const { errorHandler } = require('./middleware/errorHandler');
 const { reviewsMiddleware } = require('./middleware/reviewsMiddleware');
@@ -76,18 +76,26 @@ class Server {
       return;
     }
 
+    // Socket.IO must allow the same browser origins as the REST API (ADMINPANEL_URL / FRONTEND_URL)
+    // plus legacy hosts. A hardcoded list alone breaks real-time admin chat on new domains
+    // (e.g. admin.aromadesire.com) while axios requests still work via Express cors.
+    const legacySocketOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:5173',
+      'https://zextons.co.uk',
+      'https://www.zextons.co.uk',
+      'https://admin.zextons.co.uk',
+      'https://zextons-admin-pannel.vercel.app',
+      'https://zextonswebsite-new-weld.vercel.app',
+    ];
+    const socketCorsOrigins = [
+      ...new Set([...(allowedOrigins || []), ...legacySocketOrigins]),
+    ].filter(Boolean);
+
     this.io = new SocketIOServer(this.httpServer, {
       cors: {
-        origin: [
-          'http://localhost:3000',
-          'http://localhost:3001',
-          'http://localhost:5173',
-          'https://zextons.co.uk',
-          'https://www.zextons.co.uk',
-          'https://admin.zextons.co.uk',
-          'https://zextons-admin-pannel.vercel.app',
-          'https://zextonswebsite-new-weld.vercel.app'  
-        ],
+        origin: socketCorsOrigins,
         methods: ['GET', 'POST'],
         credentials: true
       },

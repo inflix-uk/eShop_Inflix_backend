@@ -1,16 +1,6 @@
-const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
-
-const transporter = nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com', 
-    port: 465, 
-    secure: true, // Use SSL
-    auth: {
-        user: '7da4db001@smtp-brevo.com', // Your SMTP login
-        pass: 'UbpWm568BQ4M1tfI', // Your SMTP password
-    },
-});
+const { sendMail } = require('../../src/utils/mailer');
 
 const replaceTemplateVariables = (template, data) => {
     // Replace user details
@@ -32,13 +22,12 @@ const sendMessageNotification = async (userData) => {
         });
 
         const mailOptions = {
-            from: 'Zextons <support@zextons.co.uk>',
             to: "order@zextons.co.uk",
             subject: 'New Message from Zexton Support',
             html: htmlContent
         };
 
-        await transporter.sendMail(mailOptions);
+        await sendMail(mailOptions);
         console.log('Message notification email sent successfully to:', userData.user.email);
         return true;
     } catch (error) {
@@ -48,5 +37,6 @@ const sendMessageNotification = async (userData) => {
 };
 
 module.exports = {
-    sendMessageNotification
+    sendMessageNotification,
+    sendMessageNotificationToAdmin: sendMessageNotification,
 };

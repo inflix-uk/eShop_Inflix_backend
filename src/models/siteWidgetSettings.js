@@ -17,6 +17,7 @@ const siteWidgetSettingsSchema = new mongoose.Schema(
     promotionalSectionsEnabled: { type: Boolean, default: true },
     latestBlogsEnabled: { type: Boolean, default: true },
     htmlCssEnabled: { type: Boolean, default: true },
+    contactUsEnabled: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

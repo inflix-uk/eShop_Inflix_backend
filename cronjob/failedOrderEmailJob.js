@@ -1,6 +1,6 @@
 // cronjob/failedOrderEmailJob.js
 const Order = require("../src/models/order");
-const nodemailer = require("nodemailer");
+const { sendMail } = require("../src/utils/mailer");
 
 /**
  * Cron job to send recovery emails to users with failed orders after 2 days
@@ -36,17 +36,6 @@ const sendFailedOrderEmails = async () => {
             console.log('✅ No failed orders to process');
             return { success: true, processed: 0 };
         }
-
-        // Setup nodemailer transporter
-        const transporter = nodemailer.createTransport({
-            host: 'smtp-relay.brevo.com',
-            port: 465,
-            secure: true,
-            auth: {
-                user: '7da4db001@smtp-brevo.com',
-                pass: 'UbpWm568BQ4M1tfI',
-            },
-        });
 
         let successCount = 0;
         let failCount = 0;
@@ -205,9 +194,7 @@ const sendFailedOrderEmails = async () => {
                 </html>
                 `;
 
-                // Send email
-                await transporter.sendMail({
-                    from: '"Zextons Tech Store" <order@zextons.co.uk>',
+                await sendMail({
                     to: customerEmail,
                     subject: '🛒 Complete Your Order - Your Items Are Waiting!',
                     html: emailTemplate
