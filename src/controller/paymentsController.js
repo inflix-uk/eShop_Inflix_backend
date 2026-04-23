@@ -498,6 +498,54 @@ const paymentsController = {
 
             console.log('✅ PaymentIntent metadata updated successfully');
 
+            // Also update the attached Stripe Customer. At PI creation we seeded
+            // it with placeholders ("Pending Customer", "pending@checkout.local",
+            // phone "00000000000"). Without this call those stay visible forever
+            // in the Dashboard's Customer panel, even though PI metadata is right.
+            const customerId = existingIntent.customer || paymentIntent.customer;
+            if (customerId) {
+                try {
+                    const customerUpdate = {};
+                    if (email) customerUpdate.email = email;
+                    if (customerFullName) customerUpdate.name = customerFullName;
+                    const phoneForCustomer = phoneNumber || s.phoneNumber;
+                    if (phoneForCustomer) customerUpdate.phone = phoneForCustomer;
+                    if (hasStructuredAddress) {
+                        customerUpdate.address = {
+                            line1: s.address || '',
+                            line2: s.apartment || '',
+                            city: s.city || '',
+                            state: s.county || '',
+                            postal_code: s.postalCode || '',
+                            country: shippingCountryCode,
+                        };
+                    }
+                    if (hasStructuredAddress && stripeShipping) {
+                        customerUpdate.shipping = stripeShipping;
+                    }
+                    if (Object.keys(customerUpdate).length > 0) {
+                        await stripe.customers.update(customerId, customerUpdate);
+                        writeLog({
+                            event: 'backend.updateCustomer.success',
+                            source: 'backend',
+                            paymentIntentId: paymentIntent.id,
+                            orderNumber,
+                            data: { customerId, fieldsUpdated: Object.keys(customerUpdate) },
+                        });
+                    }
+                } catch (customerErr) {
+                    // Customer update is nice-to-have; don't fail the whole call.
+                    console.error('⚠️ Failed to update Stripe Customer:', customerErr.message);
+                    writeLog({
+                        event: 'backend.updateCustomer.error',
+                        source: 'backend',
+                        paymentIntentId: paymentIntent.id,
+                        orderNumber,
+                        data: { customerId, message: customerErr.message },
+                    });
+                }
+            }
+
             writeLog({
                 event: 'backend.updatePaymentIntentMetadata.success',
                 source: 'backend',
