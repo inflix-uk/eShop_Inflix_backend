@@ -215,7 +215,7 @@ const paymentsController = {
 
             // Build comprehensive description with all order details
             const descriptionParts = [
-                `ZEXTONS ORDER${orderNumber ? ` #${orderNumber}` : ''}`,
+                `ORDER${orderNumber ? ` #${orderNumber}` : ''}`,
                 ``,
                 `CUSTOMER:`,
                 `Name: ${customerName || 'N/A'}`,
@@ -260,7 +260,6 @@ const paymentsController = {
                 metadata: {
                     userId: contactInformation?.userId || "",
                     orderNumber: orderNumber || "",
-                    source: "zextons_checkout"
                 }
             });
 
@@ -279,13 +278,12 @@ const paymentsController = {
                 description: fullDescription,
 
                 // Statement descriptor (max 22 chars, appears on customer's card statement)
-                statement_descriptor_suffix: orderNumber ? orderNumber.substring(0, 22) : "ZEXTONS",
+                statement_descriptor_suffix: orderNumber ? orderNumber.substring(0, 22) : "ORDER",
 
                 // Comprehensive metadata (max 50 keys, each key max 40 chars, each value max 500 chars)
                 metadata: {
                     // Order info
                     orderNumber: orderNumber || "pending",
-                    orderSource: "zextons_website",
 
                     // Customer info
                     customerEmail: contactInformation?.email || "",
@@ -363,14 +361,14 @@ const paymentsController = {
     // Update PaymentIntent metadata with order number (called after order is created)
     updatePaymentIntentMetadata: async (req, res, next) => {
         try {
-            const { paymentIntentId, orderNumber, email, phoneNumber, customerName, shippingAddress, shippingMethod } = req.body;
+            const { paymentIntentId, orderNumber, email, phoneNumber, customerName, shippingAddress, shippingInformation, shippingMethod } = req.body;
 
             writeLog({
                 event: 'backend.updatePaymentIntentMetadata.start',
                 source: 'backend',
                 paymentIntentId,
                 orderNumber,
-                data: { email, customerName },
+                data: { email, customerName, hasShippingInformation: !!shippingInformation },
             });
 
             if (!paymentIntentId || !orderNumber) {
@@ -398,16 +396,40 @@ const paymentsController = {
             const shippingMethodName = shippingMethod?.name || existingMetadata.shippingMethodName || '';
             const shippingMethodDays = shippingMethod?.estimatedDays || existingMetadata.shippingMethodEstimatedDays || '';
 
+            // Derive granular shipping fields from the structured shippingInformation
+            // if provided; otherwise fall back to existing metadata so stale placeholder
+            // values from PaymentIntent creation do NOT leak through.
+            const s = shippingInformation || {};
+            const shippingCountryCodeMap = {
+                'United Kingdom': 'GB',
+                'UK': 'GB',
+                'GB': 'GB',
+            };
+            const shippingCountryCode = shippingCountryCodeMap[s.country] || (s.country && s.country.length === 2 ? s.country : 'GB');
+            const customerFullName = customerName
+                || (s.firstName || s.lastName ? `${s.firstName || ''} ${s.lastName || ''}`.trim() : '')
+                || existingMetadata.customerName
+                || '';
+
+            const composedShippingAddress = shippingAddress || [
+                s.address,
+                s.apartment,
+                s.city,
+                s.county,
+                s.postalCode,
+                s.country || 'United Kingdom',
+            ].filter(Boolean).join(', ') || existingMetadata.shippingAddress || '';
+
             const updatedDescriptionParts = [
-                `ZEXTONS ORDER #${orderNumber}`,
+                `ORDER #${orderNumber}`,
                 ``,
                 `CUSTOMER:`,
-                `Name: ${customerName || existingMetadata.customerName || 'N/A'}`,
+                `Name: ${customerFullName || 'N/A'}`,
                 `Email: ${email || existingMetadata.customerEmail || 'N/A'}`,
-                `Phone: ${phoneNumber || existingMetadata.customerPhone || 'N/A'}`,
+                `Phone: ${phoneNumber || s.phoneNumber || existingMetadata.customerPhone || 'N/A'}`,
                 ``,
                 `SHIPPING ADDRESS:`,
-                `${shippingAddress || existingMetadata.shippingAddress || 'Address on file'}`,
+                `${composedShippingAddress || 'Address on file'}`,
                 ``,
                 `SHIPPING METHOD:`,
                 shippingMethodName ? `${shippingMethodName} - £${parseFloat(shippingCost).toFixed(2)}${shippingMethodDays ? ` (${shippingMethodDays})` : ''}` : 'Not specified',
@@ -421,30 +443,58 @@ const paymentsController = {
                 `Order confirmed: ${new Date().toISOString()}`
             ].filter(Boolean).join('\n').substring(0, 1000);
 
-            const paymentIntent = await stripe.paymentIntents.update(paymentIntentId, {
-                // Update description with comprehensive order details
+            // Build the structured shipping object Stripe shows natively in the
+            // dashboard. For wallet (Express Checkout) we skipped this at creation,
+            // so fill it in here. Only set if we have at least an address + city.
+            const hasStructuredAddress = !!(s.address || s.city || s.postalCode);
+            const stripeShipping = hasStructuredAddress
+                ? {
+                    name: customerFullName || 'Customer',
+                    phone: phoneNumber || s.phoneNumber || undefined,
+                    address: {
+                        line1: s.address || '',
+                        line2: s.apartment || '',
+                        city: s.city || '',
+                        state: s.county || '',
+                        postal_code: s.postalCode || '',
+                        country: shippingCountryCode,
+                    },
+                }
+                : undefined;
+
+            const updatePayload = {
                 description: updatedDescriptionParts,
-
-                // Update statement descriptor with order number
                 statement_descriptor_suffix: orderNumber.substring(0, 22),
-
-                // Merge metadata (keep existing, update with new)
                 metadata: {
                     ...existingMetadata,
                     orderNumber: orderNumber,
                     orderStatus: 'confirmed',
                     customerEmail: email || existingMetadata.customerEmail || '',
-                    customerPhone: phoneNumber || existingMetadata.customerPhone || '',
-                    customerName: customerName || existingMetadata.customerName || '',
-                    shippingAddress: shippingAddress || existingMetadata.shippingAddress || '',
+                    customerPhone: phoneNumber || s.phoneNumber || existingMetadata.customerPhone || '',
+                    customerName: customerFullName,
+                    // Granular shipping fields — these overwrite the placeholder values
+                    // ("London", "SW1A 1AA") that the initial PaymentIntent creation
+                    // writes before the real address is known.
+                    shippingAddress: composedShippingAddress,
+                    shippingAddressLine1: s.address || existingMetadata.shippingAddressLine1 || '',
+                    shippingAddressLine2: s.apartment || existingMetadata.shippingAddressLine2 || '',
+                    shippingCity: s.city || existingMetadata.shippingCity || '',
+                    shippingCounty: s.county || existingMetadata.shippingCounty || '',
+                    shippingPostalCode: s.postalCode || existingMetadata.shippingPostalCode || '',
+                    shippingCountry: s.country || existingMetadata.shippingCountry || 'United Kingdom',
                     confirmedAt: new Date().toISOString(),
                     // Shipping method info
                     shippingMethodName: shippingMethod?.name || existingMetadata.shippingMethodName || '',
-                    shippingMethodPrice: shippingMethod?.price ? String(shippingMethod.price) : existingMetadata.shippingMethodPrice || '0',
+                    shippingMethodPrice: shippingMethod?.price != null ? String(shippingMethod.price) : existingMetadata.shippingMethodPrice || '0',
                     shippingMethodEstimatedDays: shippingMethod?.estimatedDays || existingMetadata.shippingMethodEstimatedDays || '',
                     shippingMethodId: shippingMethod?.methodId || existingMetadata.shippingMethodId || ''
                 }
-            });
+            };
+            if (stripeShipping) {
+                updatePayload.shipping = stripeShipping;
+            }
+
+            const paymentIntent = await stripe.paymentIntents.update(paymentIntentId, updatePayload);
 
             console.log('✅ PaymentIntent metadata updated successfully');
 
