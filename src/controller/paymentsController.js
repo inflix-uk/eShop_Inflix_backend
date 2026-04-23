@@ -321,23 +321,11 @@ const paymentsController = {
                 }
             };
 
-            // Only add shipping for non-express checkout (regular card payments)
-            // For Apple Pay/Google Pay, the wallet provides shipping info directly
-            if (!isExpressCheckout) {
-                paymentIntentData.shipping = {
-                    name: customerName,
-                    phone: shippingInformation?.phoneNumber || "",
-                    address: {
-                        line1: shippingInformation?.address || "",
-                        line2: shippingInformation?.apartment || "",
-                        city: shippingInformation?.city || "",
-                        state: shippingInformation?.county || "",
-                        postal_code: shippingInformation?.postalCode || "",
-                        country: "GB"
-                    }
-                };
-            }
-
+            // Never set `shipping` on the PaymentIntent from the server. If the
+            // customer later pays via Link / Google Pay / Apple Pay, Stripe.js
+            // (publishable key) must set shipping, and Stripe rejects that update
+            // when the field was already written with a secret key. Shipping is
+            // preserved in PI metadata + the Order record.
             const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
 
             console.log("PaymentIntent created:", paymentIntent.id, isExpressCheckout ? "(Express Checkout)" : "(Standard)");
@@ -490,9 +478,10 @@ const paymentsController = {
                     shippingMethodId: shippingMethod?.methodId || existingMetadata.shippingMethodId || ''
                 }
             };
-            if (stripeShipping) {
-                updatePayload.shipping = stripeShipping;
-            }
+            // Intentionally NOT setting updatePayload.shipping here — see note in
+            // createPaymentIntent. Writing shipping with the secret key locks out
+            // the wallet's publishable-key shipping update and breaks Link / Google Pay.
+            // `stripeShipping` is still used below to update the Customer default address.
 
             const paymentIntent = await stripe.paymentIntents.update(paymentIntentId, updatePayload);
 
