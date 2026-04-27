@@ -9,6 +9,8 @@ const { handleBannerUpload } = require('../controller/bannerController');
 router.get('/get/banners/active', bannerController.getActiveBanners);
 
 // Admin routes - All require authentication
+router.get('/get/admin/banners/hero-social', requireAdmin, bannerController.getHeroSocialAdmin);
+router.put('/update/banners/hero-social', requireAdmin, bannerController.updateHeroSocial);
 router.get('/get/all/banners', requireAdmin, bannerController.getAllBanners);
 router.get('/get/banner/:id', requireAdmin, bannerController.getBannerById);
 router.post('/create/banner', requireAdmin, handleBannerUpload, bannerController.createBanner);

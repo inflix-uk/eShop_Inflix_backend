@@ -7,9 +7,12 @@ const { Schema } = mongoose;
  */
 const orderEmailTemplateSettingsSchema = new Schema(
   {
+    /** Prefix for new order numbers, e.g. Z → Z20260001. Editable under admin Email templates. */
+    orderNumberPrefix: { type: String, default: 'Z', trim: true },
     orderConfirmation: { type: Schema.Types.Mixed, default: {} },
     orderStatusCustomer: { type: Schema.Types.Mixed, default: {} },
     orderStatusAdmin: { type: Schema.Types.Mixed, default: {} },
+    orderShippedCustomer: { type: Schema.Types.Mixed, default: {} },
   },
   {
     timestamps: true,

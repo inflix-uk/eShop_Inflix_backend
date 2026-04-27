@@ -1,6 +1,6 @@
 const NavbarHeaderSettings = require('../models/navbarHeaderSettings');
 
-const DEFAULT_PHONE = '0333 344 8541';
+const DEFAULT_PHONE = '';
 
 function sanitizePhone(s) {
   if (s == null) return '';

@@ -6,7 +6,7 @@ const navbarHeaderSettingsSchema = new Schema(
   {
     supportPhone: {
       type: String,
-      default: '0333 344 8541',
+      default: '',
       trim: true,
       maxlength: 40,
     },

@@ -6,12 +6,12 @@ const siteThemeSchema = new Schema(
   {
     primaryColor: {
       type: String,
-      default: '#16a34a',
+      default: '',
       trim: true,
     },
     secondaryColor: {
       type: String,
-      default: '#15803d',
+      default: '',
       trim: true,
     },
     typography: {
@@ -25,12 +25,9 @@ const siteThemeSchema = new Schema(
   }
 );
 
+/** Returns persisted theme or null — do not auto-create (avoids injecting default colors into DB). */
 siteThemeSchema.statics.getTheme = async function getTheme() {
-  let doc = await this.findOne();
-  if (!doc) {
-    doc = await this.create({});
-  }
-  return doc;
+  return this.findOne();
 };
 
 module.exports = mongoose.model('SiteTheme', siteThemeSchema);

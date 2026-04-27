@@ -19,6 +19,15 @@ function normalizeHex(input) {
   return null;
 }
 
+/** `''` = no tint (transparent); `#rrggbb` = valid hex; `null` = invalid non-empty input. */
+function parseStoredColor(input) {
+  if (typeof input !== 'string') return null;
+  const v = input.trim();
+  if (!v || v.toLowerCase() === 'transparent') return '';
+  const hex = normalizeHex(v);
+  return hex === null ? null : hex;
+}
+
 function typographyPayload(themeDoc) {
   const raw =
     themeDoc.typography && typeof themeDoc.typography.toObject === 'function'
@@ -27,10 +36,25 @@ function typographyPayload(themeDoc) {
   return mergeStoredTypography(raw);
 }
 
+const EMPTY_THEME_COLORS = {
+  primaryColor: 'transparent',
+  secondaryColor: 'transparent',
+};
+
 const siteThemeController = {
   async getThemeAdmin(req, res) {
     try {
       const theme = await SiteTheme.getTheme();
+      if (!theme) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            ...EMPTY_THEME_COLORS,
+            typography: mergeStoredTypography(null),
+            updatedAt: null,
+          },
+        });
+      }
       return res.status(200).json({
         success: true,
         data: {
@@ -52,6 +76,15 @@ const siteThemeController = {
   async getThemePublic(req, res) {
     try {
       const theme = await SiteTheme.getTheme();
+      if (!theme) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            ...EMPTY_THEME_COLORS,
+            typography: mergeStoredTypography(null),
+          },
+        });
+      }
       return res.status(200).json({
         success: true,
         data: {
@@ -65,8 +98,7 @@ const siteThemeController = {
       return res.status(200).json({
         success: true,
         data: {
-          primaryColor: '#16a34a',
-          secondaryColor: '#15803d',
+          ...EMPTY_THEME_COLORS,
           typography: mergeStoredTypography(null),
         },
       });
@@ -77,6 +109,12 @@ const siteThemeController = {
   async getTypographyPublic(req, res) {
     try {
       const theme = await SiteTheme.getTheme();
+      if (!theme) {
+        return res.status(200).json({
+          success: true,
+          data: { typography: mergeStoredTypography(null) },
+        });
+      }
       return res.status(200).json({
         success: true,
         data: {
@@ -119,21 +157,34 @@ const siteThemeController = {
 
   async saveTheme(req, res) {
     try {
-      const primary = normalizeHex(req.body?.primaryColor);
-      const secondary = normalizeHex(req.body?.secondaryColor);
-      if (!primary || !secondary) {
+      const primary = parseStoredColor(String(req.body?.primaryColor ?? ''));
+      const secondary = parseStoredColor(String(req.body?.secondaryColor ?? ''));
+      if (primary === null || secondary === null) {
         return res.status(400).json({
           success: false,
-          message: 'primaryColor and secondaryColor must be valid #RRGGBB hex values',
+          message:
+            'Invalid color. Use #RRGGBB hex for both, or set both to transparent / empty to remove site tint.',
+        });
+      }
+
+      const clearing = primary === '' && secondary === '';
+      if (!clearing && (!primary || !secondary)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Set both colors to valid #RRGGBB, or set both to transparent to remove site tint.',
         });
       }
 
       let theme = await SiteTheme.findOne();
       if (!theme) {
-        theme = new SiteTheme({ primaryColor: primary, secondaryColor: secondary });
+        theme = new SiteTheme({
+          primaryColor: clearing ? '' : primary,
+          secondaryColor: clearing ? '' : secondary,
+        });
       } else {
-        theme.primaryColor = primary;
-        theme.secondaryColor = secondary;
+        theme.primaryColor = clearing ? '' : primary;
+        theme.secondaryColor = clearing ? '' : secondary;
       }
       if (!theme.typography || Object.keys(theme.typography || {}).length === 0) {
         theme.typography = mergeStoredTypography(null);

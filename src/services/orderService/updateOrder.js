@@ -7,6 +7,7 @@ const {
   getOrderConfirmationResolved,
   applyOrderConfirmationCopyToHtml,
 } = require('../email/orderEmailCopyService');
+const { buildOrderShippedEmail } = require('../email/orderShippedEmailService');
 
 
 const updateOrderService = async (id, orderData) => {
@@ -55,136 +56,23 @@ const updateOrderService = async (id, orderData) => {
 
         if (status === 'Shipped') {
             // Note: Quantities are already reduced when order status became "Pending" in createOrder.js
-            // No need to reduce again here to avoid double reduction
-
-            // Generate the list of products in HTML format with full details
-            const productList = updatedOrder.cart.map(item => {
-                // Parse the name to extract: Condition-ColorName (hex)-Storage
-                const match = item.name.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-                const condition = match ? match[1] : 'Unknown';
-                const colorName = match ? match[2] : 'Unknown';
-                const colorHex = match ? match[3] : '';
-                const storage = match ? match[4] : 'Unknown';
-                const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
-
-                return `
-                    <li style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">
-                        <strong>${item.productName}</strong><br>
-                        <span style="color: #666;">Condition: ${condition}</span><br>
-                        <span style="color: #666;">Quantity: ${item.qty}</span><br>
-                        <span style="color: #666;">Color: ${colorName}</span><br>
-                        <span style="color: #666;">Storage: ${storage}</span><br>
-                        <span style="color: #16a34a; font-weight: bold;">Item Subtotal: £${itemSubtotal}</span>
-                    </li>
-                `;
-            }).join('');
-
-            // Prepare the email template for order shipment
-            const emailTemplate = `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Order Shipped</title>
-                <style>
-                    body {
-                        font-family: Arial, sans-serif;
-                        background-color: #f5f5f5;
-                        color: #000;
-                        margin: 0;
-                        padding: 20px;
-                    }
-                    .container {
-                        background-color: #fff;
-                        padding: 20px;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                        max-width: 600px;
-                        margin: 0 auto;
-                    }
-                    .header {
-                        background-color: #16a34a;
-                        padding: 20px;
-                        text-align: center;
-                        color: #fff;
-                    }
-                    .header h1 {
-                        margin: 0;
-                    }
-                    .content {
-                        padding: 20px;
-                    }
-                    .content p {
-                        font-size: 16px;
-                        line-height: 1.5;
-                    }
-                    .tracking-link {
-                        display: inline-block;
-                        background-color: #16a34a;
-                        color: #fff !important; /* Ensure text color is white */
-                        padding: 10px 15px;
-                        border-radius: 5px;
-                        text-decoration: none;
-                    }
-                    .tracking-link:hover {
-                        background-color: #128e3b; /* Slightly darker green on hover */
-                    }
-                    .footer {
-                        background-color: #16a34a;
-                        color: #fff;
-                        padding: 20px;
-                        text-align: center;
-                        font-size: 14px;
-                    }
-                    .footer p {
-                        margin: 5px 0;
-                    }
-                </style>
-            </head>
-            <body>
-
-            <div class="container">
-                <div class="header">
-                    <h1>Order Shipped!</h1>
-                </div>
-                <div class="content">
-                    <p>Hi ${updatedOrder.shippingDetails.firstName},</p>
-                    <p>Your order has been shipped and is on its way to you. Below are the details of your shipment:</p>
-                    <p><strong>Order Number:</strong> ${updatedOrder.orderNumber}</p>
-                    <p><strong>Product(s):</strong></p>
-                    <ul>
-                        ${productList}
-                    </ul>
-                    <p><strong>Carrier:</strong> ${updatedOrder.shippingDetails.provider || 'N/A'}</p>
-                    <p><strong>Tracking Number:</strong> ${updatedOrder.shippingDetails.trackingNumber || 'N/A'}</p>
-                    <p>You can track your package using the link below:</p>
-                    <a href="https://www.royalmail.com/track-your-item#/${updatedOrder.shippingDetails.trackingNumber}" class="tracking-link">Track Your Order</a>
-                    <p>Thank you for shopping with Zexton Tech Store!</p>
-                </div>
-                <div class="footer">
-                    <p>Zexton Tech Store</p>
-                    <p>27 Church Street, St Helens, WA10 1AX</p>
-                    <p>Email: hello@zextons.co.uk | Phone: +44 333 344 8541</p>
-                </div>
-            </div>
-
-            </body>
-            </html>
-                `;
-
-
-            // Email options for the user
-            const mailOptions = {
-                to: updatedOrder.contactDetails.email, // User's email address
-                subject: 'Your Order Has Shipped!',
-                html: emailTemplate // Use the HTML template with dynamic content
-            };
-
-            sendMail(mailOptions).then(
-                (info) => console.log('Shipment email sent:', info.response || info.messageId),
-                (error) => console.log('Error sending shipment email:', error)
-            );
+            const to = updatedOrder.contactDetails?.email;
+            if (to) {
+                buildOrderShippedEmail(updatedOrder)
+                    .then(({ html, subject }) =>
+                        sendMail({
+                            to,
+                            subject,
+                            html,
+                        })
+                    )
+                    .then(
+                        (info) =>
+                            console.log('Shipment email sent:', info.response || info.messageId),
+                        (error) => console.log('Error sending shipment email:', error)
+                    )
+                    .catch((err) => console.error('Shipped email build failed:', err));
+            }
         }
 
         if (status === 'Pending') {
@@ -652,87 +540,23 @@ const bulkUpdateOrdersService = async (orderIds, updateData) => {
 
         // If status is 'Shipped', send emails for each order
         if (status === 'Shipped') {
-            // Fetch all updated orders for email sending
             const updatedOrders = await Order.find({ _id: { $in: orderIds } });
-
-            // Send emails asynchronously (don't wait for all to complete)
-            updatedOrders.forEach(order => {
-                // Generate the list of products in HTML format
-                const productList = order.cart.map(item => {
-                    const match = item.name?.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-                    const condition = match ? match[1] : 'Unknown';
-                    const colorName = match ? match[2] : 'Unknown';
-                    const storage = match ? match[4] : 'Unknown';
-                    const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
-
-                    return `
-                        <li style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">
-                            <strong>${item.productName}</strong><br>
-                            <span style="color: #666;">Condition: ${condition}</span><br>
-                            <span style="color: #666;">Quantity: ${item.qty}</span><br>
-                            <span style="color: #666;">Color: ${colorName}</span><br>
-                            <span style="color: #666;">Storage: ${storage}</span><br>
-                            <span style="color: #16a34a; font-weight: bold;">Item Subtotal: £${itemSubtotal}</span>
-                        </li>
-                    `;
-                }).join('');
-
-                const emailTemplate = `
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Order Shipped</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; background-color: #f5f5f5; color: #000; margin: 0; padding: 20px; }
-                        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); max-width: 600px; margin: 0 auto; }
-                        .header { background-color: #16a34a; padding: 20px; text-align: center; color: #fff; }
-                        .header h1 { margin: 0; }
-                        .content { padding: 20px; }
-                        .content p { font-size: 16px; line-height: 1.5; }
-                        .tracking-link { display: inline-block; background-color: #16a34a; color: #fff !important; padding: 10px 15px; border-radius: 5px; text-decoration: none; }
-                        .tracking-link:hover { background-color: #128e3b; }
-                        .footer { background-color: #16a34a; color: #fff; padding: 20px; text-align: center; font-size: 14px; }
-                        .footer p { margin: 5px 0; }
-                    </style>
-                </head>
-                <body>
-                <div class="container">
-                    <div class="header"><h1>Order Shipped!</h1></div>
-                    <div class="content">
-                        <p>Hi ${order.shippingDetails?.firstName || 'Customer'},</p>
-                        <p>Your order has been shipped and is on its way to you. Below are the details of your shipment:</p>
-                        <p><strong>Order Number:</strong> ${order.orderNumber}</p>
-                        <p><strong>Product(s):</strong></p>
-                        <ul>${productList}</ul>
-                        <p><strong>Carrier:</strong> ${order.shippingDetails?.provider || 'N/A'}</p>
-                        <p><strong>Tracking Number:</strong> ${order.shippingDetails?.trackingNumber || 'N/A'}</p>
-                        <p>You can track your package using the link below:</p>
-                        <a href="https://www.royalmail.com/track-your-item#/${order.shippingDetails?.trackingNumber || ''}" class="tracking-link">Track Your Order</a>
-                        <p>Thank you for shopping with Zexton Tech Store!</p>
-                    </div>
-                    <div class="footer">
-                        <p>Zexton Tech Store</p>
-                        <p>27 Church Street, St Helens, WA10 1AX</p>
-                        <p>Email: hello@zextons.co.uk | Phone: +44 333 344 8541</p>
-                    </div>
-                </div>
-                </body>
-                </html>
-                `;
-
-                const mailOptions = {
-                    to: order.contactDetails?.email,
-                    subject: 'Your Order Has Shipped!',
-                    html: emailTemplate
-                };
-
-                sendMail(mailOptions).then(
-                    (info) => console.log(`Shipment email sent for order ${order.orderNumber}:`, info.response || info.messageId),
-                    (error) => console.log(`Error sending shipment email for order ${order.orderNumber}:`, error)
-                );
-            });
+            await Promise.allSettled(
+                updatedOrders.map(async (order) => {
+                    try {
+                        const to = order.contactDetails?.email;
+                        if (!to) return;
+                        const { html, subject } = await buildOrderShippedEmail(order);
+                        await sendMail({ to, subject, html });
+                        console.log(`Shipment email sent for order ${order.orderNumber}`);
+                    } catch (err) {
+                        console.error(
+                            `Shipment email failed for order ${order.orderNumber}:`,
+                            err
+                        );
+                    }
+                })
+            );
         }
 
         return {

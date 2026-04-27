@@ -2,34 +2,44 @@ const {
   ORDER_CONFIRMATION_FIELD_LABELS,
   ORDER_STATUS_CUSTOMER_FIELD_LABELS,
   ORDER_STATUS_ADMIN_FIELD_LABELS,
+  ORDER_SHIPPED_CUSTOMER_FIELD_LABELS,
 } = require('../config/orderEmailTemplateDefaults');
+const OrderEmailTemplateSettings = require('../models/orderEmailTemplateSettings');
 const {
   getOrderConfirmationResolved,
   getOrderStatusCustomerResolved,
   getOrderStatusAdminResolved,
+  getOrderShippedCustomerResolved,
   saveOrderEmailSections,
+  sanitizeOrderNumberPrefix,
 } = require('../services/email/orderEmailCopyService');
 
 const orderEmailTemplatesController = {
   async getAdmin(req, res) {
     try {
-      const [confirmation, statusCustomer, statusAdmin] = await Promise.all([
+      const settingsDoc = await OrderEmailTemplateSettings.getSettings();
+      const orderNumberPrefix = sanitizeOrderNumberPrefix(settingsDoc.orderNumberPrefix);
+      const [confirmation, statusCustomer, statusAdmin, shippedCustomer] = await Promise.all([
         getOrderConfirmationResolved(),
         getOrderStatusCustomerResolved(),
         getOrderStatusAdminResolved(),
+        getOrderShippedCustomerResolved(),
       ]);
       return res.status(200).json({
         success: true,
         data: {
+          orderNumberPrefix,
           definitions: {
             orderConfirmation: { fieldLabels: ORDER_CONFIRMATION_FIELD_LABELS },
             orderStatusCustomer: { fieldLabels: ORDER_STATUS_CUSTOMER_FIELD_LABELS },
             orderStatusAdmin: { fieldLabels: ORDER_STATUS_ADMIN_FIELD_LABELS },
+            orderShippedCustomer: { fieldLabels: ORDER_SHIPPED_CUSTOMER_FIELD_LABELS },
           },
           templates: {
             orderConfirmation: confirmation.fields,
             orderStatusCustomer: statusCustomer.fields,
             orderStatusAdmin: statusAdmin.fields,
+            orderShippedCustomer: shippedCustomer.fields,
           },
         },
       });
@@ -44,20 +54,24 @@ const orderEmailTemplatesController = {
 
   async saveAdmin(req, res) {
     try {
-      await saveOrderEmailSections(req.body || {});
-      const [confirmation, statusCustomer, statusAdmin] = await Promise.all([
+      const savedDoc = await saveOrderEmailSections(req.body || {});
+      const orderNumberPrefix = sanitizeOrderNumberPrefix(savedDoc.orderNumberPrefix);
+      const [confirmation, statusCustomer, statusAdmin, shippedCustomer] = await Promise.all([
         getOrderConfirmationResolved(),
         getOrderStatusCustomerResolved(),
         getOrderStatusAdminResolved(),
+        getOrderShippedCustomerResolved(),
       ]);
       return res.status(200).json({
         success: true,
         message: 'Order email templates saved',
         data: {
+          orderNumberPrefix,
           templates: {
             orderConfirmation: confirmation.fields,
             orderStatusCustomer: statusCustomer.fields,
             orderStatusAdmin: statusAdmin.fields,
+            orderShippedCustomer: shippedCustomer.fields,
           },
         },
       });
