@@ -46,7 +46,7 @@ const footerSettingsSchema = new mongoose.Schema({
   section2: {
     title: {
       type: String,
-      default: 'Useful Links'
+      default: ''
     },
     links: [{
       text: {
@@ -72,7 +72,7 @@ const footerSettingsSchema = new mongoose.Schema({
   section3: {
     title: {
       type: String,
-      default: 'Customer Care'
+      default: ''
     },
     links: [{
       text: {
@@ -98,7 +98,7 @@ const footerSettingsSchema = new mongoose.Schema({
   section4: {
     title: {
       type: String,
-      default: 'Hot Selling Gadgets'
+      default: ''
     },
     links: [{
       text: {
@@ -124,11 +124,11 @@ const footerSettingsSchema = new mongoose.Schema({
   sectionNewsletter: {
     isEnabled: {
       type: Boolean,
-      default: true
+      default: false
     },
     heading: {
       type: String,
-      default: 'Stay in the loop',
+      default: '',
       trim: true,
       maxlength: [200, 'Newsletter heading cannot exceed 200 characters']
     },
@@ -140,13 +140,13 @@ const footerSettingsSchema = new mongoose.Schema({
     },
     placeholder: {
       type: String,
-      default: 'Enter your email',
+      default: '',
       trim: true,
       maxlength: [120, 'Placeholder cannot exceed 120 characters']
     },
     buttonLabel: {
       type: String,
-      default: 'Subscribe',
+      default: '',
       trim: true,
       maxlength: [80, 'Button label cannot exceed 80 characters']
     },
@@ -158,20 +158,19 @@ const footerSettingsSchema = new mongoose.Schema({
   bottomBar: {
     textBeforeCredit: {
       type: String,
-      default:
-        'ZEXTONS TECH STORE © {{year}} All Rights Reserved. Company Number: 10256988. Designed and Developed by ',
+      default: '',
       trim: true,
       maxlength: [2000, 'Bottom bar text cannot exceed 2000 characters']
     },
     creditLabel: {
       type: String,
-      default: 'Inflix',
+      default: '',
       trim: true,
       maxlength: [200, 'Credit label cannot exceed 200 characters']
     },
     creditUrl: {
       type: String,
-      default: 'https://inflix.co.uk',
+      default: '',
       trim: true,
       maxlength: [500, 'Credit URL cannot exceed 500 characters']
     }
@@ -179,11 +178,11 @@ const footerSettingsSchema = new mongoose.Schema({
   section5: {
     title: {
       type: String,
-      default: 'Our Climate Impact'
+      default: ''
     },
     text: {
       type: String,
-      default: 'We plant a tree with every order'
+      default: ''
     },
     ecologiLogo: {
       type: String,
@@ -191,12 +190,12 @@ const footerSettingsSchema = new mongoose.Schema({
     },
     ecologiLink: {
       type: String,
-      default: 'https://ecologi.com/zextons'
+      default: ''
     },
     paymentMethods: {
       heading: {
         type: String,
-        default: 'We accept the following payment methods:'
+        default: ''
       },
       logos: [{
         name: {

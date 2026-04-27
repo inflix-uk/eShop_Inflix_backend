@@ -17,6 +17,7 @@ const { sendMail } = require('../../utils/mailer');
 const {
   getOrderConfirmationResolved,
   applyOrderConfirmationCopyToHtml,
+  getOrderNumberPrefixForGeneration,
 } = require('../email/orderEmailCopyService');
 
 // ============================================================================
@@ -329,21 +330,35 @@ const calculateDiscount = (totalValue, coupon) => {
 };
 
 /**
- * Generate next order number for the current year
+ * Escape string for safe use inside RegExp (order number prefix).
+ */
+function escapeRegexForOrderPrefix(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Generate next order number for the current year (prefix from admin Email templates).
+ * Pattern: {PREFIX}{YYYY}{NNNN} e.g. Z20260001, A20260001
  * @returns {Promise<string>} New order number
  */
 const generateOrderNumber = async () => {
+    const prefix = await getOrderNumberPrefixForGeneration();
     const currentYear = new Date().getFullYear();
-    const lastOrder = await Order.findOne({ orderNumber: { $regex: `^Z${currentYear}` } })
-        .sort({ createdAt: -1 })
+    const yearStr = String(currentYear);
+    const headerLen = prefix.length + yearStr.length;
+    const pattern = new RegExp(`^${escapeRegexForOrderPrefix(prefix)}${yearStr}`);
+
+    const lastOrder = await Order.findOne({ orderNumber: pattern })
+        .sort({ orderNumber: -1 })
         .exec();
 
-    if (lastOrder) {
-        const lastOrderNumber = parseInt(lastOrder.orderNumber.slice(5), 10);
-        return `Z${currentYear}${String(lastOrderNumber + 1).padStart(4, '0')}`;
-    } else {
-        return `Z${currentYear}0001`;
+    if (lastOrder && lastOrder.orderNumber && lastOrder.orderNumber.length >= headerLen) {
+        const lastOrderNumber = parseInt(lastOrder.orderNumber.slice(headerLen), 10);
+        if (!Number.isNaN(lastOrderNumber)) {
+            return `${prefix}${yearStr}${String(lastOrderNumber + 1).padStart(4, '0')}`;
+        }
     }
+    return `${prefix}${yearStr}0001`;
 };
 
 // ============================================================================

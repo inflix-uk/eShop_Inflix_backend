@@ -25,93 +25,41 @@ const getDefaultFooterSettings = () => {
         link: '/'
       },
       description: '',
-      socialMedia: [
-        { name: 'Twitter', icon: null, link: 'https://twitter.com/zextons_uk', isActive: true, order: 0 },
-        { name: 'YouTube', icon: null, link: 'https://youtube.com/@zextons', isActive: true, order: 1 },
-        { name: 'Instagram', icon: null, link: 'https://instagram.com/zextons_uk', isActive: true, order: 2 },
-        { name: 'TikTok', icon: null, link: 'https://tiktok.com/@zextons_uk', isActive: true, order: 3 },
-        { name: 'Facebook', icon: null, link: 'https://facebook.com/zextons', isActive: true, order: 4 },
-        { name: 'Pinterest', icon: null, link: 'https://pinterest.com/zextons', isActive: true, order: 5 }
-      ]
+      socialMedia: []
     },
     section2: {
-      title: 'Useful Links',
-      links: [
-        { text: 'Read Our Blogs', link: '/blogs', isActive: true, order: 0 },
-        { text: 'Sell Your Mobile', link: '/sell-mobile', isActive: true, order: 1 },
-        { text: 'Trade In', link: '/trade-in', isActive: true, order: 2 },
-        { text: 'Refurbished Phones', link: '/refurbished-phones', isActive: true, order: 3 },
-        { text: 'Mobile Accessories', link: '/accessories', isActive: true, order: 4 },
-        { text: 'Tablets & iPads', link: '/tablets', isActive: true, order: 5 },
-        { text: 'Laptops & MacBooks', link: '/laptops', isActive: true, order: 6 },
-        { text: 'Gaming Consoles', link: '/gaming', isActive: true, order: 7 },
-        { text: 'Smart Watches', link: '/smartwatches', isActive: true, order: 8 },
-        { text: 'Deals & Discounts', link: '/deals-and-discounts', isActive: true, order: 9 }
-      ]
+      title: '',
+      links: []
     },
     section3: {
-      title: 'Customer Care',
-      links: [
-        { text: 'Terms & Conditions', link: '/terms-and-conditions', isActive: true, order: 0 },
-        { text: 'Trade-in Terms & Conditions', link: '/trade-in-terms-and-conditions', isActive: true, order: 1 },
-        { text: 'Privacy Policy', link: '/privacy-policy', isActive: true, order: 2 },
-        { text: 'Deals & Discounts', link: '/deals-and-discounts', isActive: true, order: 3 },
-        { text: 'Returns & Refund Policy', link: '/refund-and-return-policy', isActive: true, order: 4 },
-        { text: 'Shipping Policy', link: '/shipping-policy', isActive: true, order: 5 },
-        { text: 'FAQs', link: '/faqs', isActive: true, order: 6 },
-        { text: 'Contact Us', link: '/contact-us', isActive: true, order: 7 },
-        { text: 'About Us', link: '/about-zextons', isActive: true, order: 8 },
-        { text: 'Subscribe Our Newsletter', link: '/subscribe-newsletter', isActive: true, order: 9 }
-      ]
+      title: '',
+      links: []
     },
     sectionNewsletter: {
-      isEnabled: true,
-      heading: 'Stay in the loop',
-      description: 'Get deals and product news straight to your inbox.',
-      placeholder: 'Enter your email',
-      buttonLabel: 'Subscribe',
+      isEnabled: false,
+      heading: '',
+      description: '',
+      placeholder: '',
+      buttonLabel: '',
       imageUrl: ''
     },
     bottomBar: {
-      textBeforeCredit:
-        'ZEXTONS TECH STORE © {{year}} All Rights Reserved. Company Number: 10256988. Designed and Developed by ',
-      creditLabel: 'Inflix',
-      creditUrl: 'https://inflix.co.uk'
+      textBeforeCredit: '',
+      creditLabel: '',
+      creditUrl: ''
     },
     section4: {
-      title: 'Hot Selling Gadgets',
-      links: [
-        { text: 'iPhone 15 Pro Max', link: '/products/iphone-15-pro-max', isActive: true, order: 0 },
-        { text: 'Samsung Galaxy S24 Ultra', link: '/products/samsung-galaxy-s24-ultra', isActive: true, order: 1 },
-        { text: 'iPad Pro 12.9"', link: '/products/ipad-pro-12-9', isActive: true, order: 2 },
-        { text: 'MacBook Pro M3', link: '/products/macbook-pro-m3', isActive: true, order: 3 },
-        { text: 'AirPods Pro 2', link: '/products/airpods-pro-2', isActive: true, order: 4 },
-        { text: 'Sony PlayStation 5', link: '/products/ps5', isActive: true, order: 5 },
-        { text: 'Xbox Series X', link: '/products/xbox-series-x', isActive: true, order: 6 },
-        { text: 'Apple Watch Series 9', link: '/products/apple-watch-series-9', isActive: true, order: 7 },
-        { text: 'Samsung Galaxy Watch 6', link: '/products/samsung-galaxy-watch-6', isActive: true, order: 8 },
-        { text: 'Nintendo Switch OLED', link: '/products/nintendo-switch-oled', isActive: true, order: 9 },
-        { text: 'Google Pixel 8 Pro', link: '/products/google-pixel-8-pro', isActive: true, order: 10 },
-        { text: 'OnePlus 12', link: '/products/oneplus-12', isActive: true, order: 11 }
-      ]
+      title: '',
+      links: []
     },
     section5: {
-      title: 'Our Climate Impact',
-      text: 'We plant a tree with every order',
+      title: '',
+      text: '',
       ecologiLogo: null,
-      ecologiLink: 'https://ecologi.com/zextons',
+      ecologiLink: '',
       paymentMethods: {
-        heading: 'We accept the following payment methods:',
-        logos: [
-          { name: 'Visa', image: null, isActive: true, order: 0 },
-          { name: 'Mastercard', image: null, isActive: true, order: 1 },
-          { name: 'American Express', image: null, isActive: true, order: 2 },
-          { name: 'PayPal', image: null, isActive: true, order: 3 },
-          { name: 'Apple Pay', image: null, isActive: true, order: 4 },
-          { name: 'Google Pay', image: null, isActive: true, order: 5 },
-          { name: 'Stripe', image: null, isActive: true, order: 6 },
-          { name: 'Klarna', image: null, isActive: true, order: 7 }
-        ]
+        heading: '',
+        logos: []
       }
     }
   };
@@ -240,26 +188,78 @@ const saveFooterSettings = async (req, res) => {
         message: 'At least one section must be provided'
       });
     }
-    
-    // Prepare update data
-    const updateData = {};
-    if (section1) updateData.section1 = section1;
-    if (section2) updateData.section2 = section2;
-    if (section3) updateData.section3 = section3;
-    if (section4) updateData.section4 = section4;
-    if (section5) updateData.section5 = section5;
-    if (sectionNewsletter) updateData.sectionNewsletter = sectionNewsletter;
-    if (bottomBar) updateData.bottomBar = bottomBar;
-    
-    // Use findOneAndUpdate with upsert to create or update
+
+    const defaults = getDefaultFooterSettings();
+    const existing = await FooterSettings.findOne().lean();
+    const prev = existing || {};
+
+    const merged = {
+      section1: {
+        ...defaults.section1,
+        ...(prev.section1 || {}),
+        ...(section1 || {}),
+      },
+      section2: {
+        ...defaults.section2,
+        ...(prev.section2 || {}),
+        ...(section2 || {}),
+      },
+      section3: {
+        ...defaults.section3,
+        ...(prev.section3 || {}),
+        ...(section3 || {}),
+      },
+      section4: {
+        ...defaults.section4,
+        ...(prev.section4 || {}),
+        ...(section4 || {}),
+      },
+      section5: {
+        ...defaults.section5,
+        ...(prev.section5 || {}),
+        ...(section5 || {}),
+        paymentMethods: {
+          ...defaults.section5.paymentMethods,
+          ...((prev.section5 && prev.section5.paymentMethods) || {}),
+          ...((section5 && section5.paymentMethods) || {}),
+          logos:
+            (section5 &&
+              section5.paymentMethods &&
+              section5.paymentMethods.logos) ||
+            (prev.section5 &&
+              prev.section5.paymentMethods &&
+              prev.section5.paymentMethods.logos) ||
+            defaults.section5.paymentMethods.logos,
+        },
+      },
+      sectionNewsletter: {
+        ...defaults.sectionNewsletter,
+        ...(prev.sectionNewsletter || {}),
+        ...(sectionNewsletter || {}),
+      },
+      bottomBar: {
+        ...defaults.bottomBar,
+        ...(prev.bottomBar || {}),
+        ...(bottomBar || {}),
+      },
+    };
+
+    if (merged.section1.logo != null && typeof merged.section1.logo === 'object') {
+      merged.section1.logo = {
+        ...defaults.section1.logo,
+        ...((prev.section1 && prev.section1.logo) || {}),
+        ...merged.section1.logo,
+      };
+    }
+
     const settings = await FooterSettings.findOneAndUpdate(
-      {}, // Empty filter means find any document
-      updateData,
-      { 
-        new: true, 
-        upsert: true, 
+      {},
+      { $set: merged },
+      {
+        new: true,
+        upsert: true,
         runValidators: true,
-        setDefaultsOnInsert: true
+        setDefaultsOnInsert: true,
       }
     );
     
@@ -315,17 +315,54 @@ const updateFooterSection = async (req, res) => {
       });
     }
     
-    // Update the specific section
-    const updateQuery = { [`${section}`]: sectionData };
-    
+    const defaults = getDefaultFooterSettings();
+    const existing = await FooterSettings.findOne().lean();
+    const prev = existing || {};
+
+    let mergedSection;
+    if (section === 'section5') {
+      mergedSection = {
+        ...defaults.section5,
+        ...(prev.section5 || {}),
+        ...sectionData,
+        paymentMethods: {
+          ...defaults.section5.paymentMethods,
+          ...((prev.section5 && prev.section5.paymentMethods) || {}),
+          ...((sectionData && sectionData.paymentMethods) || {}),
+          logos:
+            (sectionData.paymentMethods && sectionData.paymentMethods.logos) ||
+            (prev.section5 &&
+              prev.section5.paymentMethods &&
+              prev.section5.paymentMethods.logos) ||
+            defaults.section5.paymentMethods.logos,
+        },
+      };
+    } else {
+      mergedSection = {
+        ...defaults[section],
+        ...(prev[section] || {}),
+        ...sectionData,
+      };
+    }
+
+    if (section === 'section1' && mergedSection.logo != null && typeof mergedSection.logo === 'object') {
+      mergedSection.logo = {
+        ...defaults.section1.logo,
+        ...((prev.section1 && prev.section1.logo) || {}),
+        ...mergedSection.logo,
+      };
+    }
+
+    const updateQuery = { [`${section}`]: mergedSection };
+
     const settings = await FooterSettings.findOneAndUpdate(
       {},
-      updateQuery,
-      { 
-        new: true, 
-        upsert: true, 
+      { $set: updateQuery },
+      {
+        new: true,
+        upsert: true,
         runValidators: true,
-        setDefaultsOnInsert: true
+        setDefaultsOnInsert: true,
       }
     );
     

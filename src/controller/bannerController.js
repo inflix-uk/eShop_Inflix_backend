@@ -1,6 +1,7 @@
 // controller/bannerController.js
 const db = require('../../connections/mongo'); // Ensure MongoDB connection is established
 const Banner = require('../models/banner');
+const HeroSocialSettings = require('../models/heroSocialSettings');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -392,6 +393,33 @@ function ensureColorFieldsInResponse(banner) {
     return banner;
 }
 
+function emptyHeroSocialPayload() {
+    return {
+        followHeading: '',
+        facebookUrl: '',
+        twitterUrl: '',
+        youtubeUrl: '',
+        instagramUrl: ''
+    };
+}
+
+async function getHeroSocialPayloadForPublic() {
+    try {
+        const doc = await HeroSocialSettings.findOne().lean();
+        if (!doc) return emptyHeroSocialPayload();
+        return {
+            followHeading: (doc.followHeading || '').trim(),
+            facebookUrl: (doc.facebookUrl || '').trim(),
+            twitterUrl: (doc.twitterUrl || '').trim(),
+            youtubeUrl: (doc.youtubeUrl || '').trim(),
+            instagramUrl: (doc.instagramUrl || '').trim()
+        };
+    } catch (e) {
+        console.error('getHeroSocialPayloadForPublic:', e);
+        return emptyHeroSocialPayload();
+    }
+}
+
 // ============================================================================
 // CONTROLLER METHODS
 // ============================================================================
@@ -448,10 +476,13 @@ const bannerController = {
             // Ensure color fields are present in response (for backward compatibility)
             const bannersWithColors = banners.map(banner => ensureColorFieldsInResponse(banner));
             
+            const heroSocial = await getHeroSocialPayloadForPublic();
+
             res.status(200).json({
                 success: true,
                 status: 200,
-                banners: bannersWithColors
+                banners: bannersWithColors,
+                heroSocial
             });
         } catch (error) {
             console.error('Error getting active banners:', error);
@@ -1061,6 +1092,97 @@ const bannerController = {
                 success: false,
                 status: 500,
                 message: 'Failed to reorder banners',
+                error: error.message
+            });
+        }
+    },
+
+    /**
+     * GET /get/admin/banners/hero-social — hero follow-us links (admin)
+     */
+    getHeroSocialAdmin: async (req, res) => {
+        try {
+            const doc = await HeroSocialSettings.findOne().lean();
+            const data = emptyHeroSocialPayload();
+            if (doc) {
+                for (const k of Object.keys(data)) {
+                    if (typeof doc[k] === 'string') data[k] = doc[k].trim();
+                }
+            }
+            res.status(200).json({
+                success: true,
+                status: 200,
+                data
+            });
+        } catch (error) {
+            console.error('Error getHeroSocialAdmin:', error);
+            res.status(500).json({
+                success: false,
+                status: 500,
+                message: 'Failed to load hero social settings',
+                error: error.message
+            });
+        }
+    },
+
+    /**
+     * PUT /update/banners/hero-social — upsert hero follow-us links (admin)
+     */
+    updateHeroSocial: async (req, res) => {
+        try {
+            const body = req.body && typeof req.body === 'object' ? req.body : {};
+            const allowed = ['followHeading', 'facebookUrl', 'twitterUrl', 'youtubeUrl', 'instagramUrl'];
+            const $set = {};
+
+            for (const key of allowed) {
+                if (body[key] === undefined) continue;
+                const raw = typeof body[key] === 'string' ? body[key].trim() : '';
+                if (key === 'followHeading') {
+                    $set.followHeading = sanitizeText(raw).slice(0, 120);
+                    continue;
+                }
+                if (!raw) {
+                    $set[key] = '';
+                    continue;
+                }
+                if (!isValidUrl(raw)) {
+                    return res.status(400).json({
+                        success: false,
+                        status: 400,
+                        message: `Invalid URL for ${key}`
+                    });
+                }
+                $set[key] = raw;
+            }
+
+            if (Object.keys($set).length === 0) {
+                const current = await getHeroSocialPayloadForPublic();
+                return res.status(200).json({
+                    success: true,
+                    status: 200,
+                    message: 'No changes',
+                    data: current
+                });
+            }
+
+            const doc = await HeroSocialSettings.findOneAndUpdate(
+                {},
+                { $set },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            ).lean();
+
+            res.status(200).json({
+                success: true,
+                status: 200,
+                message: 'Hero social links saved',
+                data: doc
+            });
+        } catch (error) {
+            console.error('Error updateHeroSocial:', error);
+            res.status(500).json({
+                success: false,
+                status: 500,
+                message: 'Failed to save hero social settings',
                 error: error.message
             });
         }

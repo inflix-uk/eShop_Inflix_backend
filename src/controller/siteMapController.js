@@ -9,6 +9,8 @@ const productCategory = require("../models/productCategories");
 const Newsletter = require("../models/newsletter");
 const crypto = require("crypto");
 
+const SITEMAP_ORIGIN = "https://aromadesire.com";
+
 const siteMapController = {
   createSitemap: async (req, res) => {
     try {
@@ -22,7 +24,7 @@ const siteMapController = {
         if (product.productType?.type === "single") {
           return [
             {
-              url: `https://zextons.co.uk/products/${productNameSlug}`,
+              url: `${SITEMAP_ORIGIN}/products/${productNameSlug}`,
               changefreq: "weekly",
               priority: 0.7,
             },
@@ -30,7 +32,7 @@ const siteMapController = {
         } else {
           // Add base product URL first
           const baseUrl = {
-            url: `https://zextons.co.uk/products/${productNameSlug}`,
+            url: `${SITEMAP_ORIGIN}/products/${productNameSlug}`,
             changefreq: "weekly",
             priority: 0.8,
           };
@@ -53,7 +55,7 @@ const siteMapController = {
 
             const fullProductNameSlug = `${productNameSlug}-${variantSlug}`;
             return {
-              url: `https://zextons.co.uk/products/${fullProductNameSlug}`,
+              url: `${SITEMAP_ORIGIN}/products/${fullProductNameSlug}`,
               changefreq: "weekly",
               priority: 0.7,
             };
@@ -67,7 +69,7 @@ const siteMapController = {
       const categoryUrls = categories.map((category) => {
         const categorySlug = category.name.replace(/\s+/g, "-");
         return {
-          url: `https://zextons.co.uk/categories/${categorySlug}`,
+          url: `${SITEMAP_ORIGIN}/categories/${categorySlug}`,
           changefreq: "monthly",
           priority: 0.6,
         };
@@ -78,7 +80,7 @@ const siteMapController = {
           return category.subCategory.map((subCat) => {
             const subCatSlug = subCat.replace(/\s+/g, "-");
             return {
-              url: `https://zextons.co.uk/subcategory/${subCatSlug}`,
+              url: `${SITEMAP_ORIGIN}/subcategory/${subCatSlug}`,
               changefreq: "monthly",
               priority: 0.6,
             };
@@ -90,7 +92,7 @@ const siteMapController = {
       const blogUrls = blogs.map((blog) => {
         const blogSlug = blog.name.replace(/\s+/g, "-").toLowerCase();
         return {
-          url: `https://zextons.co.uk/blogs/${blogSlug}`,
+          url: `${SITEMAP_ORIGIN}/blogs/${blogSlug}`,
           changefreq: "monthly",
           priority: 0.7,
         };
@@ -98,7 +100,7 @@ const siteMapController = {
       const newblogUrls = newblogs.map((newblog) => {
         const blogSlug = newblog.slug;
         return {
-          url: `https://zextons.co.uk/blogs/new/${blogSlug}`, // Correct double slash in URL
+          url: `${SITEMAP_ORIGIN}/blogs/new/${blogSlug}`,
           changefreq: "monthly",
           priority: 0.7,
         };

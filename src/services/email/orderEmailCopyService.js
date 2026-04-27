@@ -3,10 +3,21 @@ const {
   ORDER_CONFIRMATION_DEFAULTS,
   ORDER_STATUS_CUSTOMER_DEFAULTS,
   ORDER_STATUS_ADMIN_DEFAULTS,
+  ORDER_SHIPPED_CUSTOMER_DEFAULTS,
 } = require('../../config/orderEmailTemplateDefaults');
 
 const MAX_LEN = 20000;
 const SUBJECT_MAX = 500;
+
+/** Allowed characters: A–Z, 0–9; max length 4. Empty / invalid falls back to Z. */
+function sanitizeOrderNumberPrefix(raw) {
+  const s = String(raw == null ? '' : raw)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const p = s.slice(0, 4);
+  return p || 'Z';
+}
 
 function escapeHtml(str) {
   return String(str)
@@ -56,6 +67,13 @@ function applyOrderStatusCopyToHtml(html, fields) {
 }
 
 /**
+ * Replace `{{SH_*}}` placeholders in order shipped HTML.
+ */
+function applyOrderShippedCopyToHtml(html, fields) {
+  return applyTokensToHtml(html, fields, 'SH');
+}
+
+/**
  * @param {string} pattern
  * @param {{ orderNumber?: string, status?: string }} vars
  */
@@ -84,6 +102,12 @@ async function getOrderStatusCustomerResolved() {
 async function getOrderStatusAdminResolved() {
   const doc = await OrderEmailTemplateSettings.getSettings();
   const fields = mergeSection(ORDER_STATUS_ADMIN_DEFAULTS, doc.orderStatusAdmin);
+  return { fields };
+}
+
+async function getOrderShippedCustomerResolved() {
+  const doc = await OrderEmailTemplateSettings.getSettings();
+  const fields = mergeSection(ORDER_SHIPPED_CUSTOMER_DEFAULTS, doc.orderShippedCustomer);
   return { fields };
 }
 
@@ -137,19 +161,56 @@ async function saveOrderEmailSections(body) {
     doc.orderStatusAdmin = next;
   }
 
+  if (body.orderShippedCustomer && typeof body.orderShippedCustomer === 'object') {
+    const next = {
+      ...(doc.orderShippedCustomer && typeof doc.orderShippedCustomer === 'object'
+        ? doc.orderShippedCustomer
+        : {}),
+    };
+    for (const key of Object.keys(ORDER_SHIPPED_CUSTOMER_DEFAULTS)) {
+      if (!Object.prototype.hasOwnProperty.call(body.orderShippedCustomer, key)) continue;
+      const v = body.orderShippedCustomer[key];
+      if (v == null) continue;
+      if (typeof v !== 'string') throw new Error(`orderShippedCustomer.${key} must be a string`);
+      next[key] = slice(key, v);
+    }
+    doc.orderShippedCustomer = next;
+  }
+
+  if (body.orderNumberPrefix !== undefined && body.orderNumberPrefix !== null) {
+    if (typeof body.orderNumberPrefix !== 'string') {
+      throw new Error('orderNumberPrefix must be a string');
+    }
+    doc.orderNumberPrefix = sanitizeOrderNumberPrefix(body.orderNumberPrefix);
+  }
+
   await doc.save();
   return doc;
+}
+
+/**
+ * Prefix used when generating new order numbers (createOrder).
+ * @returns {Promise<string>}
+ */
+async function getOrderNumberPrefixForGeneration() {
+  const doc = await OrderEmailTemplateSettings.getSettings();
+  return sanitizeOrderNumberPrefix(doc.orderNumberPrefix);
 }
 
 module.exports = {
   applyOrderConfirmationCopyToHtml,
   applyOrderStatusCopyToHtml,
+  applyOrderShippedCopyToHtml,
   interpolateSubjectPattern,
   getOrderConfirmationResolved,
   getOrderStatusCustomerResolved,
   getOrderStatusAdminResolved,
+  getOrderShippedCustomerResolved,
   saveOrderEmailSections,
+  sanitizeOrderNumberPrefix,
+  getOrderNumberPrefixForGeneration,
   ORDER_CONFIRMATION_DEFAULTS,
   ORDER_STATUS_CUSTOMER_DEFAULTS,
   ORDER_STATUS_ADMIN_DEFAULTS,
+  ORDER_SHIPPED_CUSTOMER_DEFAULTS,
 };

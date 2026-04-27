@@ -9,6 +9,8 @@ const productCategory = require("../models/productCategories");
 const Newsletter = require("../models/newsletter");
 const crypto = require("crypto");
 
+const SITEMAP_ORIGIN = "https://aromadesire.com";
+
 const optimizedSitemapController = {
   createSitemapOptimized: async (req, res) => {
     const startTime = Date.now();
@@ -40,7 +42,7 @@ const optimizedSitemapController = {
       const categoryUrls = categories.map((category) => {
         const categorySlug = category.name.replace(/\s+/g, "-");
         return {
-          url: `https://zextons.co.uk/categories/${categorySlug}`,
+          url: `${SITEMAP_ORIGIN}/categories/${categorySlug}`,
           changefreq: "monthly",
           priority: 0.6,
         };
@@ -52,7 +54,7 @@ const optimizedSitemapController = {
           return category.subCategory.slice(0, 20).map((subCat) => {
             const subCatSlug = subCat.replace(/\s+/g, "-");
             return {
-              url: `https://zextons.co.uk/subcategory/${subCatSlug}`,
+              url: `${SITEMAP_ORIGIN}/subcategory/${subCatSlug}`,
               changefreq: "monthly",
               priority: 0.6,
             };
@@ -79,7 +81,7 @@ const optimizedSitemapController = {
         const blogUrls = blogs.map((blog) => {
           const blogSlug = blog.name.replace(/\s+/g, "-").toLowerCase();
           return {
-            url: `https://zextons.co.uk/blogs/${blogSlug}`,
+            url: `${SITEMAP_ORIGIN}/blogs/${blogSlug}`,
             changefreq: "monthly",
             priority: 0.7,
           };
@@ -105,7 +107,7 @@ const optimizedSitemapController = {
         const newblogUrls = newblogs.map((newblog) => {
           const blogSlug = newblog.slug;
           return {
-            url: `https://zextons.co.uk/blogs/new/${blogSlug}`,
+            url: `${SITEMAP_ORIGIN}/blogs/new/${blogSlug}`,
             changefreq: "monthly",
             priority: 0.7,
           };
@@ -135,7 +137,7 @@ const optimizedSitemapController = {
           const productNameSlug = (product.producturl || "").replace(/-\d{13}$/, "");
           if (product.productType?.type === "single") {
             productUrls.push({
-              url: `https://zextons.co.uk/products/${productNameSlug}`,
+              url: `${SITEMAP_ORIGIN}/products/${productNameSlug}`,
               changefreq: "weekly",
               priority: 0.7,
             });
@@ -161,7 +163,7 @@ const optimizedSitemapController = {
 
               const fullProductNameSlug = `${productNameSlug}-${variantSlug}`;
               productUrls.push({
-                url: `https://zextons.co.uk/products/${fullProductNameSlug}`,
+                url: `${SITEMAP_ORIGIN}/products/${fullProductNameSlug}`,
                 changefreq: "weekly",
                 priority: 0.7,
               });
