@@ -22,6 +22,7 @@ const dealsModalSettingsSchema = new Schema(
     discountViewDescription: { type: String, trim: true },
     discountViewLabel: { type: String, trim: true },
     discountViewThankYou: { type: String, trim: true },
+    privacyDisclaimerText: { type: String, trim: true },
     copyCodeButtonText: { type: String, trim: true },
     copiedButtonText: { type: String, trim: true },
     rightPanelImageAlt: { type: String, trim: true },

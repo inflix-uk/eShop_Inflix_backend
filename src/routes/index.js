@@ -42,6 +42,7 @@ const smtpSettingsController = require('../controller/smtpSettingsController');
 const publicContactController = require('../controller/publicContactController');
 const contactUsWidgetController = require('../controller/contactUsWidgetController');
 const shippingSettingsController = require('../controller/shippingSettingsController');
+const robotsSettingsController = require('../controller/robotsSettingsController');
 const homepageDataController = require('../controller/homepageDataController');
 const homepageNavLinksController = require('../controller/homepageNavLinksController');
 
@@ -807,6 +808,13 @@ const siteScriptsController = require('../controller/siteScriptsController');
 router.get('/site-scripts', requireAdmin, siteScriptsController.getSiteScriptsSettings);
 router.get('/site-scripts/public', siteScriptsController.getSiteScriptsSettingsPublic);
 router.post('/site-scripts', requireAdmin, siteScriptsController.saveSiteScriptsSettings);
+
+// ========================================================================
+// ROBOTS.TXT SETTINGS (singleton)
+// ========================================================================
+router.get('/robots-settings/public', robotsSettingsController.getRobotsSettingsPublic);
+router.get('/robots-settings', requireAdmin, robotsSettingsController.getRobotsSettingsAdmin);
+router.post('/robots-settings', requireAdmin, robotsSettingsController.saveRobotsSettings);
 
 // ========================================================================
 // SITE-WIDE SCHEMA (JSON-LD structured data on every page)
