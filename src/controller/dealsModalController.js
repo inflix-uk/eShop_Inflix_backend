@@ -115,25 +115,26 @@ const DEFAULT_CONTENT = {
   enabled: true,
   openDelayMs: 10000,
   countdownEndsAt: new Date('2026-01-31T00:00:00.000Z'),
-  discountCode: 'HOTDEALS',
-  collapsedBannerText: 'HOT UK DEALS',
-  badgeText: '🔥 HOT UK DEALS',
-  headline: 'HOT UK DEALS - EXCLUSIVE SAVINGS!',
-  descriptionPrimary:
-    'Discover the hottest UK deals with up to 70% OFF on premium tech products.',
-  descriptionSecondary: 'Smart tech, smart gifts, smart savings – only at Zextons.',
-  countdownLabel: 'Sale Ends In:',
-  emailPlaceholder: 'Enter Your Email',
-  submitButtonText: 'Beat The Clock And Sign Me Up',
-  successSubscribeMessage: 'You have successfully subscribed!',
-  discountViewSuccessBadge: 'Successfully Subscribed!',
-  discountViewHeadline: 'Your Discount Code',
-  discountViewDescription: 'Use this code at checkout to claim your exclusive discount!',
-  discountViewLabel: 'Use Discount Code:',
-  discountViewThankYou: 'Thank you for subscribing! Enjoy your savings.',
+  discountCode: 'LOREM123',
+  collapsedBannerText: 'Lorem ipsum',
+  badgeText: 'Lorem ipsum',
+  headline: 'Lorem ipsum dolor sit amet',
+  descriptionPrimary: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.',
+  descriptionSecondary: 'Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+  countdownLabel: 'Lorem countdown',
+  emailPlaceholder: 'Lorem ipsum email',
+  submitButtonText: 'Lorem ipsum button',
+  successSubscribeMessage: 'Lorem ipsum success message.',
+  discountViewSuccessBadge: 'Lorem ipsum',
+  discountViewHeadline: 'Lorem ipsum heading',
+  discountViewDescription: 'Lorem ipsum description for discount view.',
+  discountViewLabel: 'Lorem code label',
+  discountViewThankYou: 'Lorem ipsum thank you message.',
+  privacyDisclaimerText:
+    'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Please review our',
   copyCodeButtonText: 'Copy Code',
   copiedButtonText: 'Copied!',
-  rightPanelImageAlt: 'Hot UK Deals',
+  rightPanelImageAlt: 'Lorem ipsum image',
   bannerImageUrl: '',
 };
 
@@ -174,6 +175,8 @@ function mergeWithDefaults(doc) {
     discountViewLabel: sanitizeText(d.discountViewLabel) || DEFAULT_CONTENT.discountViewLabel,
     discountViewThankYou:
       sanitizeText(d.discountViewThankYou) || DEFAULT_CONTENT.discountViewThankYou,
+    privacyDisclaimerText:
+      sanitizeText(d.privacyDisclaimerText) || DEFAULT_CONTENT.privacyDisclaimerText,
     copyCodeButtonText: sanitizeText(d.copyCodeButtonText) || DEFAULT_CONTENT.copyCodeButtonText,
     copiedButtonText: sanitizeText(d.copiedButtonText) || DEFAULT_CONTENT.copiedButtonText,
     rightPanelImageAlt:
@@ -322,6 +325,8 @@ const saveDealsModal = async (req, res) => {
         sanitizeText(payload.discountViewLabel) || DEFAULT_CONTENT.discountViewLabel,
       discountViewThankYou:
         sanitizeText(payload.discountViewThankYou) || DEFAULT_CONTENT.discountViewThankYou,
+      privacyDisclaimerText:
+        sanitizeText(payload.privacyDisclaimerText) || DEFAULT_CONTENT.privacyDisclaimerText,
       copyCodeButtonText,
       copiedButtonText,
       rightPanelImageAlt:
