@@ -1,6 +1,7 @@
 // controller/adminProductController.js
 const db = require("../../connections/mongo");
 const Product = require("../models/product");
+const GroupProductPrice = require("../models/groupProductPrice");
 const productCategory = require("../models/productCategories");
 
 const bcrypt = require("bcrypt");
@@ -76,14 +77,96 @@ const adminProductController = {
 
     getAllActiveProduct: async (req, res) => {
         try {
-            // const products = await Product.find();
-            const products = await Product.find({ status: 'true' });
+            const resolveOriginalPrice = (product) => {
+                const directPrice = Number(product?.price);
+                if (Number.isFinite(directPrice) && directPrice > 0) return directPrice;
+
+                const variants = Array.isArray(product?.variantValues)
+                    ? product.variantValues
+                    : [];
+                for (const v of variants) {
+                    const sale = Number(v?.salePrice);
+                    if (Number.isFinite(sale) && sale > 0) return sale;
+                    const regular = Number(v?.Price);
+                    if (Number.isFinite(regular) && regular > 0) return regular;
+                }
+
+                const minSale = Number(product?.minSalePrice);
+                if (Number.isFinite(minSale) && minSale > 0) return minSale;
+                const minPrice = Number(product?.minPrice);
+                if (Number.isFinite(minPrice) && minPrice > 0) return minPrice;
+
+                return 0;
+            };
+
+            const products = await Product.find({ status: 'true' }).lean();
             
             if (!products) {
                 return res.json({ message: 'Products not found', status: 404 });
             }
 
-            return res.json({ message: 'Products retrieved', products, status: 201 });
+            const scopedGroupId = req.pricingScope?.groupId || null;
+            if (scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)) {
+                const overrides = await GroupProductPrice.find({ groupId: scopedGroupId })
+                    .select('productId price')
+                    .lean();
+                console.log('[getAllActiveProduct] group pricing mode', {
+                    scopedGroupId,
+                    overridesCount: overrides.length,
+                    productsCount: products.length,
+                });
+                const normalizeId = (value) => {
+                    if (!value) return "";
+                    if (typeof value === "string") return value.trim().toLowerCase();
+                    if (typeof value === "object" && value._id) {
+                        return String(value._id).trim().toLowerCase();
+                    }
+                    return String(value).trim().toLowerCase();
+                };
+
+                // Keep the latest valid override per product id.
+                const overrideMap = new Map();
+                for (const item of overrides) {
+                    const key = normalizeId(item.productId);
+                    const numericPrice = Number(item.price);
+                    if (!key || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
+                    overrideMap.set(key, numericPrice);
+                }
+
+                const productsWithResolvedPrice = products.map((product) => {
+                    const originalPrice = resolveOriginalPrice(product);
+                    const groupPrice = overrideMap.get(normalizeId(product._id));
+                    const resolvedPrice =
+                        Number.isFinite(groupPrice) && groupPrice > 0 ? groupPrice : originalPrice;
+
+                    return {
+                        ...product,
+                        // Standardized fields for pricing-group consumers
+                        price: resolvedPrice,
+                        originalPrice,
+                        groupPrice: Number.isFinite(groupPrice) ? groupPrice : null,
+                    };
+                });
+
+                return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
+            }
+
+            console.log('[getAllActiveProduct] default pricing mode', {
+                scopedGroupId,
+                productsCount: products.length,
+            });
+
+            const productsWithStandardPrice = products.map((product) => {
+                const originalPrice = resolveOriginalPrice(product);
+                return {
+                    ...product,
+                    price: originalPrice,
+                    originalPrice,
+                    groupPrice: null,
+                };
+            });
+
+            return res.json({ message: 'Products retrieved', products: productsWithStandardPrice, status: 201 });
         } catch (error) {
             console.error('Error getting products:', error);
             return res.json({ message: 'Failed to get products', status: 500 });

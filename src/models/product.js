@@ -34,6 +34,12 @@ const relatedProductSchema = new Schema({
     }
 });
 const productSchema = new Schema({
+    storeId: {
+        type: Schema.Types.ObjectId,
+        ref: 'Store',
+        index: true,
+        default: null
+    },
     name: {
         type: String
         // required: true

@@ -13,6 +13,8 @@ const ReturnOrder = require("../models/returnOrder");
 const RequestOrder = require("../models/requestOrder");
 const MediaFile = require("../models/mediaFile");
 const blobStorage = require("../utils/blobStorage");
+const spacesStorage = require("../utils/uploadToSpaces");
+const { resolveOrderLineImageUrlServer } = require("../utils/orderLineImageUrlServer");
 
 const crypto = require("crypto");
 
@@ -901,6 +903,446 @@ const statsController = {
         }
     },
 
+    /**
+     * Admin Media — DigitalOcean Spaces / S3-compatible listing (separate from Vercel Blob tab).
+     * Same response shape as `getFiles` blob branch: `{ success, status, contents: [{ name, contents }] }`.
+     */
+    getFilesSpaces: async (req, res, next) => {
+        try {
+            if (!spacesStorage.isSpacesListConfigured()) {
+                return res.status(200).json({
+                    success: true,
+                    status: 200,
+                    contents: [],
+                    spacesConfigured: false,
+                    message:
+                        "Spaces/S3 is not configured (set DO_SPACES_BUCKET, DO_SPACES_KEY, DO_SPACES_SECRET, DO_SPACES_ENDPOINT).",
+                });
+            }
+
+            let titleMap = {};
+            let altTextMap = {};
+            let idMap = {};
+            try {
+                const allMediaFiles = await MediaFile.find(
+                    {},
+                    { filePath: 1, title: 1, altText: 1, _id: 1 }
+                );
+                allMediaFiles.forEach((mediaFile) => {
+                    if (mediaFile.title) {
+                        titleMap[mediaFile.filePath] = mediaFile.title;
+                    }
+                    if (mediaFile.altText) {
+                        altTextMap[mediaFile.filePath] = mediaFile.altText;
+                    }
+                    if (mediaFile._id) {
+                        idMap[mediaFile.filePath] = mediaFile._id.toString();
+                    }
+                });
+            } catch (dbErr) {
+                console.error("Error fetching media file data (spaces):", dbErr);
+            }
+
+            const lookupMeta = (pathname) => {
+                const keys = [pathname, pathname.replace(/^uploads\//, "")];
+                let title = null;
+                let altText = null;
+                let fileId = null;
+                for (const k of keys) {
+                    if (!k) continue;
+                    if (title == null && titleMap[k]) title = titleMap[k];
+                    if (altText == null && altTextMap[k]) altText = altTextMap[k];
+                    if (fileId == null && idMap[k]) fileId = idMap[k];
+                }
+                return { title, altText, _id: fileId };
+            };
+
+            const publicUrlForKey = (key) =>
+                spacesStorage.buildPublicUrlForKey(key);
+
+            const objects = await spacesStorage.listAllObjects();
+            const folderMap = new Map();
+
+            for (const obj of objects) {
+                const key = (obj.Key || "").replace(/\\/g, "/").trim();
+                if (!key) continue;
+
+                const pathname = spacesStorage.stripMainFolderFromKey(key);
+                if (!pathname) continue;
+
+                const slash = pathname.indexOf("/");
+                const folder = slash === -1 ? "root" : pathname.slice(0, slash);
+                const fileName =
+                    slash === -1 ? pathname : pathname.slice(slash + 1);
+                if (!fileName) continue;
+                if (folder === "images" || folder === "feed") continue;
+
+                const virtualPath = `uploads/${pathname}`;
+                const meta = lookupMeta(pathname);
+                let title = meta.title;
+                if (!title) {
+                    title = extractTitleFromFileName(fileName);
+                }
+
+                const fileObj = {
+                    name: fileName,
+                    path: virtualPath,
+                    url: publicUrlForKey(key),
+                    size: obj.Size || 0,
+                    title,
+                    altText: meta.altText,
+                    _id: meta._id,
+                    storage: "spaces",
+                    spacesKey: key,
+                };
+
+                if (!folderMap.has(folder)) {
+                    folderMap.set(folder, []);
+                }
+                folderMap.get(folder).push(fileObj);
+            }
+
+            const allContents = Array.from(folderMap.entries())
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([name, contents]) => ({ name, contents }));
+
+            return res.status(200).json({
+                success: true,
+                status: 200,
+                contents: allContents,
+                spacesConfigured: true,
+            });
+        } catch (err) {
+            console.error("Spaces media list failed:", err);
+            return res.status(500).json({
+                success: false,
+                error: err.message || "Unable to list Spaces objects",
+            });
+        }
+    },
+
+    deleteSpacesFile: async (req, res) => {
+        try {
+            const { key } = req.body;
+            if (!key || typeof key !== "string" || !key.trim()) {
+                return res.status(400).json({
+                    success: false,
+                    error: "Missing or invalid `key`",
+                });
+            }
+            const trimmed = key.trim();
+            const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
+            if (main && !trimmed.startsWith(`${main}/`)) {
+                return res.status(403).json({
+                    success: false,
+                    error: "Key is outside allowed MAIN_FOLDER prefix",
+                });
+            }
+            if (!spacesStorage.isSpacesListConfigured()) {
+                return res.status(503).json({
+                    success: false,
+                    error: "Spaces is not configured",
+                });
+            }
+            await spacesStorage.deleteFile(trimmed);
+            const relativePath = spacesStorage.stripMainFolderFromKey(trimmed);
+            try {
+                await MediaFile.findOneAndDelete({
+                    $or: [
+                        { filePath: relativePath },
+                        { filePath: `uploads/${relativePath}` },
+                    ],
+                });
+            } catch (dbErr) {
+                console.error("Error removing media metadata (spaces):", dbErr);
+            }
+            return res.status(200).json({
+                success: true,
+                message: "File deleted from Spaces",
+            });
+        } catch (error) {
+            console.error("deleteSpacesFile:", error);
+            return res.status(500).json({
+                success: false,
+                error: error.message || "Failed to delete Spaces object",
+            });
+        }
+    },
+
+    /** Admin Media — multipart upload to Spaces (memory → PutObject). */
+    uploadFileSpaces: async (req, res) => {
+        const memoryStorage = multer.memoryStorage();
+        const upload = multer({
+            storage: memoryStorage,
+            limits: { fileSize: 10 * 1024 * 1024 },
+            fileFilter: function (req, file, cb) {
+                const allowedTypes = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i;
+                if (allowedTypes.test(file.originalname)) {
+                    cb(null, true);
+                } else {
+                    cb(new Error("Only image files are allowed"), false);
+                }
+            },
+        }).array("files", 20);
+
+        upload(req, res, async (uploadErr) => {
+            if (uploadErr) {
+                return res.status(400).json({
+                    success: false,
+                    error: `File upload error: ${uploadErr.message}`,
+                });
+            }
+
+            try {
+                if (!spacesStorage.isSpacesListConfigured()) {
+                    return res.status(503).json({
+                        success: false,
+                        error: "Spaces is not configured",
+                    });
+                }
+
+                const { directory, altText } = req.body;
+                const files = req.files;
+
+                if (!directory || String(directory).trim() === "") {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Directory is required",
+                    });
+                }
+
+                if (!files || files.length === 0) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "No files uploaded",
+                    });
+                }
+
+                const dirTrim = String(directory).trim();
+                const rootFolder = dirTrim.split("/")[0];
+                if (!spacesStorage.ALLOWED_FOLDERS.includes(rootFolder)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Invalid directory. Allowed roots: ${spacesStorage.ALLOWED_FOLDERS.join(", ")}`,
+                    });
+                }
+
+                const uploadedFiles = [];
+
+                for (const file of files) {
+                    let keyUploaded = null;
+                    try {
+                        const result = await spacesStorage.uploadFile(file, dirTrim);
+                        keyUploaded = result.key;
+                        const pathname =
+                            spacesStorage.stripMainFolderFromKey(result.key);
+                        const baseName = path.basename(pathname);
+                        const title = extractTitleFromFileName(baseName);
+
+                        const mediaFile = await MediaFile.create({
+                            filePath: pathname,
+                            directory: rootFolder,
+                            fileName: baseName,
+                            title,
+                            altText: altText ? String(altText).trim() : null,
+                        });
+
+                        uploadedFiles.push({
+                            name: baseName,
+                            path: `uploads/${pathname}`,
+                            url: result.url,
+                            size: file.size,
+                            title,
+                            altText: altText ? String(altText).trim() : null,
+                            _id: mediaFile._id.toString(),
+                            storage: "spaces",
+                            spacesKey: result.key,
+                        });
+                    } catch (innerErr) {
+                        if (keyUploaded) {
+                            await spacesStorage
+                                .deleteFile(keyUploaded)
+                                .catch(() => {});
+                        }
+                        if (
+                            innerErr &&
+                            innerErr.code === 11000 &&
+                            innerErr.name === "MongoServerError"
+                        ) {
+                            return res.status(409).json({
+                                success: false,
+                                error:
+                                    "Duplicate media path in database; object was not kept.",
+                            });
+                        }
+                        throw innerErr;
+                    }
+                }
+
+                return res.status(200).json({
+                    success: true,
+                    message: "Files uploaded to Spaces",
+                    data: { uploadedFiles },
+                });
+            } catch (error) {
+                console.error("uploadFileSpaces:", error);
+                return res.status(500).json({
+                    success: false,
+                    error: error.message || "Failed to upload to Spaces",
+                });
+            }
+        });
+    },
+
+    /** Admin Media — rename (S3 copy+delete) and/or title & altText in Mongo for Spaces objects. */
+    updateFileSpaces: async (req, res) => {
+        try {
+            const { key, directory, oldFileName, newFileName, title, altText } =
+                req.body;
+
+            if (!key || !directory || !oldFileName || !newFileName) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "Missing required fields: key, directory, oldFileName, newFileName",
+                });
+            }
+
+            if (!spacesStorage.isSpacesListConfigured()) {
+                return res.status(503).json({
+                    success: false,
+                    error: "Spaces is not configured",
+                });
+            }
+
+            const trimmedKey = String(key).trim();
+            const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
+            if (main && !trimmedKey.startsWith(`${main}/`)) {
+                return res.status(403).json({
+                    success: false,
+                    error: "Key is outside allowed MAIN_FOLDER prefix",
+                });
+            }
+
+            const sanitizedNewFileName = sanitizeFileName(String(newFileName));
+            const isRenaming = sanitizedNewFileName !== oldFileName;
+            const expectedTitle =
+                extractTitleFromFileName(sanitizedNewFileName);
+
+            if (
+                title !== undefined &&
+                title !== null &&
+                String(title).trim() !== ""
+            ) {
+                if (String(title).trim() !== expectedTitle) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Title must match filename without extension. Expected: "${expectedTitle}", got: "${String(title).trim()}"`,
+                    });
+                }
+            }
+
+            const finalTitle = expectedTitle;
+            const pathnameOld =
+                spacesStorage.stripMainFolderFromKey(trimmedKey);
+            const keyRoot = pathnameOld.includes("/")
+                ? pathnameOld.split("/")[0]
+                : pathnameOld;
+            const dirRoot = String(directory).trim().split("/")[0];
+            if (keyRoot !== dirRoot) {
+                return res.status(400).json({
+                    success: false,
+                    error: "directory does not match object path",
+                });
+            }
+
+            const findMediaDoc = () =>
+                MediaFile.findOne({
+                    $or: [
+                        { filePath: pathnameOld },
+                        { filePath: `uploads/${pathnameOld}` },
+                    ],
+                });
+
+            if (isRenaming) {
+                const dirTrim = String(directory).trim();
+                const rootFolder = dirTrim.split("/")[0];
+                if (!spacesStorage.ALLOWED_FOLDERS.includes(rootFolder)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Invalid directory for Spaces rename",
+                    });
+                }
+
+                const newKey = main
+                    ? `${main}/${rootFolder}/${sanitizedNewFileName}`
+                    : `${rootFolder}/${sanitizedNewFileName}`;
+
+                await spacesStorage.copyObject(trimmedKey, newKey);
+                await spacesStorage.deleteFile(trimmedKey);
+
+                const pathnameNew =
+                    spacesStorage.stripMainFolderFromKey(newKey);
+
+                let doc = await findMediaDoc();
+                if (doc) {
+                    doc.filePath = pathnameNew;
+                    doc.directory = rootFolder;
+                    doc.fileName = sanitizedNewFileName;
+                    doc.title = finalTitle;
+                    if (altText !== undefined && altText !== null) {
+                        doc.altText = String(altText).trim() || null;
+                    }
+                    doc.updatedAt = Date.now();
+                    await doc.save();
+                } else {
+                    await MediaFile.create({
+                        filePath: pathnameNew,
+                        directory: rootFolder,
+                        fileName: sanitizedNewFileName,
+                        title: finalTitle,
+                        altText:
+                            altText !== undefined && altText !== null
+                                ? String(altText).trim() || null
+                                : null,
+                    });
+                }
+            } else {
+                let doc = await findMediaDoc();
+                if (doc) {
+                    doc.title = finalTitle;
+                    if (altText !== undefined && altText !== null) {
+                        doc.altText = String(altText).trim() || null;
+                    }
+                    doc.updatedAt = Date.now();
+                    await doc.save();
+                } else {
+                    await MediaFile.create({
+                        filePath: pathnameOld,
+                        directory: String(directory).trim().split("/")[0],
+                        fileName: oldFileName,
+                        title: finalTitle,
+                        altText:
+                            altText !== undefined && altText !== null
+                                ? String(altText).trim() || null
+                                : null,
+                    });
+                }
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "Spaces media updated",
+            });
+        } catch (error) {
+            console.error("updateFileSpaces:", error);
+            return res.status(500).json({
+                success: false,
+                error: error.message || "Failed to update Spaces media",
+            });
+        }
+    },
+
     //     try {
     //         const { fullName, email, mode } = req.body; // Destructure the request body
 
@@ -1084,22 +1526,53 @@ const statsController = {
         try {
             // Perform aggregation to get the top products grouped by productName
             const topProducts = await Order.aggregate([
-                { $match: { status: "Shipped" } }, 
-                { $unwind: "$cart" }, 
+                { $match: { status: "Shipped", isdeleted: { $ne: true } } },
+                { $unwind: "$cart" },
+                {
+                    $addFields: {
+                        _variantImgCount: {
+                            $size: { $ifNull: ["$cart.variantImages", []] },
+                        },
+                        _galleryCount: {
+                            $size: { $ifNull: ["$cart.galleryImages", []] },
+                        },
+                        _hasThumb: {
+                            $cond: [
+                                {
+                                    $and: [
+                                        { $ne: ["$cart.productthumbnail", null] },
+                                        { $ne: [{ $type: "$cart.productthumbnail" }, "missing"] },
+                                    ],
+                                },
+                                1,
+                                0,
+                            ],
+                        },
+                    },
+                },
+                {
+                    $sort: {
+                        "cart.productName": 1,
+                        _variantImgCount: -1,
+                        _galleryCount: -1,
+                        _hasThumb: -1,
+                    },
+                },
                 {
                     $group: {
-                        _id: "$cart.productName", 
+                        _id: "$cart.productName",
                         productName: { $first: "$cart.productName" },
-                        totalQuantity: { $sum: "$cart.qty" }, 
-                        variantImages: { $first: "$cart.variantImages" }, 
+                        totalQuantity: { $sum: "$cart.qty" },
+                        variantImages: { $first: "$cart.variantImages" },
                         productthumbnail: { $first: "$cart.productthumbnail" },
+                        galleryImages: { $first: "$cart.galleryImages" },
                         nameCounts: {
                             $push: {
                                 name: "$cart.name",
-                                count: "$cart.qty"
-                            }
-                        }
-                    }
+                                count: "$cart.qty",
+                            },
+                        },
+                    },
                 },
                 { $sort: { totalQuantity: -1 } }, 
                 { $limit: 10 } 
@@ -1136,11 +1609,17 @@ const statsController = {
                     aggregatedNameCounts[a] > aggregatedNameCounts[b] ? a : b
                 );
     
+                const cartLike = {
+                    variantImages: product.variantImages,
+                    productthumbnail: product.productthumbnail,
+                    galleryImages: product.galleryImages,
+                };
                 return {
                     ...product,
+                    displayImageUrl: resolveOrderLineImageUrlServer(cartLike),
                     nameCounts: nameCountsArray,
                     mostSoldName,
-                    mostSoldCount: aggregatedNameCounts[mostSoldName]
+                    mostSoldCount: aggregatedNameCounts[mostSoldName],
                 };
             });
     

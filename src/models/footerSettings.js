@@ -7,6 +7,12 @@ const footerSettingsSchema = new mongoose.Schema({
         type: String,
         default: null
       },
+      altText: {
+        type: String,
+        default: "",
+        trim: true,
+        maxlength: [200, "Logo alt text cannot exceed 200 characters"]
+      },
       link: {
         type: String,
         default: '/'

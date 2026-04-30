@@ -938,9 +938,29 @@ const productCategoriescontroller = {
   },
   getCategoryDetails: async (req, res) => {
     try {
-      const { id } = req.params;
-      const category = await ProductCategory.findOne({ "name": id })
+      const { slug } = req.params;
+      let category = null;
+
+      if (mongoose.Types.ObjectId.isValid(slug)) {
+        category = await ProductCategory.findById(slug)
+          .select('_id bannerImage name slug metaTitle metaSchemas metaKeywords metaDescription isPublish isFeatured createdAt updatedAt');
+      }
+
+      if (!category) {
+        category = await ProductCategory.findOne({ slug })
+          .select('_id bannerImage name slug metaTitle metaSchemas metaKeywords metaDescription isPublish isFeatured createdAt updatedAt');
+      }
+
+      if (!category) {
+        category = await ProductCategory.findOne({ name: slug })
+          .select('_id bannerImage name slug metaTitle metaSchemas metaKeywords metaDescription isPublish isFeatured createdAt updatedAt');
+      }
+
+      if (!category) {
+        category = await ProductCategory.findOne({ name: slug.replace(/-/g, " ") })
         .select('_id bannerImage name metaTitle metaSchemas metaKeywords metaDescription isPublish isFeatured createdAt updatedAt');
+      }
+
       if (!category) {
         return res.status(404).json({ message: "Category not found" });
       }

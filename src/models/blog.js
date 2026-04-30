@@ -4,6 +4,12 @@ const BlogTag = require('./blogTags');
 const Schema = mongoose.Schema;
 
 const blogSchema = new Schema({
+    storeId: {
+        type: Schema.Types.ObjectId,
+        ref: 'Store',
+        index: true,
+        default: null
+    },
     name: {
         type: String
         // required: true

@@ -2,6 +2,16 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
+function sanitizeSlug(value) {
+    return String(value || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
 // Define the metasubCategory schema that links metadata to a specific subcategory
 const metaSubCategorySchema = new Schema({
     subcategoryName: {
@@ -45,9 +55,21 @@ const metaSubCategorySchema = new Schema({
 });
 
 const productCategoriesSchema = new Schema({
+    storeId: {
+        type: Schema.Types.ObjectId,
+        ref: 'Store',
+        index: true,
+        default: null
+    },
     name: {
         type: String
         // required: true
+    },
+    slug: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
     },
 
     subCategory: [String],
@@ -104,6 +126,35 @@ const productCategoriesSchema = new Schema({
     updatedAt: {
         type: Date,
         default: Date.now
+    }
+});
+
+productCategoriesSchema.pre("validate", async function (next) {
+    try {
+        const source = this.slug || this.name || "";
+        let baseSlug = sanitizeSlug(source);
+
+        if (!baseSlug) {
+            baseSlug = `category-${Date.now()}`;
+        }
+
+        let candidate = baseSlug;
+        let suffix = 1;
+
+        while (true) {
+            const existing = await this.constructor.findOne({
+                slug: candidate,
+                _id: { $ne: this._id }
+            }).select("_id");
+
+            if (!existing) break;
+            candidate = `${baseSlug}-${suffix++}`;
+        }
+
+        this.slug = candidate;
+        next();
+    } catch (error) {
+        next(error);
     }
 });
 

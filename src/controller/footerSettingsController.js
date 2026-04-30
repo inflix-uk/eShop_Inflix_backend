@@ -22,6 +22,7 @@ const getDefaultFooterSettings = () => {
     section1: {
       logo: {
         image: null,
+        altText: "",
         link: '/'
       },
       description: '',
@@ -52,16 +53,7 @@ const getDefaultFooterSettings = () => {
       title: '',
       links: []
     },
-    section5: {
-      title: '',
-      text: '',
-      ecologiLogo: null,
-      ecologiLink: '',
-      paymentMethods: {
-        heading: '',
-        logos: []
-      }
-    }
+    // section5 intentionally removed from API defaults/response
   };
 };
 
@@ -158,6 +150,8 @@ const getFooterSettings = async (req, res) => {
       ...defaultFooter.bottomBar,
       ...(settingsData.bottomBar || {}),
     };
+    // Ensure legacy section5 data is never exposed to clients
+    delete settingsData.section5;
     
     res.status(200).json({
       success: true,
@@ -179,10 +173,10 @@ const getFooterSettings = async (req, res) => {
  */
 const saveFooterSettings = async (req, res) => {
   try {
-    const { section1, section2, section3, section4, section5, sectionNewsletter, bottomBar } = req.body;
+    const { section1, section2, section3, section4, sectionNewsletter, bottomBar } = req.body;
     
     // Validate that at least one section is provided
-    if (!section1 && !section2 && !section3 && !section4 && !section5 && !sectionNewsletter && !bottomBar) {
+    if (!section1 && !section2 && !section3 && !section4 && !sectionNewsletter && !bottomBar) {
       return res.status(400).json({
         success: false,
         message: 'At least one section must be provided'
@@ -213,24 +207,6 @@ const saveFooterSettings = async (req, res) => {
         ...defaults.section4,
         ...(prev.section4 || {}),
         ...(section4 || {}),
-      },
-      section5: {
-        ...defaults.section5,
-        ...(prev.section5 || {}),
-        ...(section5 || {}),
-        paymentMethods: {
-          ...defaults.section5.paymentMethods,
-          ...((prev.section5 && prev.section5.paymentMethods) || {}),
-          ...((section5 && section5.paymentMethods) || {}),
-          logos:
-            (section5 &&
-              section5.paymentMethods &&
-              section5.paymentMethods.logos) ||
-            (prev.section5 &&
-              prev.section5.paymentMethods &&
-              prev.section5.paymentMethods.logos) ||
-            defaults.section5.paymentMethods.logos,
-        },
       },
       sectionNewsletter: {
         ...defaults.sectionNewsletter,
@@ -273,6 +249,7 @@ const saveFooterSettings = async (req, res) => {
     delete settingsData.__v;
     delete settingsData.createdAt;
     delete settingsData.updatedAt;
+    delete settingsData.section5;
     
     res.status(200).json({
       success: true,
@@ -299,7 +276,7 @@ const updateFooterSection = async (req, res) => {
     const sectionData = req.body;
     
     // Validate section name
-    const validSections = ['section1', 'section2', 'section3', 'section4', 'section5', 'sectionNewsletter', 'bottomBar'];
+    const validSections = ['section1', 'section2', 'section3', 'section4', 'sectionNewsletter', 'bottomBar'];
     if (!validSections.includes(section)) {
       return res.status(400).json({
         success: false,
@@ -319,31 +296,11 @@ const updateFooterSection = async (req, res) => {
     const existing = await FooterSettings.findOne().lean();
     const prev = existing || {};
 
-    let mergedSection;
-    if (section === 'section5') {
-      mergedSection = {
-        ...defaults.section5,
-        ...(prev.section5 || {}),
-        ...sectionData,
-        paymentMethods: {
-          ...defaults.section5.paymentMethods,
-          ...((prev.section5 && prev.section5.paymentMethods) || {}),
-          ...((sectionData && sectionData.paymentMethods) || {}),
-          logos:
-            (sectionData.paymentMethods && sectionData.paymentMethods.logos) ||
-            (prev.section5 &&
-              prev.section5.paymentMethods &&
-              prev.section5.paymentMethods.logos) ||
-            defaults.section5.paymentMethods.logos,
-        },
-      };
-    } else {
-      mergedSection = {
-        ...defaults[section],
-        ...(prev[section] || {}),
-        ...sectionData,
-      };
-    }
+    const mergedSection = {
+      ...defaults[section],
+      ...(prev[section] || {}),
+      ...sectionData,
+    };
 
     if (section === 'section1' && mergedSection.logo != null && typeof mergedSection.logo === 'object') {
       mergedSection.logo = {

@@ -585,7 +585,8 @@ const updateBlogPost = async (req, res) => {
       'title', 'slug', 'content', 'excerpt', 'blocks', 'categories', 'tags',
       'publishStatus', 'publishDate', 'metaTitle', 'metaDescription', 'metaTags',
       'metaSchema', 'featuredImage', 'featuredImageAlt', 'featuredImageDescription',
-      'bannerImage', 'bannerImageAlt', 'bannerImageDescription', 'newBlog'
+      'bannerImage', 'bannerImageAlt', 'bannerImageDescription', 'newBlog',
+      'author', 'reviewer'
     ]);
     delete blogData.id;
     delete blogData._id;
@@ -709,6 +710,7 @@ const getAllBlogPosts = async (req, res) => {
         categories: 1,
         tags: 1,
         author: 1,
+        reviewer: 1,
         status: 1,
         views: 1,
         publishStatus: 1,
@@ -734,6 +736,7 @@ const getAllBlogPosts = async (req, res) => {
       bannerImageDescription: post.bannerImageDescription || '',
       categories: post.categories || [],
       author: post.author || '',
+      reviewer: post.reviewer || '',
       status: post.status || 'draft',
       views: post.views || 0,
       publishStatus: post.publishStatus || 'draft',
@@ -863,6 +866,67 @@ const getBlogPostBySlugWithoutCache = async (req, res) => {
     });
   }
 };
+
+function escapeRegex(input) {
+  return String(input).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Sync Author/Reviewer profile payload into existing blog posts.
+ * Used by admin Author module edits so profile pages reflect latest data.
+ */
+const syncBlogPersonProfile = async (req, res) => {
+  try {
+    const { role, profile, previousName } = req.body || {};
+    const roleField = role === 'reviewer' ? 'reviewer' : 'author';
+    const currentName = String(profile?.name || '').trim();
+    const oldName = String(previousName || '').trim();
+
+    if (!currentName && !oldName) {
+      return res.status(400).json({
+        success: false,
+        message: 'profile.name or previousName is required'
+      });
+    }
+
+    const targetName = oldName || currentName;
+    const nameRegex = new RegExp(`^${escapeRegex(targetName)}$`, 'i');
+
+    const docs = await Blog.find({ [`${roleField}.name`]: nameRegex });
+    if (!docs.length) {
+      return res.status(200).json({
+        success: true,
+        message: 'No matching blog profiles to sync',
+        matched: 0,
+        updated: 0
+      });
+    }
+
+    const nextProfile = {
+      ...(profile || {}),
+      name: currentName || targetName,
+    };
+
+    for (const doc of docs) {
+      doc[roleField] = nextProfile;
+      await doc.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `${roleField} profile synced successfully`,
+      matched: docs.length,
+      updated: docs.length
+    });
+  } catch (error) {
+    logBlogPostError('[syncBlogPersonProfile]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to sync profile',
+      error: error.message
+    });
+  }
+};
 module.exports = {
   createBlogPost,
   updateBlogPost,
@@ -871,5 +935,6 @@ module.exports = {
   deleteBlogPost,
   getBlogPostBySlug,
   getBlogPostBySlugWithoutCache,
+  syncBlogPersonProfile,
   handleBlogUpload
 };

@@ -297,6 +297,7 @@ const usersController = {
                 firstname: user.firstname,
                 lastname: user.lastname,
                 email: user.email,
+                pricingGroup: user.pricingGroup || null,
                 phoneNumber: user.phoneNumber,
                 address: user.address,
                 companyname: user.companyname,

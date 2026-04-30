@@ -55,6 +55,11 @@ const userSchema = new mongoose.Schema({
         ref: 'RoleAndPermissons',
         default: null
     },
+    pricingGroup: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'PricingGroup',
+        default: null
+    },
     registerForApp: {
         type: Boolean,
         default: false
