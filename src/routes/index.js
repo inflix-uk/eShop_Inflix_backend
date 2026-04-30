@@ -35,6 +35,7 @@ const staticMetaController = require('../controller/staticMetaController');
 const dealsController = require('../controller/dealsController');
 const siteMapController = require('../controller/siteMapController');
 const optimizedSitemapController = require('../controller/optimizedSitemapController');
+const storefrontSitemapController = require('../controller/storefrontSitemapController');
 const categoryDisplayProductsController = require('../controller/categoryDisplayProductsController');
 const footerSettingsController = require('../controller/footerSettingsController');
 const stripeSettingsController = require('../controller/stripeSettingsController');
@@ -45,11 +46,12 @@ const shippingSettingsController = require('../controller/shippingSettingsContro
 const robotsSettingsController = require('../controller/robotsSettingsController');
 const homepageDataController = require('../controller/homepageDataController');
 const homepageNavLinksController = require('../controller/homepageNavLinksController');
+const pricingGroupController = require('../controller/pricingGroupController');
 
 // ========================================================================
 // NEW BLOG SYSTEM CONTROLLERS
 // ========================================================================
-const { createBlogPost, updateBlogPost, getBlogPostById, getAllBlogPosts, deleteBlogPost, handleBlogUpload, getBlogPostBySlug, getBlogPostBySlugWithoutCache } = require('../controller/newblog/BlogController');
+const { createBlogPost, updateBlogPost, getBlogPostById, getAllBlogPosts, deleteBlogPost, handleBlogUpload, getBlogPostBySlug, getBlogPostBySlugWithoutCache, syncBlogPersonProfile } = require('../controller/newblog/BlogController');
 const { getAllCategories, getCategoryById, createCategory, updateCategory, deleteCategory, getCategoryStats } = require('../controller/newblog/BlogCategoryController');
 
 // ========================================================================
@@ -62,8 +64,16 @@ const { createFooterPage, updateFooterPage, getFooterPageById, getFooterPageBySl
 // ========================================================================
 const roleAndPermissons = require('../controller/roleAndPermissons');
 const requireAdmin = require('../../middleware/requireAdmin');
+const resolvePricingScope = require('../../middleware/resolvePricingScope');
+const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
 const cronRoutes = require('./cronRoutes');
 const order = require('../models/order');
+const healthController = require('../controller/healthController');
+
+// ========================================================================
+// LIVENESS (no DB / external deps — used by storefront SSR probes)
+// ========================================================================
+router.get('/health', healthController.getHealth);
 
 // ========================================================================
 // PAYMENT ROUTES (Stripe & PayPal)
@@ -131,6 +141,25 @@ router.patch('/delete/user/:id',                 adminUsersController.deleteUser
 router.patch('/status/user/:id',                 adminUsersController.statusUser);
 router.get('/get/user/:id',                      adminUsersController.getUserById);
 router.patch('/admin/reset-password/:id',        adminUsersController.resetUserPassword);
+router.put('/api/users/:id/assign-group',        requireAdmin, adminUsersController.assignPricingGroup);
+
+// ========================================================================
+// PRICING GROUPS MANAGEMENT
+// ========================================================================
+router.post('/pricing-groups', requireAdmin, pricingGroupController.createPricingGroup);
+router.get('/pricing-groups', requireAdmin, pricingGroupController.getAllPricingGroups);
+router.get('/pricing-groups/:id', requireAdmin, pricingGroupController.getPricingGroupById);
+router.put('/pricing-groups/:id', requireAdmin, pricingGroupController.updatePricingGroup);
+router.delete('/pricing-groups/:id', requireAdmin, pricingGroupController.deletePricingGroup);
+router.post('/pricing-groups/:id/product-price', requireAdmin, pricingGroupController.upsertGroupProductPrice);
+router.get('/pricing-groups/:id/product-prices', requireAdmin, pricingGroupController.getGroupProductPrices);
+
+// API aliases for pricing groups
+router.post('/api/pricing-groups', requireAdmin, pricingGroupController.createPricingGroup);
+router.get('/api/pricing-groups', requireAdmin, pricingGroupController.getAllPricingGroups);
+router.put('/api/pricing-groups/:id', requireAdmin, pricingGroupController.updatePricingGroup);
+router.delete('/api/pricing-groups/:id', requireAdmin, pricingGroupController.deletePricingGroup);
+router.post('/api/pricing-groups/:id/product-price', requireAdmin, pricingGroupController.upsertGroupProductPrice);
 
 // ========================================================================
 // BLOG MANAGEMENT (Main E-commerce)
@@ -188,7 +217,7 @@ router.post('/product/subcategory',                   productCategoriesControlle
 router.get('/get/category/Details/:id',               productCategoriesController.getCategoryDetailsById);
 router.post('/create/category/for/navbar',            productCategoriesController.createCategoryForNavbar);
 router.get('/get/category/for/navbar',                productCategoriesController.getCategoryForNavbar);
-router.get('/get/categorydetails/:id',                productCategoriesController.getCategoryDetails);
+router.get('/get/categorydetails/:slug',              productCategoriesController.getCategoryDetails);
 router.get('/get/categorydetailsFull/:id',            productCategoriesController.getCategoryDetailsfull);
 router.get('/get/subcategorydetails/:name',           productCategoriesController.getSubCategoryDetails);
 router.get('/get/subcategory/somedetails/:name',      productCategoriesController.getSubCategoryDetailsSome);
@@ -233,7 +262,8 @@ router.post('/create/product',                        adminProductController.cre
 router.patch('/update/product/:id',                   adminProductController.updateProduct);
 router.patch('/status/product/:id',                   adminProductController.statusProduct); 
 router.patch('/feature/product/:id',                  adminProductController.featureProduct);
-router.get('/get/product',                            adminProductController.getAllActiveProduct);
+router.get('/get/product',                            resolvePricingScope, adminProductController.getAllActiveProduct);
+router.get('/api/products',                           resolvePricingScope, adminProductController.getAllActiveProduct);
 router.get('/get/all/product/for/blog',               adminProductController.getAllActiveProductForBlog);
 router.get('/get/product/for/admin/panal',            adminProductController.getAllActiveProductForAdminPanel);
 router.get('/get/all/products/admin/sidebar',         adminProductController.getAllActiveProductForSidebar);
@@ -402,9 +432,13 @@ router.get('/get/stats3',                              adminStatsController.getS
 router.get('/get/stats4',                              adminStatsController.getStats4);
 router.get('/get/order/stats',                         adminStatsController.getOrderStats);  // Fast order stats for tabs
 router.get('/get/files',                               adminStatsController.getFiles);
+router.get('/get/files/spaces',                        adminStatsController.getFilesSpaces);
 router.post('/upload/file',                            adminStatsController.uploadFile);
+router.post('/upload/file/spaces',                     adminStatsController.uploadFileSpaces);
 router.patch('/update/file',                           adminStatsController.renameFile);
+router.patch('/update/file/spaces',                    adminStatsController.updateFileSpaces);
 router.delete('/delete/file',                          adminStatsController.deleteFile);
+router.delete('/delete/file/spaces',                   adminStatsController.deleteSpacesFile);
 router.get('/top/product/sold',                        adminStatsController.getTopProductSold);
 
 // Public contact form (legacy fixed fields — uses shared SMTP)
@@ -430,6 +464,7 @@ router.post('/upload/csv/with/accessories',            adminStatsController.uplo
 router.get('/uploads/feed/:filename',                  adminStatsController.downloadFeedCsv);
 
 // Sitemap Generation
+router.get('/sitemap.xml', resolveStoreByDomain, storefrontSitemapController.sitemapXml);
 router.post('/create/sitemap',                         siteMapController.createSitemap);
 router.post('/create/sitemap/optimized',               optimizedSitemapController.createSitemapOptimized);
 
@@ -539,6 +574,7 @@ router.put('/newblog/blog/posts/:id', handleBlogUpload, updateBlogPost);
 router.delete('/newblog/blog/posts/:id', deleteBlogPost);
 router.get('/newblog/blog/postsBySlug/:slug', getBlogPostBySlug);
 router.get('/newblog/blog/postsBySlugWithoutCache/:slug', getBlogPostBySlugWithoutCache);
+router.post('/newblog/blog/profile-sync', syncBlogPersonProfile);
 
 // Blog Categories
 router.get('/newblog/blog/categories', getAllCategories);

@@ -209,7 +209,7 @@ class Server {
     this.app.get('/', (req, res) => {
       res.status(200).json({
         status: 'success',
-        message: '🚀 Welcome to Zextons Backend API!',
+        message: '🚀 Welcome to Backend API!',
         documentation: 'Please refer to the API documentation for available endpoints',
         environment: process.env.NODE_ENV || 'development',
         timestamp: new Date().toISOString(),

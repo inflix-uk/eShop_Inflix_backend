@@ -1,5 +1,7 @@
 // src/utils/blobStorage.js
 const { put, del, list } = require('@vercel/blob');
+const spacesStorage = require('./uploadToSpaces');
+const { optimizeImageForUpload } = require('./imageOptimizer');
 
 /**
  * Vercel Blob Storage Utility
@@ -8,6 +10,28 @@ const { put, del, list } = require('@vercel/blob');
 class BlobStorage {
     constructor() {
         this.token = process.env.BLOB_READ_WRITE_TOKEN;
+        this.storageProvider = process.env.STORAGE_PROVIDER || 'blob';
+    }
+
+    useSpaces() {
+        return this.storageProvider === 'spaces';
+    }
+
+    getActiveProvider() {
+        const provider = (process.env.STORAGE_PROVIDER || this.storageProvider || 'blob').trim().toLowerCase();
+        return provider === 'spaces' ? 'spaces' : 'blob';
+    }
+
+    logStorageError(operation, error, extra = {}) {
+        const provider = this.getActiveProvider();
+        console.error(`[Storage:${provider}] ${operation} failed`, {
+            message: error?.message || 'Unknown storage error',
+            code: error?.Code || error?.code || null,
+            statusCode: error?.$metadata?.httpStatusCode || null,
+            requestId: error?.RequestId || error?.$metadata?.requestId || null,
+            hostId: error?.HostId || null,
+            ...extra
+        });
     }
 
     /**
@@ -20,9 +44,21 @@ class BlobStorage {
     async uploadFile(file, folder = 'products', preferredBasename = null) {
         try {
             if (!file) return null;
+            const uploadFile = await optimizeImageForUpload(file, folder);
+
+            if (this.getActiveProvider() === 'spaces') {
+                const result = await spacesStorage.uploadFile(uploadFile, folder);
+                return {
+                    filename: uploadFile.originalname,
+                    path: result.key,
+                    key: result.key,
+                    url: result.url,
+                    size: uploadFile.size
+                };
+            }
 
             // Get file buffer from multer memoryStorage
-            const fileBuffer = file.buffer;
+            const fileBuffer = uploadFile.buffer;
 
             if (!fileBuffer) {
                 console.error('No buffer found in file object');
@@ -31,7 +67,7 @@ class BlobStorage {
 
             // Generate unique filename (or use versioned basename when provided)
             const timestamp = Date.now();
-            const safeFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const safeFilename = uploadFile.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
             const uniqueFilename = preferredBasename
                 ? `${folder}/${preferredBasename}`
                 : `${folder}/${timestamp}_${safeFilename}`;
@@ -42,19 +78,19 @@ class BlobStorage {
             const blob = await put(uniqueFilename, fileBuffer, {
                 access: 'public',
                 token: this.token,
-                contentType: file.mimetype
+                contentType: uploadFile.mimetype
             });
 
             console.log(`File uploaded to Blob: ${blob.url}`);
 
             return {
-                filename: file.originalname,
+                filename: uploadFile.originalname,
                 path: blob.pathname,
                 url: blob.url,
-                size: file.size
+                size: uploadFile.size
             };
         } catch (error) {
-            console.error('Error uploading to Vercel Blob:', error);
+            this.logStorageError('uploadFile', error, { folder, fileName: file?.originalname || null });
             throw error;
         }
     }
@@ -74,7 +110,10 @@ class BlobStorage {
 
             return results.filter(result => result !== null);
         } catch (error) {
-            console.error('Error uploading multiple files to Vercel Blob:', error);
+            this.logStorageError('uploadFiles', error, {
+                folder,
+                fileCount: Array.isArray(files) ? files.length : 0
+            });
             throw error;
         }
     }
@@ -141,11 +180,32 @@ class BlobStorage {
         try {
             if (!url) return;
 
+            if (this.getActiveProvider() === 'spaces') {
+                const key = url.startsWith('http')
+                    ? this.extractSpacesKeyFromUrl(url)
+                    : url;
+
+                if (!key) return;
+
+                await spacesStorage.deleteFile(key);
+                console.log(`File deleted from Spaces: ${key}`);
+                return;
+            }
+
             await del(url, { token: this.token });
             console.log(`File deleted from Blob: ${url}`);
         } catch (error) {
-            console.error('Error deleting from Vercel Blob:', error);
+            this.logStorageError('deleteFile', error, { target: url || null });
             // Don't throw - deletion failures shouldn't break the flow
+        }
+    }
+
+    extractSpacesKeyFromUrl(url) {
+        try {
+            const parsed = new URL(url);
+            return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+        } catch (error) {
+            return null;
         }
     }
 
@@ -161,7 +221,9 @@ class BlobStorage {
             const deletePromises = urls.map(url => this.deleteFile(url));
             await Promise.all(deletePromises);
         } catch (error) {
-            console.error('Error deleting multiple files from Vercel Blob:', error);
+            this.logStorageError('deleteFiles', error, {
+                fileCount: Array.isArray(urls) ? urls.length : 0
+            });
         }
     }
 

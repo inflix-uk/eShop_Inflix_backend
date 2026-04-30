@@ -137,6 +137,47 @@ function sanitize(text) {
     return String(text).trim().replace(/[<>]/g, '');
 }
 
+function sanitizeButtonLink(url) {
+    const value = sanitize(url);
+    if (!value) return '';
+
+    // Remove legacy admin panel deployment links from payloads/storage.
+    if (/https?:\/\/vercel\.com\/arsams-projects\/zextonsadminpanel-new/i.test(value)) {
+        return '';
+    }
+
+    return value;
+}
+
+function stripLegacyAdminLinksFromCards(doc) {
+    if (!doc || !doc.sellCard || !doc.buyCard) return false;
+
+    const sellLink = sanitizeButtonLink(doc.sellCard.buttonLink);
+    const buyLink = sanitizeButtonLink(doc.buyCard.buttonLink);
+
+    let changed = false;
+    if (doc.sellCard.buttonLink !== sellLink) {
+        doc.sellCard.buttonLink = sellLink || '/';
+        changed = true;
+    }
+    if (doc.buyCard.buttonLink !== buyLink) {
+        doc.buyCard.buttonLink = buyLink || '/';
+        changed = true;
+    }
+
+    return changed;
+}
+
+function stripLegacyAdminLinkFromTinyBanner(doc) {
+    if (!doc) return false;
+    const cleanedLink = sanitizeButtonLink(doc.buttonLink);
+    if (doc.buttonLink !== cleanedLink) {
+        doc.buttonLink = cleanedLink || '/';
+        return true;
+    }
+    return false;
+}
+
 function parseBody(req, key) {
     const raw = req.body[key];
     if (!raw) return null;
@@ -222,9 +263,13 @@ const updateBuyNowPayLater = async (req, res) => {
 // ---------- Sell/Buy Cards ----------
 const getSellBuyCards = async (req, res) => {
     try {
-        const doc = await SellBuyCards.findOne().lean();
+        const doc = await SellBuyCards.findOne();
         if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
-        return res.status(200).json({ success: true, data: doc });
+
+        const changed = stripLegacyAdminLinksFromCards(doc);
+        if (changed) await doc.save();
+
+        return res.status(200).json({ success: true, data: doc.toObject() });
     } catch (e) {
         return res.status(500).json({ success: false, message: e.message || 'Failed to fetch' });
     }
@@ -232,9 +277,13 @@ const getSellBuyCards = async (req, res) => {
 
 const getSellBuyCardsActive = async (req, res) => {
     try {
-        const doc = await SellBuyCards.findOne().lean();
+        const doc = await SellBuyCards.findOne();
         if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
-        return res.status(200).json({ success: true, data: doc });
+
+        const changed = stripLegacyAdminLinksFromCards(doc);
+        if (changed) await doc.save();
+
+        return res.status(200).json({ success: true, data: doc.toObject() });
     } catch (e) {
         return res.status(500).json({ success: false, message: e.message || 'Failed to fetch' });
     }
@@ -288,7 +337,7 @@ const updateSellBuyCards = async (req, res) => {
                 heading: sanitize(card.heading),
                 paragraph: sanitize(card.paragraph),
                 buttonName: sanitize(card.buttonName),
-                buttonLink: sanitize(card.buttonLink),
+                buttonLink: sanitizeButtonLink(card.buttonLink) || '/',
                 backgroundImage,
                 productImage: productImage || undefined
             };
@@ -424,9 +473,13 @@ const deletePromotionalImage = async (req, res) => {
 // ---------- Tiny Phone Banner ----------
 const getTinyPhoneBanner = async (req, res) => {
     try {
-        const doc = await TinyPhoneBanner.findOne().lean();
+        const doc = await TinyPhoneBanner.findOne();
         if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
-        return res.status(200).json({ success: true, data: doc });
+
+        const changed = stripLegacyAdminLinkFromTinyBanner(doc);
+        if (changed) await doc.save();
+
+        return res.status(200).json({ success: true, data: doc.toObject() });
     } catch (e) {
         return res.status(500).json({ success: false, message: e.message || 'Failed to fetch' });
     }
@@ -434,9 +487,13 @@ const getTinyPhoneBanner = async (req, res) => {
 
 const getTinyPhoneBannerActive = async (req, res) => {
     try {
-        const doc = await TinyPhoneBanner.findOne().lean();
+        const doc = await TinyPhoneBanner.findOne();
         if (!doc) return res.status(404).json({ success: false, message: 'Not found' });
-        return res.status(200).json({ success: true, data: doc });
+
+        const changed = stripLegacyAdminLinkFromTinyBanner(doc);
+        if (changed) await doc.save();
+
+        return res.status(200).json({ success: true, data: doc.toObject() });
     } catch (e) {
         return res.status(500).json({ success: false, message: e.message || 'Failed to fetch' });
     }
@@ -450,11 +507,10 @@ const updateTinyPhoneBanner = async (req, res) => {
         const heading = sanitize(data.heading);
         const paragraph = sanitize(data.paragraph);
         const buttonName = sanitize(data.buttonName);
-        const buttonLink = sanitize(data.buttonLink);
+        const buttonLink = sanitizeButtonLink(data.buttonLink) || '/';
         if (!heading) return res.status(400).json({ success: false, message: 'heading is required' });
         if (!paragraph) return res.status(400).json({ success: false, message: 'paragraph is required' });
         if (!buttonName) return res.status(400).json({ success: false, message: 'buttonName is required' });
-        if (!buttonLink) return res.status(400).json({ success: false, message: 'buttonLink is required' });
 
         let doc = await TinyPhoneBanner.findOne();
         const files = req.files || {};

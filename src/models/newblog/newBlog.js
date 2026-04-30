@@ -54,6 +54,12 @@ const rowSchema = new mongoose.Schema({
 
 // Define the main blog post schema
 const blogSchema = new mongoose.Schema({
+  storeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Store",
+    index: true,
+    default: null,
+  },
   newBlog: {
     type: Boolean,
     default: true
@@ -134,10 +140,14 @@ const blogSchema = new mongoose.Schema({
   metaDescription: String,
   metaTags: [String],
   metaSchema: [String],
-  // Author and timestamps
+  // Author/Reviewer profile cards selected from admin blog editor
   author: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+  },
+  reviewer: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
   },
   createdAt: {
     type: Date,

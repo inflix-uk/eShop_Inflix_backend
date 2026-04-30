@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
-/** Singleton: header “Need help?” phone shown on storefront navbar */
+/** Singleton: header “Need help?” phone + optional support email (storefront) */
 const navbarHeaderSettingsSchema = new Schema(
   {
     supportPhone: {
@@ -9,6 +9,12 @@ const navbarHeaderSettingsSchema = new Schema(
       default: '',
       trim: true,
       maxlength: 40,
+    },
+    supportEmail: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: 120,
     },
   },
   { timestamps: true }
