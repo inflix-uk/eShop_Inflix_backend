@@ -652,6 +652,14 @@ router.post('/update/google-search-console-verification', requireAdmin, googleSe
 router.delete('/delete/google-search-console-verification', requireAdmin, googleSearchConsoleController.deleteVerificationCode);
 
 // ========================================================================
+// AUDIT LOGS (admin-only investigation surface)
+// ========================================================================
+const auditLogController = require('../controller/auditLogController');
+router.get('/audit-logs', requireAdmin, auditLogController.list);
+router.get('/audit-logs/stats/summary', requireAdmin, auditLogController.summary);
+router.get('/audit-logs/:id', requireAdmin, auditLogController.get);
+
+// ========================================================================
 // HOMEPAGE FEATURES MANAGEMENT
 // ========================================================================
 const homepageFeatureController = require('../controller/homepageFeatureController');
