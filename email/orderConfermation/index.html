@@ -13,7 +13,7 @@
  <meta name="format-detection" content="address=no" />
  <meta name="format-detection" content="email=no" />
  <meta name="x-apple-disable-message-reformatting" />
- <link href="https://fonts.googleapis.com/css?family=Urbanist:ital,wght@0,500;0,600;0,700;0,800" rel="stylesheet" />
+ {{EB_google_fonts_link}}
  <title>{{OC_htmlPageTitle}}</title>
  <!-- Made with Postcards by Designmodo https://designmodo.com/postcards -->
  <style>
@@ -229,7 +229,6 @@
  .pc-w520-padding-30-30-30-30 {padding: 30px 30px 30px 30px !important;}
  }
 
- @media all { @font-face { font-family: 'Urbanist'; font-style: normal; font-weight: 500; src: url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqD-R4vH5ms.woff') format('woff'), url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqD-R4vH5mq.woff2') format('woff2'); } @font-face { font-family: 'Urbanist'; font-style: normal; font-weight: 800; src: url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqDSxkvH5ms.woff') format('woff'), url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqDSxkvH5mq.woff2') format('woff2'); } @font-face { font-family: 'Urbanist'; font-style: normal; font-weight: 600; src: url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqDFRkvH5ms.woff') format('woff'), url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqDFRkvH5mq.woff2') format('woff2'); } @font-face { font-family: 'Urbanist'; font-style: normal; font-weight: 700; src: url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqDLBkvH5ms.woff') format('woff'), url('https://fonts.gstatic.com/s/urbanist/v15/L0xjDF02iFML4hGCyOCpRdycFsGxSrqDLBkvH5mq.woff2') format('woff2'); } }
  </style>
  
 </head>
@@ -263,7 +262,7 @@
                             <td class="pc-grid-td-first pc-grid-td-last pc-w620-itemsSpacings-0-30" align="left" valign="top" style="width: 50%; padding-top: 0px; padding-right: 0px; padding-bottom: 0px; padding-left: 0px;">
                              <table class="pc-w620-width-fill" style="border-collapse: separate; border-spacing: 0; width: 100%;" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                               <tr>
-                               <td class="pc-w620-padding-32-0-32-0" align="center" valign="middle" style="padding: 40px 40px 40px 40px; background-color: #0e231c; border-radius: 10px 10px 10px 10px;">
+                               <td class="pc-w620-padding-32-0-32-0" align="center" valign="middle" bgcolor="{{EB_hero_header_bg}}" style="padding: 40px 40px 40px 40px; background-color: {{EB_hero_header_bg}}; border-radius: 10px 10px 10px 10px;">
                                 <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width: 100%;">
                                  <tr>
                                   <td align="center" valign="top">
@@ -283,7 +282,7 @@
                                                 <tr>
                                                  <td align="center" valign="top">
                                                     <!-- uploads/products/20240826_180420_Untitled design (22) (2).png -->
-                                                  <img src="https://api.zextons.co.uk/uploads/images/image-1725645046107.png" class="pc-w620-width-120 pc-w620-height-auto" width="120" height="30" alt="" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:120px; height: auto; max-width: 100%; border: 0;" />
+                                                  <img src="{{EB_logoUrl}}" class="pc-w620-width-120 pc-w620-height-auto" width="120" height="30" alt="{{EB_logoAlt}}" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:120px; height: auto; max-width: 100%; border: 0;" />
                                                  </td>
                                                 </tr>
                                                </table>
@@ -309,8 +308,8 @@
                                       <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" style="border-collapse: separate; border-spacing: 0;">
                                        <tr>
                                         <td valign="top" class="pc-w620-padding-0-0-0-0" align="center" style="padding: 0px 0px 0px 0px;">
-                                         <div class="pc-font-alt pc-w620-fontSize-34px pc-w620-lineHeight-100pc" style="line-height: 108%; letter-spacing: -1px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 50px; font-weight: 600; font-variant-ligatures: normal; color: #ffffff; text-align: center; text-align-last: center;">
-                                          <div><span>{{OC_heroLineBefore}}</span><span style="color: rgb(222, 250, 202);">{{OC_heroLineHighlight}}</span>
+                                         <div class="pc-font-alt pc-w620-fontSize-34px pc-w620-lineHeight-100pc" style="line-height: 108%; letter-spacing: -1px; {{EB_typo_h1}}; font-variant-ligatures: normal; color: #ffffff; text-align: center; text-align-last: center; font-size: 50px;">
+                                          <div><span>{{OC_heroLineBefore}}</span><span style="color: {{EB_hero_highlight}};">{{OC_heroLineHighlight}}</span>
                                           </div>
                                          </div>
                                         </td>
@@ -329,7 +328,7 @@
                                       <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" style="border-collapse: separate; border-spacing: 0;">
                                        <tr>
                                         <td valign="top" class="pc-w620-padding-0-0-0-0" align="center" style="padding: 0px 40px 0px 40px;">
-                                         <div class="pc-font-alt pc-w620-fontSize-14px" style="line-height: 150%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 500; font-variant-ligatures: normal; color: #ffffffcc; text-align: center; text-align-last: center;">
+                                         <div class="pc-font-alt pc-w620-fontSize-14px" style="line-height: 150%; letter-spacing: -0px; {{EB_typo_p}}; font-variant-ligatures: normal; color: #ffffffcc; text-align: center; text-align-last: center; font-size: 16px;">
                                           <div><span>{{OC_heroSubtext}}</span>
                                           </div>
                                          </div>
@@ -351,14 +350,14 @@
                                         <td class="pc-grid-td-first pc-w620-itemsSpacings-4-10" align="left" valign="top" style="width: 33.333333333333%; padding-top: 0px; padding-right: 4px; padding-bottom: 0px; padding-left: 0px;">
                                          <table style="border-collapse: separate; border-spacing: 0; width: 100%;" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                           <tr>
-                                           <td class="pc-w620-padding-19-0-42-0" align="center" valign="top" style="padding: 40px 20px 40px 20px; background-color: #edf9f1; border-radius: 12px 12px 12px 12px;">
+                                           <td class="pc-w620-padding-19-0-42-0" align="center" valign="top" bgcolor="{{EB_mint_bg}}" style="padding: 40px 20px 40px 20px; background-color: {{EB_mint_bg}}; border-radius: 12px 12px 12px 12px;">
                                             <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width: 100%;">
                                              <tr>
                                               <td align="center" valign="top">
                                                <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                                 <tr>
                                                  <td align="center" valign="top" style="padding: 0px 0px 15px 0px;">
-                                                  <img src="https://api.zextons.co.uk/uploads/images/image-1704350351759.png" class="" width="40" height="40" alt="" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:40px; height: auto; max-width: 100%; border: 0;" />
+                                                  <span style="display:block;font-size:28px;line-height:40px;color:{{EB_step_icon_color}};">&#10003;</span>
                                                  </td>
                                                 </tr>
                                                </table>
@@ -369,7 +368,7 @@
                                                <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse: separate; border-spacing: 0;">
                                                 <tr>
                                                  <td valign="top" align="center">
-                                                  <div class="pc-font-alt pc-w620-fontSize-16px" style="line-height: 110%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 600; font-variant-ligatures: normal; color: #0d231c; text-align: center; text-align-last: center;">
+                                                  <div class="pc-font-alt pc-w620-fontSize-16px" style="line-height: 110%; letter-spacing: -0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: {{EB_text_dark}}; text-align: center; text-align-last: center; font-size: 18px;">
                                                    <div><span>Order</span>
                                                    </div>
                                                    <div><span>Confirmed</span>
@@ -388,14 +387,14 @@
                                         <td class="pc-w620-itemsSpacings-4-10" align="left" valign="top" style="width: 33.333333333333%; padding-top: 0px; padding-right: 4px; padding-bottom: 0px; padding-left: 4px;">
                                          <table style="border-collapse: separate; border-spacing: 0; width: 100%;" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                           <tr>
-                                           <td class="pc-w620-padding-19-0-42-0" align="center" valign="top" style="padding: 40px 16px 40px 10px; background-color: #edf9f2; border-radius: 12px 12px 12px 12px;">
+                                           <td class="pc-w620-padding-19-0-42-0" align="center" valign="top" bgcolor="{{EB_mint_bg}}" style="padding: 40px 16px 40px 10px; background-color: {{EB_mint_bg}}; border-radius: 12px 12px 12px 12px;">
                                             <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width: 100%;">
                                              <tr>
                                               <td align="center" valign="top">
                                                <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                                 <tr>
                                                  <td align="center" valign="top" style="padding: 0px 0px 15px 0px;">
-                                                  <img src="https://api.zextons.co.uk/uploads/images/image-1704422153905.png" class="" width="40" height="40" alt="" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:40px; height: auto; max-width: 100%; border: 0;" />
+                                                  <span style="display:block;font-size:28px;line-height:40px;color:{{EB_step_icon_color}};">&#10003;</span>
                                                  </td>
                                                 </tr>
                                                </table>
@@ -406,7 +405,7 @@
                                                <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse: separate; border-spacing: 0;">
                                                 <tr>
                                                  <td valign="top" align="center">
-                                                  <div class="pc-font-alt pc-w620-fontSize-16px" style="line-height: 110%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 600; font-variant-ligatures: normal; color: #1c3425; text-align: center; text-align-last: center;">
+                                                  <div class="pc-font-alt pc-w620-fontSize-16px" style="line-height: 110%; letter-spacing: -0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: {{EB_text_dark}}; text-align: center; text-align-last: center; font-size: 18px;">
                                                    <div><span>Shipped</span>
                                                    </div>
                                                    <div><span>&#xFEFF;</span>
@@ -425,14 +424,14 @@
                                         <td class="pc-grid-td-last pc-w620-itemsSpacings-4-10" align="left" valign="top" style="width: 33.333333333333%; padding-top: 0px; padding-right: 0px; padding-bottom: 0px; padding-left: 4px;">
                                          <table style="border-collapse: separate; border-spacing: 0; width: 100%;" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                           <tr>
-                                           <td class="pc-w620-padding-19-0-42-0" align="center" valign="top" style="padding: 40px 20px 40px 20px; background-color: #edf9f2; border-radius: 12px 12px 12px 12px;">
+                                           <td class="pc-w620-padding-19-0-42-0" align="center" valign="top" bgcolor="{{EB_mint_bg}}" style="padding: 40px 20px 40px 20px; background-color: {{EB_mint_bg}}; border-radius: 12px 12px 12px 12px;">
                                             <table align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width: 100%;">
                                              <tr>
                                               <td align="center" valign="top">
                                                <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                                 <tr>
                                                  <td align="center" valign="top" style="padding: 0px 0px 15px 0px;">
-                                                  <img src="https://api.zextons.co.uk/uploads/images/image-1704422351225.png" class="" width="40" height="40" alt="" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:40px; height: auto; max-width: 100%; border: 0;" />
+                                                  <span style="display:block;font-size:28px;line-height:40px;color:{{EB_step_icon_color}};">&#10003;</span>
                                                  </td>
                                                 </tr>
                                                </table>
@@ -443,7 +442,7 @@
                                                <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse: separate; border-spacing: 0;">
                                                 <tr>
                                                  <td valign="top" align="center">
-                                                  <div class="pc-font-alt pc-w620-fontSize-16px" style="line-height: 110%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 600; font-variant-ligatures: normal; color: #1c3425; text-align: center; text-align-last: center;">
+                                                  <div class="pc-font-alt pc-w620-fontSize-16px" style="line-height: 110%; letter-spacing: -0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: {{EB_text_dark}}; text-align: center; text-align-last: center; font-size: 18px;">
                                                    <div><span>Expected</span>
                                                    </div>
                                                    <div><span>Delivered</span>
@@ -487,7 +486,7 @@
                                                    <tr>
                                                     <th valign="top" class="pc-w620-spacing-0-0-16-0" align="center" style="padding: 0px 0px 24px 0px; text-align: center; font-weight: normal; line-height: 1;">
                                                 
-                                                     <a class="pc-w620-padding-12-24-12-24" style="display: inline-block; box-sizing: border-box; border-radius: 500px 500px 500px 500px; background-color: #27ae60; padding: 12px 24px 12px 24px; width: 230px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-weight: bold; font-size: 16px; line-height: 24px; letter-spacing: -0px; color: #ffffff; vertical-align: top; text-align: center; text-align-last: center; text-decoration: none; -webkit-text-size-adjust: none;" href="https://Zextons.co.uk/login" target="_blank"><span style="display: block;"><span>View Your Order</span></span></a>
+                                                     <a class="pc-w620-padding-12-24-12-24" style="display: inline-block; box-sizing: border-box; border-radius: 500px 500px 500px 500px; background-color: {{EB_accent}}; padding: 12px 24px 12px 24px; width: 230px; {{EB_typo_h3}}; font-size: 16px; line-height: 24px; letter-spacing: -0px; color: #ffffff; vertical-align: top; text-align: center; text-align-last: center; text-decoration: none; -webkit-text-size-adjust: none;" href="https://Zextons.co.uk/login" target="_blank"><span style="display: block;"><span>View Your Order</span></span></a>
                                                      <!--<![endif]-->
                                                     </th>
                                                    </tr>
@@ -502,7 +501,7 @@
                                                      <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" align="center" style="border-collapse: separate; border-spacing: 0;">
                                                       <tr>
                                                        <td valign="top" class="pc-w620-padding-0-30-0-30 pc-w620-align-center" align="center" style="padding: 0px 50px 0px 29px;">
-                                                        <div class="pc-font-alt pc-w620-align-center pc-w620-fontSize-12px" style="line-height: 150%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 12px; font-weight: 500; font-variant-ligatures: normal; color: #ffffffcc; text-align: center; text-align-last: center;">
+                                                        <div class="pc-font-alt pc-w620-align-center pc-w620-fontSize-12px" style="line-height: 150%; letter-spacing: -0px; {{EB_typo_p}}; font-variant-ligatures: normal; color: #ffffffcc; text-align: center; text-align-last: center; font-size: 12px;">
                                                          <div><span>Estimated delivery times. Reach out to the seller for any order concerns. Additional information is accessible.</span>
                                                          </div>
                                                         </div>
@@ -566,7 +565,7 @@
                       <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                        <tr>
                         <td valign="top" class="pc-w620-padding-0-0-0-0 pc-w620-align-left" align="center" style="padding: 0px 0px 0px 0px;">
-                         <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-32px pc-w620-lineHeight-40" style="line-height: 120%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 32px; font-weight: bold; font-variant-ligatures: normal; color: #0d231c; text-align: center; text-align-last: center;">
+                         <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-32px pc-w620-lineHeight-40" style="line-height: 120%; letter-spacing: -0px; {{EB_typo_h2}}; font-variant-ligatures: normal; color: {{EB_text_dark}}; text-align: center; text-align-last: center; font-size: 32px;">
                           <div><span>{{OC_sectionOrderDetails}}</span>
                           </div>
                          </div>
@@ -582,7 +581,7 @@
                       <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                        <tr>
                         <td valign="top" class="pc-w620-align-left" align="center" style="padding: 0px 0px 0px 0px;">
-                         <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-16px pc-w620-lineHeight-120pc" style="line-height: 150%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; font-variant-ligatures: normal; color: #000000; text-align: center; text-align-last: center;">
+                         <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-16px pc-w620-lineHeight-120pc" style="line-height: 150%; letter-spacing: -0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: #000000; text-align: center; text-align-last: center; font-size: 16px;">
                          {{ordernumber}}
                          </div>
                         </td>
@@ -604,8 +603,8 @@
                                 <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" align="left" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                                  <tr>
                                   <td valign="top" class="pc-w620-align-left" align="left">
-                                   <div class="pc-font-alt pc-w620-align-left" style="line-height: 20px; letter-spacing: 0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 20px; font-weight: 600; font-variant-ligatures: normal; color: #0d231c; text-align: left; text-align-last: left;">
-                                    <div><span style="color: #0d231c;">{{OC_sectionItemsOrdered}}</span>
+                                   <div class="pc-font-alt pc-w620-align-left" style="line-height: 20px; letter-spacing: 0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: {{EB_text_dark}}; text-align: left; text-align-last: left; font-size: 20px;">
+                                    <div><span style="color: {{EB_text_dark}};">{{OC_sectionItemsOrdered}}</span>
                                     </div>
                                    </div>
                                   </td>
@@ -652,7 +651,7 @@
                <td class="pc-w620-spacing-0-0-10-0" style="padding: 10px 0px 10px 0px;">
                 <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
                  <tr>
-                  <td valign="top" class="pc-w620-padding-40-32-40-32" style="padding: 40px 16px 40px 16px; border-radius: 10px 10px 10px 10px; background-color: #faffe9;" bgcolor="#faffe9">
+                  <td valign="top" class="pc-w620-padding-40-32-40-32" bgcolor="{{EB_help_bg}}" style="padding: 40px 16px 40px 16px; border-radius: 10px 10px 10px 10px; background-color: {{EB_help_bg}};">
                    <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                     <tr>
                      <td class="pc-w620-valign-top pc-w620-halign-center">
@@ -680,7 +679,7 @@
                                            <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                             <tr>
                                              <td class="pc-w620-halign-center" align="left" valign="top">
-                                              <img src="https://api.zextons.co.uk/uploads/images/image-1704276449205.png" class="pc-w620-align-center" width="80" height="80" alt="" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:80px; height:80px; border: 0;" />
+                                              <img src="{{EB_logoUrl}}" class="pc-w620-align-center" width="80" height="80" alt="{{EB_logoAlt}}" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:80px; height:auto; max-height:80px; border: 0;" />
                                              </td>
                                             </tr>
                                            </table>
@@ -704,7 +703,7 @@
                                               <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" style="border-collapse: separate; border-spacing: 0;">
                                                <tr>
                                                 <td valign="top" class="pc-w620-align-center" align="left">
-                                                 <div class="pc-font-alt pc-w620-align-center" style="line-height: 130%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 24px; font-weight: bold; font-variant-ligatures: normal; color: #0e221c; text-align: left; text-align-last: left;">
+                                                 <div class="pc-font-alt pc-w620-align-center" style="line-height: 130%; letter-spacing: -0px; {{EB_typo_h2}}; font-variant-ligatures: normal; color: {{EB_text_dark}}; text-align: left; text-align-last: left; font-size: 24px;">
                                                   <div><span style="font-weight: 700;font-style: normal;">{{OC_helpHeading}}</span>
                                                   </div>
                                                  </div>
@@ -724,8 +723,8 @@
                                               <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" align="left" style="border-collapse: separate; border-spacing: 0;">
                                                <tr>
                                                 <td valign="top" class="pc-w620-align-center" align="left">
-                                                 <div class="pc-font-alt pc-w620-align-center" style="line-height: 21px; letter-spacing: -0.2px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 15px; font-weight: 500; font-variant-ligatures: normal; color: #333333; text-align: left; text-align-last: left;">
-                                                  <div><span>{{OC_helpBeforeEmail}}</span><span style="color: rgb(37, 175, 96);"> </span><span style="font-weight: 700;font-style: normal;color: rgb(37, 175, 96);">{{OC_supportEmail}} </span><span>{{OC_helpAfterEmail}}</span>
+                                                 <div class="pc-font-alt pc-w620-align-center" style="line-height: 21px; letter-spacing: -0.2px; {{EB_typo_p}}; font-variant-ligatures: normal; color: #333333; text-align: left; text-align-last: left; font-size: 15px;">
+                                                  <div><span>{{OC_helpBeforeEmail}}</span><span style="color: {{EB_accent_rgb}};"> </span><span style="font-weight: 700;font-style: normal;color: {{EB_accent_rgb}};">{{OC_supportEmail}} </span><span>{{OC_helpAfterEmail}}</span>
                                                   </div>
                                                  </div>
                                                 </td>
@@ -779,7 +778,7 @@
                <td style="padding: 0px 0px 0px 0px;">
                 <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
                  <tr>
-                  <td valign="top" class="pc-w520-padding-30-30-30-30 pc-w620-padding-35-35-35-35" style="padding: 40px 40px 40px 40px; border-radius: 13px 13px 13px 13px; background-color: #0d231c;" bgcolor="#0d231c">
+                  <td valign="top" class="pc-w520-padding-30-30-30-30 pc-w620-padding-35-35-35-35" bgcolor="{{EB_footer_bg}}" style="padding: 40px 40px 40px 40px; border-radius: 13px 13px 13px 13px; background-color: {{EB_footer_bg}};">
                    <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                     <tr>
                      <td style="padding: 0px 0px 32px 0px;">
@@ -795,7 +794,7 @@
                                <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                 <tr>
                                  <td align="center" valign="top">
-                                  <img src="https://api.zextons.co.uk/uploads/images/image-1725645046107.png" class="" width="110" height="27" alt="" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:110px; height: auto; max-width: 100%; border: 0;" />
+                                  <img src="{{EB_logoUrl}}" class="" width="110" height="27" alt="{{EB_logoAlt}}" style="display: block; outline: 0; line-height: 100%; -ms-interpolation-mode: bicubic; width:110px; height: auto; max-width: 100%; border: 0;" />
                                  </td>
                                 </tr>
                                </table>
@@ -827,7 +826,7 @@
                                <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse: separate; border-spacing: 0;">
                                 <tr>
                                  <td valign="top" align="left">
-                                  <div class="pc-font-alt" style="line-height: 120%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 500; font-variant-ligatures: normal; color: #ffffff; text-align: left; text-align-last: left;">
+                                  <div class="pc-font-alt" style="line-height: 120%; letter-spacing: -0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: #ffffff; text-align: left; text-align-last: left; font-size: 18px;">
                                    <div><span><a href="https://Zextons.co.uk/terms-and-conditions"> {{OC_linkTermsText}}</a> </span>
                                    </div>
                                   </div>
@@ -851,7 +850,7 @@
                                <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse: separate; border-spacing: 0;">
                                 <tr>
                                  <td valign="top" align="left">
-                                  <div class="pc-font-alt" style="line-height: 120%; letter-spacing: 0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 500; font-variant-ligatures: normal; color: #ffffff; text-align: left; text-align-last: left;">
+                                  <div class="pc-font-alt" style="line-height: 120%; letter-spacing: 0px; {{EB_typo_h3}}; font-variant-ligatures: normal; color: #ffffff; text-align: left; text-align-last: left; font-size: 18px;">
                                    <div><span><a href="https://Zextons.co.uk/privacy-policy">{{OC_linkPrivacyText}}</a> </span>
                                    </div>
                                   </div>
@@ -876,7 +875,7 @@
                       <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                        <tr>
                         <td valign="top" align="center" style="padding: 0px 0px 0px 0px;">
-                         <div class="pc-font-alt" style="line-height: 143%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 500; font-variant-ligatures: normal; color: #d8d8d8; text-align: center; text-align-last: center;">
+                         <div class="pc-font-alt" style="line-height: 143%; letter-spacing: -0px; {{EB_typo_p}}; font-variant-ligatures: normal; color: #d8d8d8; text-align: center; text-align-last: center; font-size: 14px;">
                           <div><span>{{OC_footerAddressLine}}</span>
                           </div>
                          </div>
@@ -901,7 +900,7 @@
                                <table border="0" cellpadding="0" cellspacing="0" role="presentation" align="center" style="border-collapse: separate; border-spacing: 0;">
                                 <tr>
                                  <td valign="top" class="pc-w620-align-center" align="left">
-                                  <div class="pc-font-alt pc-w620-align-center pc-w620-lineHeight-140pc" style="line-height: 140%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 500; font-variant-ligatures: normal; color: #ffffff; text-align: left; text-align-last: left;">
+                                  <div class="pc-font-alt pc-w620-align-center pc-w620-lineHeight-140pc" style="line-height: 140%; letter-spacing: -0px; {{EB_typo_p}}; font-variant-ligatures: normal; color: #ffffff; text-align: left; text-align-last: left; font-size: 14px;">
                                    <div><span>{{OC_unsubscribeLead}}</span><a href="#" style="text-decoration: none; color: #ffffff;"><span style="text-decoration: underline;font-weight: 600;font-style: normal;">{{OC_unsubscribeLinkText}}</span></a><span>﻿</span>
                                    </div>
                                   </div>

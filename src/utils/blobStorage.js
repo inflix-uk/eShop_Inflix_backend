@@ -3,23 +3,38 @@ const { put, del, list } = require('@vercel/blob');
 const spacesStorage = require('./uploadToSpaces');
 const { optimizeImageForUpload } = require('./imageOptimizer');
 
+/** Default uploads target: S3-compatible DigitalOcean Spaces. Set STORAGE_PROVIDER=blob + BLOB_READ_WRITE_TOKEN for Vercel Blob. */
+const DEFAULT_STORAGE_PROVIDER = 'spaces';
+
 /**
- * Vercel Blob Storage Utility
- * Handles file uploads to Vercel Blob storage
+ * Unified upload/delete facade — Spaces (S3) by default, Vercel Blob when STORAGE_PROVIDER=blob.
  */
 class BlobStorage {
     constructor() {
         this.token = process.env.BLOB_READ_WRITE_TOKEN;
-        this.storageProvider = process.env.STORAGE_PROVIDER || 'blob';
+        this.storageProvider = (
+            process.env.STORAGE_PROVIDER || DEFAULT_STORAGE_PROVIDER
+        ).trim().toLowerCase();
     }
 
     useSpaces() {
-        return this.storageProvider === 'spaces';
+        return this.getActiveProvider() === 'spaces';
     }
 
     getActiveProvider() {
-        const provider = (process.env.STORAGE_PROVIDER || this.storageProvider || 'blob').trim().toLowerCase();
+        const provider = (
+            process.env.STORAGE_PROVIDER ||
+            this.storageProvider ||
+            DEFAULT_STORAGE_PROVIDER
+        )
+            .trim()
+            .toLowerCase();
         return provider === 'spaces' ? 'spaces' : 'blob';
+    }
+
+    /** True only when Vercel Blob token exists (listing / blob-native flows). */
+    hasVercelBlobToken() {
+        return !!this.token;
     }
 
     logStorageError(operation, error, extra = {}) {
@@ -256,10 +271,13 @@ class BlobStorage {
     }
 
     /**
-     * Check if Blob storage is configured
-     * @returns {boolean}
+     * Use remote object storage for uploads (multer memory → Spaces or Blob).
+     * Spaces when DO_* env is set; Blob when STORAGE_PROVIDER=blob and token set.
      */
     isConfigured() {
+        if (this.getActiveProvider() === 'spaces') {
+            return spacesStorage.isSpacesListConfigured();
+        }
         return !!this.token;
     }
 }

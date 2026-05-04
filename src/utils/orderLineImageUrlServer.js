@@ -1,10 +1,23 @@
 /**
  * Resolve a displayable image URL for order cart line items on the server
- * (admin dashboard, emails) — handles absolute URLs, /uploads paths, and
- * DigitalOcean Spaces keys (MAIN_FOLDER/products/...).
+ * (admin dashboard, emails) — handles absolute URLs, /uploads paths,
+ * DigitalOcean Spaces keys (MAIN_FOLDER/products/...), and Vercel Blob pathnames
+ * when BLOB_PUBLIC_BASE_URL is set (same origin as blob `url` from uploads).
  */
 
 const spacesStorage = require("./uploadToSpaces");
+
+function getBlobPublicBase() {
+    return String(process.env.BLOB_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+}
+
+function looksLikeBlobPathname(t) {
+    const s = String(t || "")
+        .replace(/^\/+/, "")
+        .toLowerCase();
+    if (!s || s.startsWith("uploads/")) return false;
+    return /^(?:[a-z0-9_-]+\/)?(products|blogs|banners)\//.test(s);
+}
 
 function normalizeBase() {
     return (process.env.BACKEND_URL || "").replace(/\/+$/, "");
@@ -45,7 +58,9 @@ function fromString(s, spacesOn) {
     if (!t) return "";
     if (t.startsWith("//")) return `https:${t}`;
     if (isHttp(t)) return t;
-    if (spacesOn && !/^\/uploads\//i.test(t) && !t.toLowerCase().startsWith("uploads/")) {
+    const notDiskUpload =
+        !/^\/uploads\//i.test(t) && !t.toLowerCase().startsWith("uploads/");
+    if (spacesOn && notDiskUpload) {
         const key = toSpacesKey(t);
         if (key) {
             try {
@@ -54,6 +69,10 @@ function fromString(s, spacesOn) {
                 /* fall through */
             }
         }
+    }
+    const blobBase = getBlobPublicBase();
+    if (blobBase && looksLikeBlobPathname(t) && notDiskUpload) {
+        return `${blobBase}/${t.replace(/^\/+/, "")}`;
     }
     return buildDiskUrl(t);
 }
@@ -102,4 +121,20 @@ function resolveOrderLineImageUrlServer(cartLike) {
     return "";
 }
 
-module.exports = { resolveOrderLineImageUrlServer };
+/**
+ * Attach `lineImageUrl` to each cart line (plain / lean order object).
+ * @param {Record<string, unknown>} order
+ * @returns {Record<string, unknown>}
+ */
+function attachLineImageUrlsToOrder(order) {
+    if (!order || !Array.isArray(order.cart)) return order;
+    return {
+        ...order,
+        cart: order.cart.map((line) => ({
+            ...line,
+            lineImageUrl: resolveOrderLineImageUrlServer(line),
+        })),
+    };
+}
+
+module.exports = { resolveOrderLineImageUrlServer, attachLineImageUrlsToOrder };

@@ -7,8 +7,6 @@ const {
 } = require("@aws-sdk/client-s3");
 const s3Client = require("./s3");
 
-const ALLOWED_FOLDERS = ["products", "blogs", "banners"];
-
 function sanitizeFilename(fileName = "") {
     return fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
 }
@@ -71,13 +69,23 @@ function validateFolder(folder) {
     }
 
     const normalized = folder.trim().replace(/^\/+|\/+$/g, "");
-    const rootFolder = normalized.split("/")[0];
-
-    if (!ALLOWED_FOLDERS.includes(rootFolder)) {
-        throw new Error(`Invalid folder "${folder}". Allowed folders: ${ALLOWED_FOLDERS.join(", ")}`);
+    if (!normalized) {
+        throw new Error("Folder is required for Spaces upload");
+    }
+    if (normalized.includes("..") || normalized.includes("\\") || normalized.includes("\0")) {
+        throw new Error(`Invalid folder "${folder}"`);
     }
 
     return normalized;
+}
+
+function isSpacesUploadPathAllowed(folder) {
+    try {
+        validateFolder(folder);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 async function uploadFile(file, folder) {
@@ -235,7 +243,7 @@ module.exports = {
     copyObject,
     listAllObjects,
     isSpacesListConfigured,
+    isSpacesUploadPathAllowed,
     stripMainFolderFromKey,
     buildPublicUrlForKey,
-    ALLOWED_FOLDERS,
 };
