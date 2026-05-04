@@ -1,149 +1,128 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            background: #1a237e;
-            color: white;
-            padding: 20px;
-            text-align: center;
-            border-radius: 8px 8px 0 0;
-        }
-        .content {
-            background: #ffffff;
-            padding: 20px;
-            border: 1px solid #e0e0e0;
-            border-radius: 0 0 8px 8px;
-        }
-        .order-info {
-            background: #f5f5f5;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 15px 0;
-        }
-        .status {
-            display: inline-block;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            color: white;
-        }
-        .customer-details {
-            margin: 20px 0;
-            padding: 15px;
-            border-left: 4px solid #1a237e;
-            background: #f8f9fa;
-        }
-        .items-list {
-            list-style: none;
-            padding: 0;
-        }
-        .item {
-            border: 1px solid #e0e0e0;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 4px;
-        }
-        .total {
-            font-size: 1.2em;
-            font-weight: bold;
-            text-align: right;
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 2px solid #e0e0e0;
-        }
-        .note {
-            background: #fff3e0;
-            padding: 15px;
-            border-left: 4px solid #ff9800;
-            margin: 15px 0;
-        }
-        .shipping {
-            background: #e3f2fd;
-            padding: 15px;
-            border-left: 4px solid #2196f3;
-            margin: 15px 0;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
-            color: #666;
-            font-size: 0.9em;
-        }
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ST_headerTitle}}</title>
+    {{EB_google_fonts_link}}
+    <style type="text/css">
+        .os-preheader { display: none !important; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0; overflow: hidden; mso-hide: all; }
     </style>
 </head>
-<body>
-    <div class="header">
-        <h1>{{ST_headerTitle}}</h1>
-    </div>
-    <div class="content">
-        <div class="order-info">
-            <h2>{{ST_labelOrderPrefix}}{{orderNumber}}</h2>
-            <p>{{ST_labelStatus}} <span class="status" style="background-color: {{statusColor}}">{{status}}</span></p>
-            {{#if shippingOption}}
-            <div class="shipping">
-                <strong>{{ST_labelShippingOption}}</strong>
-                <p>{{shippingOption}}</p>
-            </div>
-            {{/if}}
-            {{#if note}}
-            <div class="note">
-                <strong>{{ST_labelNote}}</strong>
-                <p>{{note}}</p>
-            </div>
-            {{/if}}
-        </div>
-
-        <div class="customer-details">
-            <h3>{{ST_sectionCustomerDetails}}</h3>
-            <p><strong>{{ST_labelName}}</strong> {{user.firstname}} {{user.lastname}}</p>
-            <p><strong>{{ST_labelEmail}}</strong> {{user.email}}</p>
-            <p><strong>{{ST_labelPhone}}</strong> {{user.phoneNumber}}</p>
-            {{#if user.address}}
-            <p><strong>{{ST_labelAddress}}</strong><br>
-                {{user.address.address}}<br>
-                {{#if user.address.apartment}}{{user.address.apartment}}<br>{{/if}}
-                {{user.address.city}}, {{user.address.county}}<br>
-                {{user.address.postalCode}}<br>
-                {{user.address.country}}
-            </p>
-            {{/if}}
-        </div>
-
-        <h3>{{ST_sectionOrderSummary}}</h3>
-        <ul class="items-list">
-            {{#each order.items}}
-            <li class="item">
-                <h4>{{deviceName}} {{brandName}}</h4>
-                <p><strong>{{ST_labelStorage}}</strong> {{selectedStorageLabel}}</p>
-                <p><strong>{{ST_labelCondition}}</strong> {{selectedCondition}}</p>
-                <p><strong>{{ST_labelQuantity}}</strong> {{quantity}}</p>
-                <p><strong>{{ST_labelPrice}}</strong> £{{totalPrice}}</p>
-                {{#if imeiNumbers.[0]}}
-                <p><strong>{{ST_labelImei}}</strong> {{imeiNumbers.[0]}}</p>
-                {{/if}}
-            </li>
-            {{/each}}
-        </ul>
-
-        <div class="total">
-            <p>{{ST_labelTotalOrderValue}} £{{order.totalOrderValue}}</p>
-        </div>
-    </div>
-    
-    <div class="footer">
-        <p>{{ST_footerLine1}}</p>
-        <p>{{ST_footerLine2}}</p>
-    </div>
+<body style="margin: 0; padding: 0; {{EB_typo_p}} background-color: {{EB_mint_bg}}; color: {{EB_text_dark}};">
+    <span class="os-preheader">{{ST_labelOrderPrefix}}{{orderNumber}} — {{status}}</span>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: {{EB_mint_bg}};">
+        <tr>
+            <td align="center" style="padding: 32px 16px 48px 16px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td align="center" style="padding: 0 0 20px 0;">
+                            <img src="{{EB_logoUrl}}" width="160" alt="{{EB_logoAlt}}" style="display: block; border: 0; outline: none; text-decoration: none; height: auto; max-width: 160px; width: 160px;" />
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background: {{EB_status_header_bg}}; border-radius: 14px 14px 0 0; padding: 28px 24px; text-align: center;">
+                            <h1 style="margin: 0; {{EB_typo_h1}} color: #ffffff; font-size: 26px; line-height: 1.25;">{{ST_headerTitle}}</h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background: #ffffff; border-left: 1px solid rgba(0,0,0,0.06); border-right: 1px solid rgba(0,0,0,0.06); padding: 28px 28px 20px 28px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: {{EB_help_bg}}; border-radius: 12px;">
+                                <tr>
+                                    <td style="padding: 22px 22px 18px 22px;">
+                                        <p style="margin: 0 0 12px 0; {{EB_typo_h2}} color: {{EB_text_dark}}; font-size: 20px;">{{ST_labelOrderPrefix}}{{orderNumber}}</p>
+                                        <p style="margin: 0; {{EB_typo_p}} color: {{EB_text_dark}}; line-height: 1.6;">
+                                            {{ST_labelStatus}}
+                                            <span style="display: inline-block; margin-left: 6px; padding: 8px 16px; border-radius: 999px; {{EB_typo_h3}} font-size: 14px; color: #ffffff; background-color: {{statusColor}};">{{status}}</span>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    {{#if shippingOption}}
+                    <tr>
+                        <td style="background: #ffffff; border-left: 1px solid rgba(0,0,0,0.06); border-right: 1px solid rgba(0,0,0,0.06); padding: 0 28px 16px 28px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: {{EB_mint_bg}}; border-radius: 10px; border-left: 4px solid {{EB_accent}};">
+                                <tr>
+                                    <td style="padding: 16px 18px;">
+                                        <p style="margin: 0 0 6px 0; {{EB_typo_h3}} color: {{EB_accent}}; font-size: 13px;">{{ST_labelShippingOption}}</p>
+                                        <p style="margin: 0; {{EB_typo_p}} color: {{EB_text_dark}};">{{shippingOption}}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    {{/if}}
+                    {{#if note}}
+                    <tr>
+                        <td style="background: #ffffff; border-left: 1px solid rgba(0,0,0,0.06); border-right: 1px solid rgba(0,0,0,0.06); padding: 0 28px 16px 28px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: {{EB_trade_in_panel_bg}}; border-radius: 10px; border-left: 4px solid {{EB_accent}};">
+                                <tr>
+                                    <td style="padding: 16px 18px;">
+                                        <p style="margin: 0 0 6px 0; {{EB_typo_h3}} color: {{EB_text_dark}}; font-size: 13px;">{{ST_labelNote}}</p>
+                                        <p style="margin: 0; {{EB_typo_p}} color: {{EB_text_dark}};">{{note}}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    {{/if}}
+                    <tr>
+                        <td style="background: #ffffff; border-left: 1px solid rgba(0,0,0,0.06); border-right: 1px solid rgba(0,0,0,0.06); padding: 8px 28px 24px 28px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-radius: 10px; border-left: 4px solid {{EB_accent}}; background: {{EB_mint_bg}};">
+                                <tr>
+                                    <td style="padding: 18px 20px;">
+                                        <p style="margin: 0 0 14px 0; {{EB_typo_h2}} color: {{EB_accent}}; font-size: 17px;">{{ST_sectionCustomerDetails}}</p>
+                                        {{CUSTOMER_DETAIL_ROWS}}
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background: #ffffff; border-left: 1px solid rgba(0,0,0,0.06); border-right: 1px solid rgba(0,0,0,0.06); padding: 0 28px 12px 28px;">
+                            <p style="margin: 0 0 16px 0; {{EB_typo_h2}} color: {{EB_text_dark}}; font-size: 19px;">{{ST_sectionOrderSummary}}</p>
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                                {{#each order.items}}
+                                <tr>
+                                    <td style="padding: 0 0 14px 0;">
+                                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border: 1px solid rgba(0,0,0,0.08); border-radius: 12px; background: #ffffff;">
+                                            <tr>
+                                                <td style="padding: 18px 20px;">
+                                                    {{ORDER_ITEM_INNER_HTML}}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {{/each}}
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background: #ffffff; border-left: 1px solid rgba(0,0,0,0.06); border-right: 1px solid rgba(0,0,0,0.06); padding: 0 28px 28px 28px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top: 2px solid {{EB_accent}}; padding-top: 18px;">
+                                <tr>
+                                    <td align="right" style="padding: 0;">
+                                        <p style="margin: 0; {{EB_typo_h2}} color: {{EB_text_dark}}; font-size: 18px;">{{ST_labelTotalOrderValue}} {{order.totalOrderValue}}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background: {{EB_footer_bg}}; border-radius: 0 0 14px 14px; padding: 24px 28px; text-align: center;">
+                            <p style="margin: 0 0 8px 0; {{EB_typo_p}} color: rgba(255,255,255,0.92); font-size: 14px; line-height: 1.55;">{{ST_footerLine1}}</p>
+                            <p style="margin: 0 0 16px 0; {{EB_typo_p}} color: rgba(255,255,255,0.92); font-size: 14px; line-height: 1.55;">{{ST_footerLine2}}</p>
+                            <p style="margin: 0;">
+                                <a href="{{EB_store_url}}" style="color: {{EB_hero_highlight}}; {{EB_typo_p}} font-size: 14px; font-weight: 600; text-decoration: underline;">Visit our store</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>

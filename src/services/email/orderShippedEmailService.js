@@ -4,6 +4,11 @@ const {
   applyOrderShippedCopyToHtml,
   getOrderShippedCustomerResolved,
 } = require('./orderEmailCopyService');
+const { applyEmailBrandingToShippedHtml } = require('../../utils/emailBranding');
+const {
+  buildShippedCartItemVariantSpans,
+  emailFieldPresent,
+} = require('../../utils/orderStatusEmailDynamicHtml');
 
 function escapeHtml(str) {
   return String(str)
@@ -24,19 +29,15 @@ function buildShippedProductListHtml(cart) {
   if (!Array.isArray(cart)) return '';
   return cart
     .map((item) => {
-      const match = item.name?.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-      const condition = match ? match[1] : 'Unknown';
-      const colorName = match ? match[2] : 'Unknown';
-      const storage = match ? match[4] : 'Unknown';
       const itemSubtotal = ((item.qty || 0) * (item.salePrice || item.Price || 0)).toFixed(2);
-      const name = escapeHtml(item.productName || 'Item');
+      const title =
+        emailFieldPresent(item.productName) ? escapeHtml(item.productName) : '';
+      const variantLines = buildShippedCartItemVariantSpans(item);
       return `
         <li style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">
-          <strong>${name}</strong><br>
-          <span style="color: #666;">Condition: ${escapeHtml(condition)}</span><br>
+          ${title ? `<strong>${title}</strong><br>` : ''}
+          ${variantLines}
           <span style="color: #666;">Quantity: ${escapeHtml(String(item.qty))}</span><br>
-          <span style="color: #666;">Color: ${escapeHtml(colorName)}</span><br>
-          <span style="color: #666;">Storage: ${escapeHtml(storage)}</span><br>
           <span style="color: #16a34a; font-weight: bold;">Item Subtotal: £${itemSubtotal}</span>
         </li>
       `;
@@ -57,6 +58,7 @@ function trackingHrefForOrder(order) {
 async function buildOrderShippedEmail(order) {
   const tplPath = path.join(__dirname, '..', '..', '..', 'email', 'orderShippedCustomer', 'template.html');
   let html = await fs.readFile(tplPath, 'utf8');
+  html = await applyEmailBrandingToShippedHtml(html);
 
   const { fields } = await getOrderShippedCustomerResolved();
   html = applyOrderShippedCopyToHtml(html, fields);

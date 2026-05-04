@@ -32,14 +32,19 @@ async function resolveEffectiveConfig(overrides = {}) {
 
   const host = pick('host', ['EMAIL_HOST', 'NEWSLETTER_EMAIL_HOST']);
   const portRaw = o.port !== undefined && o.port !== '' ? o.port : doc.port;
-  const port = Number(portRaw) || Number(process.env.EMAIL_PORT || process.env.NEWSLETTER_EMAIL_PORT) || 465;
+  const port =
+    Number(portRaw) || Number(process.env.EMAIL_PORT || process.env.NEWSLETTER_EMAIL_PORT) || 465;
   const user = pick('username', ['EMAIL_USER', 'NEWSLETTER_EMAIL_USER']);
 
   let pass = '';
   if (o.password !== undefined && o.password !== null && String(o.password).trim() !== '') {
     pass = String(o.password).trim();
   } else {
-    pass = (doc.password && String(doc.password).trim()) || process.env.EMAIL_PASS || process.env.NEWSLETTER_EMAIL_PASS || '';
+    pass =
+      (doc.password && String(doc.password).trim()) ||
+      process.env.EMAIL_PASS ||
+      process.env.NEWSLETTER_EMAIL_PASS ||
+      '';
   }
 
   const fromEmail = pick('fromEmail', ['EMAIL_FROM', 'NEWSLETTER_FROM_EMAIL']);
@@ -47,7 +52,9 @@ async function resolveEffectiveConfig(overrides = {}) {
 
   let secure = doc.secure !== false;
   if (o.secure !== undefined) secure = Boolean(o.secure);
+  /** 465 = implicit TLS (SMTPS). 587 = STARTTLS (plain socket then upgrade); secure:true on 587 breaks many hosts (often 535). */
   if (port === 465) secure = true;
+  if (port === 587) secure = false;
 
   return { host, port, secure, user, pass, fromEmail, fromName, doc };
 }
@@ -60,7 +67,10 @@ function buildTransportOptions(effective) {
     secure,
     auth: { user, pass },
   };
-  if (port === 587 && !secure) opts.requireTLS = true;
+  if (port === 587) {
+    opts.secure = false;
+    opts.requireTLS = true;
+  }
   return opts;
 }
 
@@ -109,11 +119,79 @@ async function verifyTransporter(overrides) {
   return true;
 }
 
+const SIMPLE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Where to send store "new order" alerts (not the customer confirmation address).
+ * Priority: SMTP settings → ORDER_NOTIFY_EMAIL env → legacy default.
+ */
+async function getOrderNotifyRecipientEmail() {
+  try {
+    const doc = await SmtpSettings.getSettings();
+    const fromDb = String(doc.orderNotifyEmail || '').trim();
+    if (fromDb && SIMPLE_EMAIL_RE.test(fromDb)) return fromDb;
+  } catch {
+    /* ignore */
+  }
+  const fromEnv = String(process.env.ORDER_NOTIFY_EMAIL || '').trim();
+  if (fromEnv && SIMPLE_EMAIL_RE.test(fromEnv)) return fromEnv;
+  return 'order@zextons.co.uk';
+}
+
+function parseCommaSeparatedEmails(raw) {
+  if (raw == null || typeof raw !== 'string') return [];
+  const parts = raw.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const p of parts) {
+    if (SIMPLE_EMAIL_RE.test(p)) out.push(p);
+  }
+  return out;
+}
+
+function emailsToNodemailerField(list) {
+  if (!list || list.length === 0) return undefined;
+  return list.length === 1 ? list[0] : list;
+}
+
+/**
+ * CC/BCC for the customer order-confirmation email only (checkout receipt).
+ * BCC: DB list if non-empty; else TRUSTPILOT_BCC_EMAIL env; else Trustpilot AFS invite default.
+ */
+async function getOrderConfirmationCcAndBcc() {
+  let ccList = [];
+  let bccList = [];
+  try {
+    const doc = await SmtpSettings.getSettings();
+    ccList = parseCommaSeparatedEmails(String(doc.orderConfirmationCc || ''));
+    const bccStored = String(doc.orderConfirmationBcc || '').trim();
+    if (bccStored) {
+      bccList = parseCommaSeparatedEmails(bccStored);
+    }
+  } catch {
+    /* ignore */
+  }
+  if (bccList.length === 0) {
+    const fallback =
+      (process.env.TRUSTPILOT_BCC_EMAIL && String(process.env.TRUSTPILOT_BCC_EMAIL).trim()) ||
+      '9311f649e0@invite.trustpilot.com';
+    bccList = parseCommaSeparatedEmails(fallback);
+    if (bccList.length === 0 && SIMPLE_EMAIL_RE.test(fallback)) {
+      bccList = [fallback];
+    }
+  }
+  return {
+    cc: emailsToNodemailerField(ccList),
+    bcc: emailsToNodemailerField(bccList),
+  };
+}
+
 module.exports = {
   sendMail,
   createTransporter,
   verifyTransporter,
   getDefaultFrom,
+  getOrderNotifyRecipientEmail,
+  getOrderConfirmationCcAndBcc,
   resolveEffectiveConfig,
   buildTransportOptions,
 };

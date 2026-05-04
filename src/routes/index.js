@@ -58,6 +58,12 @@ const { getAllCategories, getCategoryById, createCategory, updateCategory, delet
 // FOOTER PAGES CONTROLLERS
 // ========================================================================
 const { createFooterPage, updateFooterPage, getFooterPageById, getFooterPageBySlug, getAllFooterPages, deleteFooterPage, handleFooterPageUpload } = require('../controller/footerPageController');
+const {
+  getAllPageCategories,
+  createPageCategory,
+  updatePageCategory,
+  deletePageCategory,
+} = require('../controller/pageCategoryController');
 
 // ========================================================================
 // MIDDLEWARE & OTHER IMPORTS
@@ -596,6 +602,14 @@ router.put('/footer-pages/pages/:id', handleFooterPageUpload, updateFooterPage);
 router.delete('/footer-pages/pages/:id', deleteFooterPage);
 
 // ========================================================================
+// PAGE CATEGORIES (footer / static pages grouping)
+// ========================================================================
+router.get('/page-categories', getAllPageCategories);
+router.post('/page-categories', requireAdmin, createPageCategory);
+router.put('/page-categories/:id', requireAdmin, updatePageCategory);
+router.delete('/page-categories/:id', requireAdmin, deletePageCategory);
+
+// ========================================================================
 // DEALS & DISCOUNTS MANAGEMENT
 // ========================================================================
 router.post('/create/deal', requireAdmin, dealsController.createDeal);
@@ -881,6 +895,16 @@ router.put(
 const orderEmailTemplatesController = require('../controller/orderEmailTemplatesController');
 router.get('/order-email-templates', requireAdmin, orderEmailTemplatesController.getAdmin);
 router.put('/order-email-templates', requireAdmin, orderEmailTemplatesController.saveAdmin);
+
+// ========================================================================
+// EMAIL BRANDING (admin preview — matches transactional `getEmailBranding`)
+// ========================================================================
+const emailBrandingPreviewController = require('../controller/emailBrandingPreviewController');
+router.get(
+  '/email-branding/preview',
+  requireAdmin,
+  emailBrandingPreviewController.getEmailBrandingForPreview
+);
 
 // ========================================================================
 // CRON JOB ROUTES

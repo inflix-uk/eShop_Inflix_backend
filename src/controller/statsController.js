@@ -752,8 +752,8 @@ const statsController = {
                 return { title, altText, _id: fileId };
             };
 
-            // Vercel Blob: primary media source when BLOB_READ_WRITE_TOKEN is set
-            if (blobStorage.isConfigured()) {
+            // Vercel Blob listing only when token is set (default storage is Spaces — see STORAGE_PROVIDER)
+            if (blobStorage.hasVercelBlobToken()) {
                 try {
                     const blobs = await blobStorage.listAllBlobs();
                     const folderMap = new Map();
@@ -1120,10 +1120,10 @@ const statsController = {
 
                 const dirTrim = String(directory).trim();
                 const rootFolder = dirTrim.split("/")[0];
-                if (!spacesStorage.ALLOWED_FOLDERS.includes(rootFolder)) {
+                if (!spacesStorage.isSpacesUploadPathAllowed(dirTrim)) {
                     return res.status(400).json({
                         success: false,
-                        error: `Invalid directory. Allowed roots: ${spacesStorage.ALLOWED_FOLDERS.join(", ")}`,
+                        error: "Invalid directory path for Spaces upload",
                     });
                 }
 
@@ -1267,7 +1267,7 @@ const statsController = {
             if (isRenaming) {
                 const dirTrim = String(directory).trim();
                 const rootFolder = dirTrim.split("/")[0];
-                if (!spacesStorage.ALLOWED_FOLDERS.includes(rootFolder)) {
+                if (!spacesStorage.isSpacesUploadPathAllowed(dirTrim)) {
                     return res.status(400).json({
                         success: false,
                         error: "Invalid directory for Spaces rename",

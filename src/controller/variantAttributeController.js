@@ -1,6 +1,18 @@
 const VariantAttribute = require('../models/VariantAttribute');
 const Product = require('../models/product');
 
+function escapeRegex(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Case-insensitive duplicate check — MongoDB `name` unique index is case-sensitive, so "Brand" and "brand" would otherwise both insert; slug would also collide. */
+async function findVariantAttributeByNameCI(trimmedName) {
+    if (!trimmedName) return null;
+    return VariantAttribute.findOne({
+        name: new RegExp(`^${escapeRegex(trimmedName)}$`, 'i'),
+    }).exec();
+}
+
 // Get all active variant attributes (for product creation)
 const getActiveVariantAttributes = async (req, res) => {
     try {
@@ -241,6 +253,26 @@ const updateVariantAttribute = async (req, res) => {
         const { id } = req.params;
         const updates = req.body;
 
+        if (updates.name !== undefined) {
+            const trimmedName = typeof updates.name === 'string' ? updates.name.trim() : '';
+            if (!trimmedName) {
+                return res.status(400).json({
+                    status: 400,
+                    message: 'Name cannot be empty'
+                });
+            }
+            const duplicate = await findVariantAttributeByNameCI(trimmedName);
+            if (duplicate && String(duplicate._id) !== String(id)) {
+                return res.status(409).json({
+                    status: 409,
+                    message: `A variant attribute with this name already exists ("${duplicate.name}").`,
+                    existingId: duplicate._id,
+                    existingName: duplicate.name
+                });
+            }
+            updates.name = trimmedName;
+        }
+
         const variantAttribute = await VariantAttribute.findByIdAndUpdate(
             id,
             updates,
@@ -261,6 +293,17 @@ const updateVariantAttribute = async (req, res) => {
         });
     } catch (error) {
         console.error('Error updating variant attribute:', error);
+        if (error.code === 11000) {
+            const field = Object.keys(error.keyPattern || {})[0] || 'name';
+            return res.status(409).json({
+                status: 409,
+                message:
+                    field === 'slug'
+                        ? 'That name produces a URL slug that is already in use.'
+                        : 'A variant attribute with this name already exists.',
+                duplicateField: field
+            });
+        }
         res.status(500).json({
             status: 500,
             message: 'Error updating variant attribute',
@@ -705,8 +748,26 @@ const createVariantAttribute = async (req, res) => {
     try {
         const { name, values, description, isActive } = req.body;
 
+        const trimmedName = typeof name === 'string' ? name.trim() : '';
+        if (!trimmedName) {
+            return res.status(400).json({
+                status: 400,
+                message: 'Name is required'
+            });
+        }
+
+        const duplicate = await findVariantAttributeByNameCI(trimmedName);
+        if (duplicate) {
+            return res.status(409).json({
+                status: 409,
+                message: `A variant attribute with this name already exists ("${duplicate.name}"). Names differ only by letter case still count as the same attribute.`,
+                existingId: duplicate._id,
+                existingName: duplicate.name
+            });
+        }
+
         const variantAttribute = new VariantAttribute({
-            name,
+            name: trimmedName,
             values,
             description,
             isActive
@@ -721,6 +782,18 @@ const createVariantAttribute = async (req, res) => {
         });
     } catch (error) {
         console.error('Error creating variant attribute:', error);
+        if (error.code === 11000) {
+            const field = Object.keys(error.keyPattern || {})[0] || 'name';
+            const keyVal = error.keyValue || {};
+            return res.status(409).json({
+                status: 409,
+                message:
+                    field === 'slug'
+                        ? 'That name produces a URL slug that is already in use. Choose a more distinct name.'
+                        : `A variant attribute with this name already exists${keyVal.name != null ? ` ("${keyVal.name}")` : ''}.`,
+                duplicateField: field
+            });
+        }
         res.status(500).json({
             status: 500,
             message: 'Error creating variant attribute',
