@@ -2,21 +2,81 @@ const mongoose = require('mongoose');
 
 const MONGO_URI = process.env.MONGO_URI;
 
-// Connect to MongoDB
-mongoose.connect(MONGO_URI, {
-    serverSelectionTimeoutMS: 10000 // Keep timeout for better debugging
-})
+// Reconnect tuning — capped exponential backoff between attempts when the
+// connection drops mid-runtime (network blip, Atlas maintenance, IP allowlist
+// change). Mongoose's driver has its own retry layer for in-flight ops, but on
+// a sustained outage we want to keep trying and surface state to the audit log
+// so operators can see what happened.
+const RECONNECT_BASE_MS = 2000;
+const RECONNECT_MAX_MS = 30000;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+
+const connectOptions = {
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    heartbeatFrequencyMS: 10000,
+};
+
+// Lazy require so a circular reference can't break startup. The audit log
+// service depends on a Mongoose model — by the time we'd actually call this,
+// the connection has either succeeded once (so the model is registered) or
+// failed and we don't need it.
+function safeAuditLog(level, action, message, error) {
+    try {
+        const auditLogService = require('../src/services/auditLogService');
+        const fn = level === 'critical' ? 'logCritical' : 'logError';
+        if (auditLogService && typeof auditLogService[fn] === 'function') {
+            auditLogService[fn]({ action, category: 'database', message, error }).catch(() => {});
+        }
+    } catch (_) {
+        // Audit logging is best-effort — never let it break DB recovery.
+    }
+}
+
+function scheduleReconnect() {
+    if (reconnectTimer) return;
+    const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempts, RECONNECT_MAX_MS);
+    reconnectAttempts += 1;
+    console.log(`🔄 Scheduling MongoDB reconnect attempt #${reconnectAttempts} in ${delay}ms`);
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        mongoose.connect(MONGO_URI, connectOptions).catch((err) => {
+            console.error(`❌ MongoDB reconnect attempt #${reconnectAttempts} failed:`, err.message);
+            safeAuditLog('error', 'database.reconnect_failed', `Reconnect attempt #${reconnectAttempts} failed`, err);
+            scheduleReconnect();
+        });
+    }, delay);
+}
+
+mongoose.connect(MONGO_URI, connectOptions)
     .then(() => {
         console.log(`✅ Connected to MongoDB Database: ${mongoose.connection.name}`);
     })
     .catch(err => {
         console.error('❌ MongoDB Connection Error:', err);
-        process.exit(1); // Exit the process if connection fails
+        safeAuditLog('critical', 'database.initial_connection_failed', 'Initial MongoDB connection failed', err);
+        // Initial connection failure is fatal — the app cannot serve traffic without DB.
+        process.exit(1);
     });
 
-// Handle connection errors after initial connection
+mongoose.connection.on('connected', () => {
+    if (reconnectAttempts > 0) {
+        console.log(`✅ MongoDB reconnected after ${reconnectAttempts} attempt(s)`);
+        safeAuditLog('error', 'database.reconnected', `Reconnected after ${reconnectAttempts} attempt(s)`);
+    }
+    reconnectAttempts = 0;
+});
+
+mongoose.connection.on('disconnected', () => {
+    console.warn('⚠️ MongoDB disconnected — attempting recovery');
+    safeAuditLog('error', 'database.disconnected', 'MongoDB connection dropped');
+    scheduleReconnect();
+});
+
 mongoose.connection.on('error', err => {
-    console.error('❌ MongoDB Connection Error (Runtime):', err);
+    console.error('❌ MongoDB Connection Error (Runtime):', err.message);
+    safeAuditLog('error', 'database.runtime_error', err.message, err);
 });
 
 module.exports = mongoose;
