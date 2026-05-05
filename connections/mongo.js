@@ -1,6 +1,35 @@
 const mongoose = require('mongoose');
 
-const MONGO_URI = process.env.MONGO_URI;
+const resolveMongoUri = () => {
+    const candidates = [process.env.MONGO_URI, process.env.DATABASE_URL]
+        .filter((value) => typeof value === 'string' && value.trim().length > 0);
+
+    for (const rawValue of candidates) {
+        let value = rawValue.trim();
+        // Handle accidental wrapping quotes in env values.
+        value = value.replace(/^['"]|['"]$/g, '');
+        // Handle accidental "MONGO_URI=..." paste into env value.
+        value = value.replace(/^MONGO_URI=/i, '').trim();
+        // Handle accidental "DATABASE_URL=..." paste into env value.
+        value = value.replace(/^DATABASE_URL=/i, '').trim();
+
+        if (value.startsWith('mongodb://') || value.startsWith('mongodb+srv://')) {
+            return value;
+        }
+    }
+
+    return null;
+};
+
+const MONGO_URI = resolveMongoUri();
+
+if (!MONGO_URI) {
+    console.error(
+        '❌ MongoDB Connection Error: Missing or invalid MONGO_URI/DATABASE_URL. ' +
+        'Connection string must start with "mongodb://" or "mongodb+srv://".'
+    );
+    process.exit(1);
+}
 
 // Connect to MongoDB
 mongoose.connect(MONGO_URI, {

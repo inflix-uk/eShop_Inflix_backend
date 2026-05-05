@@ -75,6 +75,8 @@ const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
 const cronRoutes = require('./cronRoutes');
 const order = require('../models/order');
 const healthController = require('../controller/healthController');
+const superadminControlsController = require('../controller/superadminControlsController');
+const requireSuperadmin = require('../../middleware/requireSuperadmin');
 
 // ========================================================================
 // LIVENESS (no DB / external deps — used by storefront SSR probes)
@@ -131,11 +133,15 @@ router.post('/registerUser/fromAdmin',        usersController.registerUserFromAd
 
 // Authentication & password management
 router.post('/login',                         usersController.loginUser);
+router.post('/superadmin/login',              usersController.superadminLogin);
 router.post('/logout',                        usersController.logoutUser);
 router.patch('/update/user/:id',              usersController.updateUser);
 router.post('/forgotpassword',                usersController.forgotPassword);
 router.post('/resetpassword',                 usersController.resetPassword);
 router.patch('/changepassword/:id',           usersController.changepassword);
+router.get('/superadmin/controls/public',     superadminControlsController.getPublicSuperadminControls);
+router.get('/superadmin/controls',            requireSuperadmin, superadminControlsController.getSuperadminControls);
+router.put('/superadmin/controls',            requireSuperadmin, superadminControlsController.updateSuperadminControls);
 
 // ========================================================================
 // USER MANAGEMENT (Admin Panel)
