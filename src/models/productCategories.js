@@ -47,10 +47,10 @@ const metaSubCategorySchema = new Schema({
         type: Schema.Types.Mixed,
         default: [],
     },
+    // Allow null when a subcategory has no banner yet.
     banner: {
-        filename: String,
-        path: String,
-        url: String
+        type: Schema.Types.Mixed,
+        default: null
     }
 });
 

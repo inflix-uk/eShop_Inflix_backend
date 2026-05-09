@@ -2,7 +2,7 @@ const sharp = require("sharp");
 
 const QUALITY = 70;
 /** Only run WebP conversion (resize + encode) when original is larger than this. */
-const WEBP_CONVERSION_MIN_BYTES = 1024 * 1024; // 1 MiB
+const WEBP_CONVERSION_MIN_BYTES = 2 * 1024 * 1024; // 2 MiB
 
 function resolveMaxWidth(folder = "") {
     const normalized = String(folder).toLowerCase();

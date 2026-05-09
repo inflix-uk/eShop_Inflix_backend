@@ -1,8 +1,11 @@
 // controller/adminUsersController.js
 
 const db = require("../../connections/mongo");
+const mongoose = require("mongoose");
 const User = require("../models/user");
 const PricingGroup = require("../models/pricingGroup");
+const Product = require("../models/product");
+const UserProductPrice = require("../models/userProductPrice");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 
@@ -75,6 +78,68 @@ const adminUsersController = {
     } catch (err) {
       console.error("Error assigning pricing group:", err);
       return res.status(500).json({ status: 500, message: "Internal server error" });
+    }
+  },
+
+  getUserProductPrices: async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ success: false, message: "Invalid user id" });
+      }
+
+      const userExists = await User.exists({ _id: id });
+      if (!userExists) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const rows = await UserProductPrice.find({ userId: id }).lean();
+      return res.status(200).json({ success: true, data: rows });
+    } catch (err) {
+      console.error("Error fetching user product prices:", err);
+      return res.status(500).json({ success: false, message: "Failed to fetch user product prices" });
+    }
+  },
+
+  upsertUserProductPrice: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const productId = String(req.body?.productId || "").trim();
+      const price = Number(req.body?.price);
+
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ success: false, message: "Invalid user id" });
+      }
+      if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({ success: false, message: "Invalid product id" });
+      }
+      if (!Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid price value" });
+      }
+
+      const userExists = await User.exists({ _id: id });
+      if (!userExists) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      const productExists = await Product.exists({ _id: productId });
+      if (!productExists) {
+        return res.status(404).json({ success: false, message: "Product not found" });
+      }
+
+      const saved = await UserProductPrice.findOneAndUpdate(
+        { userId: id, productId },
+        { $set: { price } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "User product price saved",
+        data: saved,
+      });
+    } catch (err) {
+      console.error("Error saving user product price:", err);
+      return res.status(500).json({ success: false, message: "Failed to save user product price" });
     }
   },
 
