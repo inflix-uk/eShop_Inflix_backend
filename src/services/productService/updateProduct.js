@@ -135,11 +135,16 @@ class UpdateProductService {
         try {
             const Seo_Meta_values = this.parseField(Seo_Meta);
             if (!Seo_Meta_values) return {};
+            const normalizedSchemas = Array.isArray(Seo_Meta_values.metaSchemas)
+                ? Seo_Meta_values.metaSchemas
+                    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+                    .filter((item) => item.length > 0)
+                : [];
             return {
                 metaTitle: Seo_Meta_values.metaTitle || null,
                 metaDescription: Seo_Meta_values.metaDescription || null,
                 metaKeywords: Seo_Meta_values.metaKeywords || null,
-                metaSchemas: Seo_Meta_values.metaSchemas || null
+                metaSchemas: normalizedSchemas
             };
         } catch (error) {
             console.error('Error parsing Seo_Meta:', error);

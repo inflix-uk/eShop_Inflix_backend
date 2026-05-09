@@ -2,6 +2,7 @@
 const db = require("../../connections/mongo");
 const Product = require("../models/product");
 const GroupProductPrice = require("../models/groupProductPrice");
+const UserProductPrice = require("../models/userProductPrice");
 const productCategory = require("../models/productCategories");
 
 const bcrypt = require("bcrypt");
@@ -106,67 +107,71 @@ const adminProductController = {
             }
 
             const scopedGroupId = req.pricingScope?.groupId || null;
-            if (scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)) {
-                const overrides = await GroupProductPrice.find({ groupId: scopedGroupId })
-                    .select('productId price')
-                    .lean();
-                console.log('[getAllActiveProduct] group pricing mode', {
-                    scopedGroupId,
-                    overridesCount: overrides.length,
-                    productsCount: products.length,
-                });
-                const normalizeId = (value) => {
-                    if (!value) return "";
-                    if (typeof value === "string") return value.trim().toLowerCase();
-                    if (typeof value === "object" && value._id) {
-                        return String(value._id).trim().toLowerCase();
-                    }
-                    return String(value).trim().toLowerCase();
-                };
-
-                // Keep the latest valid override per product id.
-                const overrideMap = new Map();
-                for (const item of overrides) {
-                    const key = normalizeId(item.productId);
-                    const numericPrice = Number(item.price);
-                    if (!key || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
-                    overrideMap.set(key, numericPrice);
+            const scopedUserId = req.pricingScope?.userId || null;
+            const normalizeId = (value) => {
+                if (!value) return "";
+                if (typeof value === "string") return value.trim().toLowerCase();
+                if (typeof value === "object" && value._id) {
+                    return String(value._id).trim().toLowerCase();
                 }
+                return String(value).trim().toLowerCase();
+            };
 
-                const productsWithResolvedPrice = products.map((product) => {
-                    const originalPrice = resolveOriginalPrice(product);
-                    const groupPrice = overrideMap.get(normalizeId(product._id));
-                    const resolvedPrice =
-                        Number.isFinite(groupPrice) && groupPrice > 0 ? groupPrice : originalPrice;
+            const [groupOverrides, userOverrides] = await Promise.all([
+                scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)
+                    ? GroupProductPrice.find({ groupId: scopedGroupId }).select('productId price').lean()
+                    : Promise.resolve([]),
+                scopedUserId && mongoose.Types.ObjectId.isValid(scopedUserId)
+                    ? UserProductPrice.find({ userId: scopedUserId }).select('productId price').lean()
+                    : Promise.resolve([]),
+            ]);
 
-                    return {
-                        ...product,
-                        // Standardized fields for pricing-group consumers
-                        price: resolvedPrice,
-                        originalPrice,
-                        groupPrice: Number.isFinite(groupPrice) ? groupPrice : null,
-                    };
-                });
-
-                return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
+            const groupOverrideMap = new Map();
+            for (const item of groupOverrides) {
+                const key = normalizeId(item.productId);
+                const numericPrice = Number(item.price);
+                if (!key || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
+                groupOverrideMap.set(key, numericPrice);
             }
 
-            console.log('[getAllActiveProduct] default pricing mode', {
+            const userOverrideMap = new Map();
+            for (const item of userOverrides) {
+                const key = normalizeId(item.productId);
+                const numericPrice = Number(item.price);
+                if (!key || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
+                userOverrideMap.set(key, numericPrice);
+            }
+
+            console.log('[getAllActiveProduct] pricing mode', {
                 scopedGroupId,
+                scopedUserId,
+                groupOverridesCount: groupOverrideMap.size,
+                userOverridesCount: userOverrideMap.size,
                 productsCount: products.length,
             });
 
-            const productsWithStandardPrice = products.map((product) => {
+            const productsWithResolvedPrice = products.map((product) => {
                 const originalPrice = resolveOriginalPrice(product);
+                const key = normalizeId(product._id);
+                const groupPrice = groupOverrideMap.get(key);
+                const userPrice = userOverrideMap.get(key);
+                const resolvedPrice =
+                    Number.isFinite(userPrice) && userPrice > 0
+                        ? userPrice
+                        : Number.isFinite(groupPrice) && groupPrice > 0
+                        ? groupPrice
+                        : originalPrice;
+
                 return {
                     ...product,
-                    price: originalPrice,
+                    price: resolvedPrice,
                     originalPrice,
-                    groupPrice: null,
+                    groupPrice: Number.isFinite(groupPrice) ? groupPrice : null,
+                    userPrice: Number.isFinite(userPrice) ? userPrice : null,
                 };
             });
 
-            return res.json({ message: 'Products retrieved', products: productsWithStandardPrice, status: 201 });
+            return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
         } catch (error) {
             console.error('Error getting products:', error);
             return res.json({ message: 'Failed to get products', status: 500 });

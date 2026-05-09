@@ -154,6 +154,8 @@ router.patch('/status/user/:id',                 adminUsersController.statusUser
 router.get('/get/user/:id',                      adminUsersController.getUserById);
 router.patch('/admin/reset-password/:id',        adminUsersController.resetUserPassword);
 router.put('/api/users/:id/assign-group',        requireAdmin, adminUsersController.assignPricingGroup);
+router.get('/api/users/:id/product-prices',      requireAdmin, adminUsersController.getUserProductPrices);
+router.post('/api/users/:id/product-price',      requireAdmin, adminUsersController.upsertUserProductPrice);
 
 // ========================================================================
 // PRICING GROUPS MANAGEMENT
@@ -782,9 +784,12 @@ router.put(
 // NAVBAR HEADER (Need help? phone — singleton, editable from navbar order admin)
 // ========================================================================
 const navbarHeaderController = require('../controller/navbarHeaderController');
+const navbarVariantTestController = require('../controller/navbarVariantTestController');
 router.get('/navbar-header/public', navbarHeaderController.getNavbarHeaderPublic);
 router.get('/navbar-header', requireAdmin, navbarHeaderController.getNavbarHeaderAdmin);
 router.post('/navbar-header', requireAdmin, navbarHeaderController.saveNavbarHeader);
+router.get('/navbar-variant-test/public', navbarVariantTestController.getNavbarVariantTestPublic);
+router.put('/navbar-variant-test', requireAdmin, navbarVariantTestController.putNavbarVariantTest);
 
 // ========================================================================
 // CATEGORY CARDS MANAGEMENT
