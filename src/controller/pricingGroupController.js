@@ -2,6 +2,22 @@ const mongoose = require('mongoose');
 const PricingGroup = require('../models/pricingGroup');
 const GroupProductPrice = require('../models/groupProductPrice');
 const Product = require('../models/product');
+const { computeVariantKey } = require('../utils/pricingVariantKey');
+
+/** Backfill variantKey so product-level rows use '' and compound unique index works. */
+let legacyVariantKeysEnsured = false;
+async function ensureLegacyVariantKeys() {
+  if (legacyVariantKeysEnsured) return;
+  legacyVariantKeysEnsured = true;
+  try {
+    await GroupProductPrice.updateMany(
+      { $or: [{ variantKey: { $exists: false } }, { variantKey: null }] },
+      { $set: { variantKey: '' } }
+    );
+  } catch (e) {
+    console.warn('ensureLegacyVariantKeys:', e.message);
+  }
+}
 
 function sanitizeText(value) {
   if (value == null) return '';
@@ -181,18 +197,18 @@ const deletePricingGroup = async (req, res) => {
 
 const upsertGroupProductPrice = async (req, res) => {
   try {
+    await ensureLegacyVariantKeys();
     const groupId = req.params.id;
     const productId = String(req.body?.productId || '').trim();
-    const price = Number(req.body?.price);
+    const priceRaw = req.body?.price;
+    const variantKeyRaw = req.body?.variantKey != null ? String(req.body.variantKey).trim() : '';
+    const variantKey = variantKeyRaw;
 
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
       return res.status(400).json({ success: false, message: 'Invalid group id' });
     }
     if (!mongoose.Types.ObjectId.isValid(productId)) {
       return res.status(400).json({ success: false, message: 'Invalid product id' });
-    }
-    if (!Number.isFinite(price) || price <= 0) {
-      return res.status(400).json({ success: false, message: 'Invalid price value' });
     }
 
     const groupExists = await PricingGroup.exists({ _id: groupId });
@@ -204,9 +220,45 @@ const upsertGroupProductPrice = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
+    if (variantKey) {
+      const product = await Product.findById(productId).select('variantValues').lean();
+      const keys = (product?.variantValues || []).map((v, i) => computeVariantKey(v, i));
+      if (!keys.includes(variantKey)) {
+        return res.status(400).json({
+          success: false,
+          message: 'variantKey does not match any variant on this product',
+        });
+      }
+    }
+
+    const filter = variantKey
+      ? { groupId, productId, variantKey }
+      : { groupId, productId, variantKey: '' };
+
+    const clearRequested =
+      req.body?.clear === true ||
+      priceRaw === '' ||
+      priceRaw === null ||
+      priceRaw === undefined ||
+      (typeof priceRaw === 'string' && String(priceRaw).trim() === '');
+
+    if (clearRequested) {
+      await GroupProductPrice.deleteOne(filter);
+      return res.status(200).json({
+        success: true,
+        message: 'Group product price removed',
+        data: null,
+      });
+    }
+
+    const price = Number(priceRaw);
+    if (!Number.isFinite(price) || price <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid price value' });
+    }
+
     const saved = await GroupProductPrice.findOneAndUpdate(
-      { groupId, productId },
-      { $set: { price } },
+      filter,
+      { $set: { price, variantKey } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
@@ -223,6 +275,7 @@ const upsertGroupProductPrice = async (req, res) => {
 
 const getGroupProductPrices = async (req, res) => {
   try {
+    await ensureLegacyVariantKeys();
     const groupId = req.params.id;
     if (!mongoose.Types.ObjectId.isValid(groupId)) {
       return res.status(400).json({ success: false, message: 'Invalid group id' });

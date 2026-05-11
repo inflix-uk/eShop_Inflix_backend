@@ -14,6 +14,12 @@ const groupProductPriceSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    /** Empty string = product-level override; non-empty = per-variant (see utils/pricingVariantKey). */
+    variantKey: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     price: {
       type: Number,
       required: true,
@@ -23,6 +29,6 @@ const groupProductPriceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-groupProductPriceSchema.index({ groupId: 1, productId: 1 }, { unique: true });
+groupProductPriceSchema.index({ groupId: 1, productId: 1, variantKey: 1 }, { unique: true });
 
 module.exports = mongoose.model('GroupProductPrice', groupProductPriceSchema);

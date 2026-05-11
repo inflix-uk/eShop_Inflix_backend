@@ -756,18 +756,24 @@ const orderController = {
     
     getOrderByUser: async (req, res, next) => {
         try {
-            console.log(req.body);
-            // Extract user data from the request body
             const { userId } = req.body;
-            console.log('userid', req.body);
-            const orders = await Order.find({ 'contactDetails.userId': userId }).sort({ createdAt: -1 }).lean();
+            if (!userId) {
+                return res.json({
+                    message: 'userId is required',
+                    status: 400,
+                    orders: []
+                });
+            }
+            const orders = await Order.find({
+                'contactDetails.userId': userId,
+                isdeleted: { $ne: true }
+            }).sort({ createdAt: -1 }).lean();
 
-            console.log(orders);
-            // Check if orders exist for the provided email
             if (!orders || orders.length === 0) {
                 return res.json({
-                    message: 'No orders found for the provided email',
-                    status: 404
+                    message: 'No orders found for this user',
+                    status: 200,
+                    orders: []
                 });
             }
 

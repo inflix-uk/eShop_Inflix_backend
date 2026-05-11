@@ -797,6 +797,7 @@ router.get('/navbar-header/public', navbarHeaderController.getNavbarHeaderPublic
 router.get('/navbar-header', requireAdmin, navbarHeaderController.getNavbarHeaderAdmin);
 router.post('/navbar-header', requireAdmin, navbarHeaderController.saveNavbarHeader);
 router.get('/navbar-variant-test/public', navbarVariantTestController.getNavbarVariantTestPublic);
+router.get('/navbar-variant-test', requireAdmin, navbarVariantTestController.getNavbarVariantTestAdmin);
 router.put('/navbar-variant-test', requireAdmin, navbarVariantTestController.putNavbarVariantTest);
 
 // ========================================================================

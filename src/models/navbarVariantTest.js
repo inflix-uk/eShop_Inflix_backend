@@ -6,6 +6,11 @@ const navbarVariantTestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
+    /** Map of `layoutId::variantSlug` → full config snapshot (admin hub keeps all presets). */
+    presets: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
   },
   {
     timestamps: true,
