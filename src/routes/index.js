@@ -839,6 +839,9 @@ const logoController = require('../controller/logoController');
 const { handleLogoUpload, handleFaviconUpload } = require('../controller/logoController');
 router.get('/get/logo', requireAdmin, logoController.getLogo);
 router.get('/get/logo/public', logoController.getLogoPublic);
+/** Alias for storefront / admin tools expecting this path (same JSON as get/logo/public). */
+router.get('/admin/logo', logoController.getLogoPublic);
+router.get('/api/admin/logo', logoController.getLogoPublic);
 router.post('/update/logo', requireAdmin, handleLogoUpload, logoController.updateLogo);
 router.delete('/delete/logo', requireAdmin, logoController.deleteLogo);
 router.post('/update/favicon', requireAdmin, handleFaviconUpload, logoController.updateFavicon);
