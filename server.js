@@ -55,33 +55,16 @@ const { securityHeaders } = require('./middleware/securityHeaders');
 const { healthCheck, livenessCheck, readinessCheck } = require('./middleware/healthCheck');
 const { initializeCronJobs } = require('./cronjob/cronScheduler');
 const { initVisitorSocketHandler } = require('./socket/visitorSocketHandler');
-const auditLogService = require('./src/services/auditLogService');
 
-// Process-level safety net — record crashes/unhandled rejections to the audit log
-// so the team can investigate why the backend died (e.g. third-party API blowups).
+// Process-level safety net — log crashes/unhandled rejections so the backend
+// stays observable even when something blows up outside of any try/catch.
 process.on('unhandledRejection', (reason) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   console.error('💥 Unhandled promise rejection:', err);
-  auditLogService
-    .logCritical({
-      action: 'unhandled_rejection',
-      category: 'process_crash',
-      message: 'Unhandled promise rejection',
-      error: err,
-    })
-    .catch(() => {});
 });
 
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught exception:', err);
-  auditLogService
-    .logCritical({
-      action: 'uncaught_exception',
-      category: 'process_crash',
-      message: 'Uncaught exception',
-      error: err,
-    })
-    .catch(() => {});
 });
 
 class Server {

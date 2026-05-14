@@ -14,6 +14,7 @@ const blogController = require('../controller/blogController');
 const blogCategoryController = require('../controller/blogCategoryController');
 const blogTagsController = require('../controller/blogTagsController');
 const productCategoriesController = require('../controller/productCategoriesController');
+const googleCategoriesController = require('../controller/googleCategoriesController');
 const productTagsController = require('../controller/productTagsController');
 const adminProductController = require('../controller/adminProductController');
 const productReviewsController = require('../controller/productReviewsController');
@@ -222,6 +223,20 @@ router.get('/get/categorydetailsFull/:id',            productCategoriesControlle
 router.get('/get/subcategorydetails/:name',           productCategoriesController.getSubCategoryDetails);
 router.get('/get/subcategory/somedetails/:name',      productCategoriesController.getSubCategoryDetailsSome);
 router.get('/get/categories/counts',                  productCategoriesController.getCategoryCounts);
+
+// ========================================================================
+// GOOGLE CATEGORIES MANAGEMENT
+// ========================================================================
+router.get('/get/google/categories',                       googleCategoriesController.getAllGoogleCategories);
+router.get('/get/google/categories/counts',                googleCategoriesController.getGoogleCategoryCounts);
+router.get('/get/google/categories/top-level',             googleCategoriesController.getTopLevelGoogleCategories);
+router.get('/get/google/categories/children/:parentGoogleId', googleCategoriesController.getChildrenOfGoogleCategory);
+router.get('/get/google/category/:id',                     googleCategoriesController.getGoogleCategoryById);
+router.post('/create/google/category',                     googleCategoriesController.createGoogleCategory);
+router.patch('/update/google/category/:id',                googleCategoriesController.updateGoogleCategory);
+router.patch('/status/google/category/:id',                googleCategoriesController.toggleStatusGoogleCategory);
+router.patch('/feature/google/category/:id',               googleCategoriesController.toggleFeatureGoogleCategory);
+router.delete('/delete/google/category/:id',               googleCategoriesController.deleteGoogleCategory);
 
 // ========================================================================
 // CATEGORY DISPLAY PRODUCTS MANAGEMENT
@@ -650,14 +665,6 @@ const googleSearchConsoleController = require('../controller/googleSearchConsole
 router.get('/get/google-search-console-verification', googleSearchConsoleController.getVerificationCode);
 router.post('/update/google-search-console-verification', requireAdmin, googleSearchConsoleController.updateVerificationCode);
 router.delete('/delete/google-search-console-verification', requireAdmin, googleSearchConsoleController.deleteVerificationCode);
-
-// ========================================================================
-// AUDIT LOGS (admin-only investigation surface)
-// ========================================================================
-const auditLogController = require('../controller/auditLogController');
-router.get('/audit-logs', requireAdmin, auditLogController.list);
-router.get('/audit-logs/stats/summary', requireAdmin, auditLogController.summary);
-router.get('/audit-logs/:id', requireAdmin, auditLogController.get);
 
 // ========================================================================
 // HOMEPAGE FEATURES MANAGEMENT

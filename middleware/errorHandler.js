@@ -1,5 +1,3 @@
-const auditLogService = require('../src/services/auditLogService');
-
 const errorHandler = (err, req, res, next) => {
   // Log error for debugging
   if (process.env.NODE_ENV !== 'production') {
@@ -14,31 +12,6 @@ const errorHandler = (err, req, res, next) => {
 
   // Set default error status if not already set
   const status = err.status || err.statusCode || 500;
-
-  // Persist 5xx errors (and selected 4xx) to audit log so we can investigate later.
-  // Fire-and-forget — do not block the response on the audit write.
-  if (status >= 500) {
-    auditLogService
-      .logError({
-        action: 'http_request_failed',
-        category: 'http_error',
-        message: err.message || 'Unhandled request error',
-        req,
-        error: err,
-        statusCode: status,
-      })
-      .catch(() => {});
-  } else if (status === 401 || status === 403) {
-    auditLogService
-      .logWarn({
-        action: 'http_request_unauthorized',
-        category: 'auth',
-        message: err.message,
-        req,
-        metadata: { statusCode: status },
-      })
-      .catch(() => {});
-  }
 
   // Prepare error response
   const errorResponse = {

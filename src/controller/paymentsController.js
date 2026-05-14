@@ -5,7 +5,6 @@ const User = require("../models/user");
 const Order = require("../models/order");
 const StripeSettings = require("../models/stripeSettings");
 const CheckoutLog = require("../models/checkoutLog");
-const auditLogService = require("../services/auditLogService");
 
 // Fire-and-forget logger — never throws, never blocks the caller
 const writeLog = (entry) => {
@@ -979,12 +978,6 @@ const paymentsController = {
                 // "Cannot set headers after they are sent" crash if response already went out.
                 if (error) {
                     console.error("PayPal createPayPalPayment error:", error);
-                    auditLogService.logExternalApi({
-                        provider: 'paypal',
-                        action: 'payment.create',
-                        success: false,
-                        error,
-                    }).catch(() => {});
                     if (!res.headersSent) {
                         return res.status(502).json({
                             error: (error && error.response) || error.message || 'PayPal payment creation failed'
@@ -1026,12 +1019,6 @@ const paymentsController = {
             paypal.payment.execute(paymentId, execute_payment_json, (error, payment) => {
                 if (error) {
                     console.error("PayPal Payment Execution Error: ", error.response || error);
-                    auditLogService.logExternalApi({
-                        provider: 'paypal',
-                        action: 'payment.execute',
-                        success: false,
-                        error,
-                    }).catch(() => {});
                     if (!res.headersSent) {
                         return res.status(502).json({ error: error.response || error.message });
                     }
@@ -1175,12 +1162,6 @@ const paymentsController = {
                 // Async callback — never throw; respond inline and guard against double-send.
                 if (error) {
                     console.error("Error creating PayPal payment:", error);
-                    auditLogService.logExternalApi({
-                        provider: 'paypal',
-                        action: 'payment.create.verify',
-                        success: false,
-                        error,
-                    }).catch(() => {});
                     if (!res.headersSent) {
                         return res.status(502).send("Error processing PayPal payment");
                     }
@@ -1259,13 +1240,6 @@ const paymentsController = {
             webhookSecret = (keys && keys.webhookSecret) || process.env.STRIPE_WEBHOOK_SECRET;
         } catch (setupErr) {
             console.error('❌ Stripe webhook setup failed:', setupErr.message);
-            auditLogService.logError({
-                action: 'stripe.webhook.setup_failed',
-                category: 'payment',
-                message: 'Failed to load Stripe instance or webhook secret',
-                req,
-                error: setupErr,
-            }).catch(() => {});
             // 503 → Stripe will retry; transient setup errors should be retried.
             if (!res.headersSent) {
                 return res.status(503).send('Webhook setup failure');
@@ -1281,12 +1255,6 @@ const paymentsController = {
             console.log('✅ Webhook signature verified');
         } catch (err) {
             console.error('❌ Webhook signature verification failed:', err.message);
-            auditLogService.logWarn({
-                action: 'stripe.webhook.signature_invalid',
-                category: 'payment',
-                message: err.message,
-                req,
-            }).catch(() => {});
             return res.status(400).send(`Webhook Error: ${err.message}`);
         }
 
