@@ -56,6 +56,17 @@ const { healthCheck, livenessCheck, readinessCheck } = require('./middleware/hea
 const { initializeCronJobs } = require('./cronjob/cronScheduler');
 const { initVisitorSocketHandler } = require('./socket/visitorSocketHandler');
 
+// Process-level safety net — log crashes/unhandled rejections so the backend
+// stays observable even when something blows up outside of any try/catch.
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error('💥 Unhandled promise rejection:', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught exception:', err);
+});
+
 class Server {
   constructor() {
     this.app = express();

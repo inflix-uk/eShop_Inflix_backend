@@ -42,7 +42,14 @@ class BlogCache {
 // Create a singleton instance
 const blogCache = new BlogCache();
 
-// Clean up expired cache entries every hour
-setInterval(() => blogCache.cleanup(), 60 * 60 * 1000);
+// Clean up expired cache entries every hour. Wrapped so a defect in cleanup()
+// can never escape and become an uncaughtException that kills the process.
+setInterval(() => {
+    try {
+        blogCache.cleanup();
+    } catch (err) {
+        console.error('[blogCache] cleanup threw:', err && err.message);
+    }
+}, 60 * 60 * 1000);
 
 module.exports = blogCache;

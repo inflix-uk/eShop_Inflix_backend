@@ -12,7 +12,7 @@ const errorHandler = (err, req, res, next) => {
 
   // Set default error status if not already set
   const status = err.status || err.statusCode || 500;
-  
+
   // Prepare error response
   const errorResponse = {
     success: false,

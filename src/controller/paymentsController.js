@@ -973,20 +973,27 @@ const paymentsController = {
             };
     
             paypal.payment.create(create_payment_json, function (error, payment) {
-                if(error) {
-                    console.log(error);
-                    throw error;
-                } else {
-                    console.log(payment);
-
-                    let data = payment
-                    res.json(data);
+                // Async PayPal callback — outer try/catch cannot catch throws here, so
+                // any error must be handled inline. headersSent guard prevents the
+                // "Cannot set headers after they are sent" crash if response already went out.
+                if (error) {
+                    console.error("PayPal createPayPalPayment error:", error);
+                    if (!res.headersSent) {
+                        return res.status(502).json({
+                            error: (error && error.response) || error.message || 'PayPal payment creation failed'
+                        });
+                    }
+                    return;
                 }
-
-        })
+                if (!res.headersSent) {
+                    return res.json(payment);
+                }
+            });
         } catch (error) {
             console.error("Error in createPayPalPayment: ", error.message);
-            res.status(500).json({ error: error.message });
+            if (!res.headersSent) {
+                res.status(500).json({ error: error.message });
+            }
         }
     },
     
@@ -1011,15 +1018,21 @@ const paymentsController = {
         
             paypal.payment.execute(paymentId, execute_payment_json, (error, payment) => {
                 if (error) {
-                    console.error("PayPal Payment Execution Error: ", error.response);
-                    res.status(500).json({ error: error.response });
-                } else {
-                    res.json({ status: 'success', payment });
+                    console.error("PayPal Payment Execution Error: ", error.response || error);
+                    if (!res.headersSent) {
+                        return res.status(502).json({ error: error.response || error.message });
+                    }
+                    return;
+                }
+                if (!res.headersSent) {
+                    return res.json({ status: 'success', payment });
                 }
             });
         } catch (error) {
             console.error("Error in executePayPalPayment: ", error.message);
-            res.status(500).json({ error: error.message });
+            if (!res.headersSent) {
+                res.status(500).json({ error: error.message });
+            }
         }
     },
 
@@ -1146,17 +1159,24 @@ const paymentsController = {
 
             // Create the PayPal payment
             paypal.payment.create(create_payment_json, function (error, payment) {
+                // Async callback — never throw; respond inline and guard against double-send.
                 if (error) {
                     console.error("Error creating PayPal payment:", error);
-                    throw error;
-                } else {
-                    console.log("PayPal Payment created successfully:", payment);
-                    res.json(payment); // Send the PayPal payment object back to the frontend
+                    if (!res.headersSent) {
+                        return res.status(502).send("Error processing PayPal payment");
+                    }
+                    return;
+                }
+                console.log("PayPal Payment created successfully");
+                if (!res.headersSent) {
+                    return res.json(payment);
                 }
             });
         } catch (error) {
             console.error("Error in verifyPaymentPaypal:", error);
-            res.status(500).send("Error processing PayPal payment");
+            if (!res.headersSent) {
+                res.status(500).send("Error processing PayPal payment");
+            }
         }
     },
     // success payment
@@ -1211,10 +1231,21 @@ const paymentsController = {
     stripeWebhook: async (req, res) => {
         const sig = req.headers['stripe-signature'];
 
-        // Get dynamic Stripe instance and webhook secret
-        const stripe = await getStripeInstance();
-        const keys = await StripeSettings.getActiveKeys();
-        const webhookSecret = keys.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET;
+        // Setup phase — wrapped so a DB / Stripe init failure cannot become an unhandled
+        // promise rejection that crashes the process. We must always respond.
+        let stripe, webhookSecret;
+        try {
+            stripe = await getStripeInstance();
+            const keys = await StripeSettings.getActiveKeys();
+            webhookSecret = (keys && keys.webhookSecret) || process.env.STRIPE_WEBHOOK_SECRET;
+        } catch (setupErr) {
+            console.error('❌ Stripe webhook setup failed:', setupErr.message);
+            // 503 → Stripe will retry; transient setup errors should be retried.
+            if (!res.headersSent) {
+                return res.status(503).send('Webhook setup failure');
+            }
+            return;
+        }
 
         let event;
 
@@ -1332,6 +1363,17 @@ const paymentsController = {
                     }
                 } catch (error) {
                     console.error('❌ Error processing payment_intent.succeeded:', error);
+                    auditLogService.logError({
+                        action: 'stripe.webhook.payment_intent_succeeded_failed',
+                        category: 'payment',
+                        message: 'Internal failure while processing payment_intent.succeeded',
+                        req,
+                        error,
+                        metadata: {
+                            paymentIntentId: paymentIntent && paymentIntent.id,
+                            orderNumber: paymentIntent && paymentIntent.metadata && paymentIntent.metadata.orderNumber,
+                        },
+                    }).catch(() => {});
                 }
                 break;
 
@@ -1360,6 +1402,17 @@ const paymentsController = {
                     }
                 } catch (error) {
                     console.error('❌ Error processing payment_intent.payment_failed:', error);
+                    auditLogService.logError({
+                        action: 'stripe.webhook.payment_intent_failed_handler_failed',
+                        category: 'payment',
+                        message: 'Internal failure while processing payment_intent.payment_failed',
+                        req,
+                        error,
+                        metadata: {
+                            paymentIntentId: failedPayment && failedPayment.id,
+                            orderNumber: failedPayment && failedPayment.metadata && failedPayment.metadata.orderNumber,
+                        },
+                    }).catch(() => {});
                 }
                 break;
 
@@ -1373,8 +1426,12 @@ const paymentsController = {
                 console.log(`Unhandled event type: ${event.type}`);
         }
 
-        // Return a 200 response to acknowledge receipt of the event
-        res.status(200).json({ received: true });
+        // Return a 200 response to acknowledge receipt of the event.
+        // Stripe needs a fast 2xx so it doesn't retry; internal failures are
+        // recorded via audit logs above, not surfaced as HTTP errors.
+        if (!res.headersSent) {
+            res.status(200).json({ received: true });
+        }
     },
 
 };

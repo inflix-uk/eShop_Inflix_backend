@@ -16,23 +16,23 @@ function validateVerificationCode(code) {
     if (!code || typeof code !== 'string') {
         return { valid: false, error: 'Verification code must be a non-empty string' };
     }
-    
+
     const trimmed = code.trim();
     if (trimmed.length === 0) {
         return { valid: false, error: 'Verification code cannot be empty' };
     }
-    
+
     // Google Search Console verification codes are typically alphanumeric with hyphens
     // Allow alphanumeric, hyphens, underscores, and dots
     if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) {
         return { valid: false, error: 'Verification code contains invalid characters' };
     }
-    
+
     return { valid: true };
 }
 
 const googleSearchConsoleController = {
-    
+
     /**
      * GET /api/get/google-search-console-verification
      * Get the current Google Search Console verification code
@@ -43,14 +43,14 @@ const googleSearchConsoleController = {
                 type: 'google_search_console',
                 isActive: true
             }).lean();
-            
+
             if (!metaTag) {
                 return res.status(200).json({
                     success: true,
                     data: null
                 });
             }
-            
+
             res.status(200).json({
                 success: true,
                 data: {
@@ -67,7 +67,7 @@ const googleSearchConsoleController = {
             });
         }
     },
-    
+
     /**
      * POST /api/update/google-search-console-verification
      * Create or update Google Search Console verification code
@@ -75,7 +75,7 @@ const googleSearchConsoleController = {
     updateVerificationCode: async (req, res) => {
         try {
             const { verificationCode } = req.body;
-            
+
             // Validate input
             const validation = validateVerificationCode(verificationCode);
             if (!validation.valid) {
@@ -85,15 +85,15 @@ const googleSearchConsoleController = {
                     error: validation.error
                 });
             }
-            
+
             // Sanitize input
             const sanitizedCode = sanitizeInput(verificationCode);
-            
+
             // Find existing meta tag or create new one
             const existingMetaTag = await SiteMetaTags.findOne({
                 type: 'google_search_console'
             });
-            
+
             let metaTag;
             if (existingMetaTag) {
                 // Update existing
@@ -114,7 +114,7 @@ const googleSearchConsoleController = {
                 });
                 await metaTag.save();
             }
-            
+
             res.status(200).json({
                 success: true,
                 message: 'Verification code updated successfully',
@@ -132,7 +132,7 @@ const googleSearchConsoleController = {
             });
         }
     },
-    
+
     /**
      * DELETE /api/delete/google-search-console-verification
      * Remove Google Search Console verification code
@@ -142,14 +142,14 @@ const googleSearchConsoleController = {
             const result = await SiteMetaTags.deleteMany({
                 type: 'google_search_console'
             });
-            
+
             if (result.deletedCount === 0) {
                 return res.status(404).json({
                     success: false,
                     message: 'Verification code not found'
                 });
             }
-            
+
             res.status(200).json({
                 success: true,
                 message: 'Verification code removed successfully'
