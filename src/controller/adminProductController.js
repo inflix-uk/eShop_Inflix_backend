@@ -2,6 +2,8 @@
 const db = require("../../connections/mongo");
 const Product = require("../models/product");
 const GroupProductPrice = require("../models/groupProductPrice");
+const UserProductPrice = require("../models/userProductPrice");
+const { computeVariantKey } = require("../utils/pricingVariantKey");
 const productCategory = require("../models/productCategories");
 
 const bcrypt = require("bcrypt");
@@ -106,67 +108,133 @@ const adminProductController = {
             }
 
             const scopedGroupId = req.pricingScope?.groupId || null;
-            if (scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)) {
-                const overrides = await GroupProductPrice.find({ groupId: scopedGroupId })
-                    .select('productId price')
-                    .lean();
-                console.log('[getAllActiveProduct] group pricing mode', {
-                    scopedGroupId,
-                    overridesCount: overrides.length,
-                    productsCount: products.length,
-                });
-                const normalizeId = (value) => {
-                    if (!value) return "";
-                    if (typeof value === "string") return value.trim().toLowerCase();
-                    if (typeof value === "object" && value._id) {
-                        return String(value._id).trim().toLowerCase();
-                    }
-                    return String(value).trim().toLowerCase();
-                };
-
-                // Keep the latest valid override per product id.
-                const overrideMap = new Map();
-                for (const item of overrides) {
-                    const key = normalizeId(item.productId);
-                    const numericPrice = Number(item.price);
-                    if (!key || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
-                    overrideMap.set(key, numericPrice);
+            const scopedUserId = req.pricingScope?.userId || null;
+            const normalizeId = (value) => {
+                if (!value) return "";
+                if (typeof value === "string") return value.trim().toLowerCase();
+                if (typeof value === "object" && value._id) {
+                    return String(value._id).trim().toLowerCase();
                 }
+                return String(value).trim().toLowerCase();
+            };
 
-                const productsWithResolvedPrice = products.map((product) => {
-                    const originalPrice = resolveOriginalPrice(product);
-                    const groupPrice = overrideMap.get(normalizeId(product._id));
-                    const resolvedPrice =
-                        Number.isFinite(groupPrice) && groupPrice > 0 ? groupPrice : originalPrice;
+            const [groupOverrides, userOverrides] = await Promise.all([
+                scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)
+                    ? GroupProductPrice.find({ groupId: scopedGroupId }).select('productId price variantKey').lean()
+                    : Promise.resolve([]),
+                scopedUserId && mongoose.Types.ObjectId.isValid(scopedUserId)
+                    ? UserProductPrice.find({ userId: scopedUserId }).select('productId price variantKey').lean()
+                    : Promise.resolve([]),
+            ]);
 
-                    return {
-                        ...product,
-                        // Standardized fields for pricing-group consumers
-                        price: resolvedPrice,
-                        originalPrice,
-                        groupPrice: Number.isFinite(groupPrice) ? groupPrice : null,
-                    };
-                });
-
-                return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
+            const groupOverrideMap = new Map();
+            for (const item of groupOverrides) {
+                const pid = normalizeId(item.productId);
+                const numericPrice = Number(item.price);
+                if (!pid || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
+                const vk =
+                    item.variantKey != null && String(item.variantKey).trim() !== ''
+                        ? String(item.variantKey).trim()
+                        : '';
+                const mapKey = vk ? `${pid}::${vk}` : pid;
+                groupOverrideMap.set(mapKey, numericPrice);
             }
 
-            console.log('[getAllActiveProduct] default pricing mode', {
+            const userOverrideMap = new Map();
+            for (const item of userOverrides) {
+                const pid = normalizeId(item.productId);
+                const numericPrice = Number(item.price);
+                if (!pid || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
+                const vk =
+                    item.variantKey != null && String(item.variantKey).trim() !== ''
+                        ? String(item.variantKey).trim()
+                        : '';
+                const mapKey = vk ? `${pid}::${vk}` : pid;
+                userOverrideMap.set(mapKey, numericPrice);
+            }
+
+            console.log('[getAllActiveProduct] pricing mode', {
                 scopedGroupId,
+                scopedUserId,
+                groupOverridesCount: groupOverrideMap.size,
+                userOverridesCount: userOverrideMap.size,
                 productsCount: products.length,
             });
 
-            const productsWithStandardPrice = products.map((product) => {
+            const variantOriginalUnit = (v) => {
+                const sale = Number(v?.salePrice);
+                if (Number.isFinite(sale) && sale > 0) return sale;
+                const list = Number(v?.Price);
+                if (Number.isFinite(list) && list > 0) return list;
+                return 0;
+            };
+
+            const productsWithResolvedPrice = products.map((product) => {
+                const pid = normalizeId(product._id);
+                const userPriceWhole = userOverrideMap.get(pid);
+                const groupPriceWhole = groupOverrideMap.get(pid);
+                const variants = Array.isArray(product.variantValues) ? product.variantValues : [];
+
+                if (variants.length > 0) {
+                    const nextVariants = variants.map((v, idx) => {
+                        const vk = computeVariantKey(v, idx);
+                        const composite = `${pid}::${vk}`;
+                        const groupSpecific = groupOverrideMap.get(composite);
+                        // Per-variant group: only variant-specific row (not product-level).
+                        const groupPrice =
+                            Number.isFinite(groupSpecific) && groupSpecific > 0 ? groupSpecific : null;
+                        const userSpecific = userOverrideMap.get(composite);
+                        // Per-variant user: only variant-specific row (not product-level).
+                        const userPrice =
+                            Number.isFinite(userSpecific) && userSpecific > 0 ? userSpecific : null;
+                        const orig = variantOriginalUnit(v);
+                        const resolved =
+                            Number.isFinite(userPrice) && userPrice > 0
+                                ? userPrice
+                                : Number.isFinite(groupPrice) && groupPrice > 0
+                                  ? groupPrice
+                                  : orig;
+                        const out = { ...v };
+                        if (Number.isFinite(resolved) && resolved > 0) {
+                            out.salePrice = String(resolved);
+                        }
+                        return out;
+                    });
+
+                    const unitPrices = nextVariants.map(variantOriginalUnit).filter((n) => n > 0);
+                    const minResolved =
+                        unitPrices.length > 0 ? Math.min(...unitPrices) : resolveOriginalPrice(product);
+
+                    return {
+                        ...product,
+                        variantValues: nextVariants,
+                        price: minResolved,
+                        originalPrice: resolveOriginalPrice(product),
+                        groupPrice: Number.isFinite(groupPriceWhole) && groupPriceWhole > 0 ? groupPriceWhole : null,
+                        userPrice: Number.isFinite(userPriceWhole) && userPriceWhole > 0 ? userPriceWhole : null,
+                    };
+                }
+
                 const originalPrice = resolveOriginalPrice(product);
+                const groupPrice = groupPriceWhole;
+                const userPrice = userPriceWhole;
+                const resolvedPrice =
+                    Number.isFinite(userPrice) && userPrice > 0
+                        ? userPrice
+                        : Number.isFinite(groupPrice) && groupPrice > 0
+                          ? groupPrice
+                          : originalPrice;
+
                 return {
                     ...product,
-                    price: originalPrice,
+                    price: resolvedPrice,
                     originalPrice,
-                    groupPrice: null,
+                    groupPrice: Number.isFinite(groupPrice) && groupPrice > 0 ? groupPrice : null,
+                    userPrice: Number.isFinite(userPrice) && userPrice > 0 ? userPrice : null,
                 };
             });
 
-            return res.json({ message: 'Products retrieved', products: productsWithStandardPrice, status: 201 });
+            return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
         } catch (error) {
             console.error('Error getting products:', error);
             return res.json({ message: 'Failed to get products', status: 500 });
@@ -660,6 +728,15 @@ const adminProductController = {
                             fromCatalog: false
                         };
                     });
+                } else {
+                    populatedTopSectionItems = product.topSectionItems.map(slug => ({
+                        slug,
+                        name: slug.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                        icon: null,
+                        description: null,
+                        image: null,
+                        fromCatalog: false
+                    }));
                 }
             }
 
@@ -695,6 +772,15 @@ const adminProductController = {
                             fromCatalog: false
                         };
                     });
+                } else {
+                    populatedComesWithItems = product.comesWithItems.map(slug => ({
+                        slug,
+                        name: slug.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                        icon: null,
+                        description: null,
+                        image: null,
+                        fromCatalog: false
+                    }));
                 }
             }
 
@@ -1556,23 +1642,48 @@ const adminProductController = {
                 product.Gallery_Images = [product.Gallery_Images[0]];
               }
 
-              // Handle variantValues based on productType
+              // Keep slim variant rows for admin lists (pricing groups, etc.): price + stock + SKU
               if (product.productType) {
                 if (product.productType.type === 'single') {
-                  // For single products, only include Price and salePrice from variantValues
                   if (product.variantValues && product.variantValues.length > 0) {
-                    product.variantValues = product.variantValues.map(variant => ({
+                    product.variantValues = product.variantValues.map((variant) => ({
+                      variantId: variant.variantId,
+                      slug: variant.slug,
+                      name: variant.name,
                       Price: variant.Price,
-                      salePrice: variant.salePrice
+                      salePrice: variant.salePrice,
+                      Quantity: variant.Quantity,
+                      SKU: variant.SKU,
                     }));
                   } else {
-                    // Remove variantValues if empty
                     delete product.variantValues;
                   }
                 } else if (product.productType.type === 'variant') {
-                  // For variant products, remove variantValues completely
-                  delete product.variantValues;
+                  if (product.variantValues && product.variantValues.length > 0) {
+                    product.variantValues = product.variantValues.map((variant) => ({
+                      variantId: variant.variantId,
+                      slug: variant.slug,
+                      name: variant.name,
+                      Price: variant.Price,
+                      salePrice: variant.salePrice,
+                      Quantity: variant.Quantity,
+                      SKU: variant.SKU,
+                    }));
+                  } else {
+                    delete product.variantValues;
+                  }
                 }
+              } else if (product.variantValues && product.variantValues.length > 0) {
+                // Missing productType (legacy): still expose slim variants for admin pricing UI.
+                product.variantValues = product.variantValues.map((variant) => ({
+                  variantId: variant.variantId,
+                  slug: variant.slug,
+                  name: variant.name,
+                  Price: variant.Price,
+                  salePrice: variant.salePrice,
+                  Quantity: variant.Quantity,
+                  SKU: variant.SKU,
+                }));
               }
 
               return product;
@@ -1742,9 +1853,11 @@ const adminProductController = {
                 ]
             };
 
-            // Fetch minimal fields for suggestions
+            // Fetch minimal fields for suggestions (thumbnail for navbar UI; no category payload)
             const suggestions = await Product.find(searchQuery)
-                .select('name producturl condition category brand subCategory _id')
+                .select(
+                    'name producturl _id thumbnail_image Gallery_Images productType variantValues.variantImages varImgGroup.varImg'
+                )
                 .limit(limit)
                 .lean(); // Use lean() for better performance
 

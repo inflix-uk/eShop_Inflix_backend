@@ -59,6 +59,12 @@ const { getAllCategories, getCategoryById, createCategory, updateCategory, delet
 // FOOTER PAGES CONTROLLERS
 // ========================================================================
 const { createFooterPage, updateFooterPage, getFooterPageById, getFooterPageBySlug, getAllFooterPages, deleteFooterPage, handleFooterPageUpload } = require('../controller/footerPageController');
+const {
+  getAllPageCategories,
+  createPageCategory,
+  updatePageCategory,
+  deletePageCategory,
+} = require('../controller/pageCategoryController');
 
 // ========================================================================
 // MIDDLEWARE & OTHER IMPORTS
@@ -70,6 +76,8 @@ const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
 const cronRoutes = require('./cronRoutes');
 const order = require('../models/order');
 const healthController = require('../controller/healthController');
+const superadminControlsController = require('../controller/superadminControlsController');
+const requireSuperadmin = require('../../middleware/requireSuperadmin');
 
 // ========================================================================
 // LIVENESS (no DB / external deps — used by storefront SSR probes)
@@ -126,11 +134,15 @@ router.post('/registerUser/fromAdmin',        usersController.registerUserFromAd
 
 // Authentication & password management
 router.post('/login',                         usersController.loginUser);
+router.post('/superadmin/login',              usersController.superadminLogin);
 router.post('/logout',                        usersController.logoutUser);
 router.patch('/update/user/:id',              usersController.updateUser);
 router.post('/forgotpassword',                usersController.forgotPassword);
 router.post('/resetpassword',                 usersController.resetPassword);
 router.patch('/changepassword/:id',           usersController.changepassword);
+router.get('/superadmin/controls/public',     superadminControlsController.getPublicSuperadminControls);
+router.get('/superadmin/controls',            requireSuperadmin, superadminControlsController.getSuperadminControls);
+router.put('/superadmin/controls',            requireSuperadmin, superadminControlsController.updateSuperadminControls);
 
 // ========================================================================
 // USER MANAGEMENT (Admin Panel)
@@ -143,6 +155,8 @@ router.patch('/status/user/:id',                 adminUsersController.statusUser
 router.get('/get/user/:id',                      adminUsersController.getUserById);
 router.patch('/admin/reset-password/:id',        adminUsersController.resetUserPassword);
 router.put('/api/users/:id/assign-group',        requireAdmin, adminUsersController.assignPricingGroup);
+router.get('/api/users/:id/product-prices',      requireAdmin, adminUsersController.getUserProductPrices);
+router.post('/api/users/:id/product-price',      requireAdmin, adminUsersController.upsertUserProductPrice);
 
 // ========================================================================
 // PRICING GROUPS MANAGEMENT
@@ -611,6 +625,14 @@ router.put('/footer-pages/pages/:id', handleFooterPageUpload, updateFooterPage);
 router.delete('/footer-pages/pages/:id', deleteFooterPage);
 
 // ========================================================================
+// PAGE CATEGORIES (footer / static pages grouping)
+// ========================================================================
+router.get('/page-categories', getAllPageCategories);
+router.post('/page-categories', requireAdmin, createPageCategory);
+router.put('/page-categories/:id', requireAdmin, updatePageCategory);
+router.delete('/page-categories/:id', requireAdmin, deletePageCategory);
+
+// ========================================================================
 // DEALS & DISCOUNTS MANAGEMENT
 // ========================================================================
 router.post('/create/deal', requireAdmin, dealsController.createDeal);
@@ -777,9 +799,13 @@ router.put(
 // NAVBAR HEADER (Need help? phone — singleton, editable from navbar order admin)
 // ========================================================================
 const navbarHeaderController = require('../controller/navbarHeaderController');
+const navbarVariantTestController = require('../controller/navbarVariantTestController');
 router.get('/navbar-header/public', navbarHeaderController.getNavbarHeaderPublic);
 router.get('/navbar-header', requireAdmin, navbarHeaderController.getNavbarHeaderAdmin);
 router.post('/navbar-header', requireAdmin, navbarHeaderController.saveNavbarHeader);
+router.get('/navbar-variant-test/public', navbarVariantTestController.getNavbarVariantTestPublic);
+router.get('/navbar-variant-test', requireAdmin, navbarVariantTestController.getNavbarVariantTestAdmin);
+router.put('/navbar-variant-test', requireAdmin, navbarVariantTestController.putNavbarVariantTest);
 
 // ========================================================================
 // CATEGORY CARDS MANAGEMENT
@@ -896,6 +922,16 @@ router.put(
 const orderEmailTemplatesController = require('../controller/orderEmailTemplatesController');
 router.get('/order-email-templates', requireAdmin, orderEmailTemplatesController.getAdmin);
 router.put('/order-email-templates', requireAdmin, orderEmailTemplatesController.saveAdmin);
+
+// ========================================================================
+// EMAIL BRANDING (admin preview — matches transactional `getEmailBranding`)
+// ========================================================================
+const emailBrandingPreviewController = require('../controller/emailBrandingPreviewController');
+router.get(
+  '/email-branding/preview',
+  requireAdmin,
+  emailBrandingPreviewController.getEmailBrandingForPreview
+);
 
 // ========================================================================
 // CRON JOB ROUTES

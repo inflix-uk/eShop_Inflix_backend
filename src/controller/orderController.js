@@ -12,6 +12,16 @@ const fs = require('fs');
 const updateOrderService = require("../services/orderService/updateOrder");
 const { bulkUpdateOrdersService } = require("../services/orderService/updateOrder");
 const createOrderService = require("../services/orderService/createOrder");
+const {
+    resolveOrderLineImageUrlServer,
+    attachLineImageUrlsToOrder,
+} = require("../utils/orderLineImageUrlServer");
+const { sendMail } = require('../utils/mailer');
+const { buildOrderShippedEmail } = require('../services/email/orderShippedEmailService');
+const {
+    sendOrderUpdateEmailToCustomer,
+    buildOrderDataForStatusEmail,
+} = require('../../email/OrderUpdateEmailToCustomer/OrderUpdateEmailToCustomer');
 
 const hasUserUsedCoupon = async (userId, couponCode) => {
     try {
@@ -395,9 +405,12 @@ const orderController = {
                     'cart.selectedSim': 1,
                     'cart.isTradeIn': 1,
                     'cart.tradeInData': 1,
-                    // Include only first variant image for display
                     'cart.variantImages': { $slice: 1 },
-                    'cart.metaImage': 1
+                    'cart.galleryImages': { $slice: 1 },
+                    'cart.productthumbnail': 1,
+                    'cart.metaImage': 1,
+                    'cart.image': 1,
+                    'cart.productImage': 1,
                 })
                 .lean();
 
@@ -408,22 +421,25 @@ const orderController = {
                 });
             }
 
-            // Clean up cart items - only keep first image
-            const cleanedCart = order.cart.map(item => ({
-                productId: item.productId,
-                _id: item._id,
-                productName: item.productName,
-                name: item.name,
-                SKU: item.SKU,
-                EIN: item.EIN,
-                salePrice: item.salePrice,
-                Price: item.Price,
-                qty: item.qty,
-                selectedSim: item.selectedSim,
-                isTradeIn: item.isTradeIn,
-                tradeInData: item.tradeInData,
-                image: item.variantImages?.[0]?.path || item.metaImage?.path || null
-            }));
+            const cleanedCart = order.cart.map((item) => {
+                const lineImageUrl = resolveOrderLineImageUrlServer(item);
+                return {
+                    productId: item.productId,
+                    _id: item._id,
+                    productName: item.productName,
+                    name: item.name,
+                    SKU: item.SKU,
+                    EIN: item.EIN,
+                    salePrice: item.salePrice,
+                    Price: item.Price,
+                    qty: item.qty,
+                    selectedSim: item.selectedSim,
+                    isTradeIn: item.isTradeIn,
+                    tradeInData: item.tradeInData,
+                    lineImageUrl,
+                    image: lineImageUrl || null,
+                };
+            });
 
             return res.status(200).json({
                 message: 'Cart retrieved successfully',
@@ -493,6 +509,24 @@ const orderController = {
                 'shippingDetails.notes': 1,
                 refund: 1
             });
+
+            const fullOrder = await Order.findById(id);
+            if (fullOrder?.contactDetails?.email) {
+                if (status === 'Shipped') {
+                    buildOrderShippedEmail(fullOrder)
+                        .then(({ html, subject }) =>
+                            sendMail({ to: fullOrder.contactDetails.email, subject, html })
+                        )
+                        .catch((e) => console.error('Shipped email (shipping endpoint):', e));
+                } else {
+                    const skipGenericStatusEmail = ['Shipped', 'Refunded', 'Pending'];
+                    if (status && !skipGenericStatusEmail.includes(status)) {
+                        sendOrderUpdateEmailToCustomer(
+                            buildOrderDataForStatusEmail(fullOrder)
+                        ).catch((e) => console.error('Status email (shipping endpoint):', e));
+                    }
+                }
+            }
 
             return res.status(200).json({
                 message: 'Shipping details updated successfully',
@@ -668,10 +702,8 @@ const orderController = {
             // Extract orderId from request parameters
             const { id } = req.params;
 
-            // Retrieve the order from the database by orderId
             const order = await Order.findById(id);
 
-            // Check if order exists
             if (!order) {
                 return res.json({
                     message: 'Order not found',
@@ -679,10 +711,10 @@ const orderController = {
                 });
             }
 
-            // Respond with the retrieved order
+            const plain = order.toObject ? order.toObject({ flattenMaps: true }) : order;
             res.json({
                 message: 'Order retrieved successfully',
-                order,
+                order: attachLineImageUrlsToOrder(plain),
                 status: 201
             });
         } catch (error) {
@@ -703,7 +735,6 @@ const orderController = {
                 .select('-coupon.usageHistory')
                 .lean();
 
-            // Check if order exists
             if (!order) {
                 return res.json({
                     message: 'Order not found',
@@ -711,10 +742,9 @@ const orderController = {
                 });
             }
 
-            // Respond with the retrieved order
             res.json({
                 message: 'Order retrieved successfully',
-                order,
+                order: attachLineImageUrlsToOrder(order),
                 status: 201
             });
         } catch (error) {
@@ -726,18 +756,24 @@ const orderController = {
     
     getOrderByUser: async (req, res, next) => {
         try {
-            console.log(req.body);
-            // Extract user data from the request body
             const { userId } = req.body;
-            console.log('userid', req.body);
-            const orders = await Order.find({ 'contactDetails.userId': userId }).sort({ createdAt: -1 }).lean();
+            if (!userId) {
+                return res.json({
+                    message: 'userId is required',
+                    status: 400,
+                    orders: []
+                });
+            }
+            const orders = await Order.find({
+                'contactDetails.userId': userId,
+                isdeleted: { $ne: true }
+            }).sort({ createdAt: -1 }).lean();
 
-            console.log(orders);
-            // Check if orders exist for the provided email
             if (!orders || orders.length === 0) {
                 return res.json({
-                    message: 'No orders found for the provided email',
-                    status: 404
+                    message: 'No orders found for this user',
+                    status: 200,
+                    orders: []
                 });
             }
 

@@ -106,32 +106,14 @@
 
         <div class="customer-details">
             <h3>{{ST_sectionCustomerDetails}}</h3>
-            <p><strong>{{ST_labelName}}</strong> {{user.firstname}} {{user.lastname}}</p>
-            <p><strong>{{ST_labelEmail}}</strong> {{user.email}}</p>
-            <p><strong>{{ST_labelPhone}}</strong> {{user.phoneNumber}}</p>
-            {{#if user.address}}
-            <p><strong>{{ST_labelAddress}}</strong><br>
-                {{user.address.address}}<br>
-                {{#if user.address.apartment}}{{user.address.apartment}}<br>{{/if}}
-                {{user.address.city}}, {{user.address.county}}<br>
-                {{user.address.postalCode}}<br>
-                {{user.address.country}}
-            </p>
-            {{/if}}
+            {{CUSTOMER_DETAIL_ROWS}}
         </div>
 
         <h3>{{ST_sectionOrderSummary}}</h3>
         <ul class="items-list">
             {{#each order.items}}
             <li class="item">
-                <h4>{{deviceName}} {{brandName}}</h4>
-                <p><strong>{{ST_labelStorage}}</strong> {{selectedStorageLabel}}</p>
-                <p><strong>{{ST_labelCondition}}</strong> {{selectedCondition}}</p>
-                <p><strong>{{ST_labelQuantity}}</strong> {{quantity}}</p>
-                <p><strong>{{ST_labelPrice}}</strong> £{{totalPrice}}</p>
-                {{#if imeiNumbers.[0]}}
-                <p><strong>{{ST_labelImei}}</strong> {{imeiNumbers.[0]}}</p>
-                {{/if}}
+                {{ORDER_ITEM_INNER_HTML}}
             </li>
             {{/each}}
         </ul>

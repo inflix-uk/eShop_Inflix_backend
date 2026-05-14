@@ -5,7 +5,7 @@
 // - Order creation and updates
 // - Coupon validation and usage tracking
 // - Inventory management (stock reduction)
-// - Email notifications (customer, admin, Trustpilot)
+// - Email notifications (customer, admin; CC/BCC on customer mail from SMTP settings)
 // ============================================================================
 
 const Order = require("../../models/order");
@@ -13,21 +13,24 @@ const Product = require("../../models/product");
 const Coupon = require("../../models/coupon");
 const path = require('path');
 const fs = require('fs');
-const { sendMail } = require('../../utils/mailer');
+const { sendMail, getOrderNotifyRecipientEmail, getOrderConfirmationCcAndBcc } = require('../../utils/mailer');
 const {
   getOrderConfirmationResolved,
   applyOrderConfirmationCopyToHtml,
   getOrderNumberPrefixForGeneration,
 } = require('../email/orderEmailCopyService');
-
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-
-const EMAIL_ADDRESSES = {
-    admin: 'order@zextons.co.uk',
-    trustpilot: '9311f649e0@invite.trustpilot.com',
-};
+const { ORDER_CONFIRMATION_DEFAULTS } = require('../../config/orderEmailTemplateDefaults');
+const {
+  getEmailBranding,
+  applyEmailBrandingToHtml,
+  googleFontsLinkTag,
+} = require('../../utils/emailBranding');
+const {
+  emailFieldPresent,
+  escapeHtml,
+  buildCartItemVariantDetailsHtml,
+  buildAdminNewOrderCartItemHtml,
+} = require('../../utils/orderStatusEmailDynamicHtml');
 
 // ============================================================================
 // HELPER FUNCTIONS - Coupon Management
@@ -370,27 +373,37 @@ const generateOrderNumber = async () => {
  * @param {Array} cart - The cart items
  * @returns {string} HTML string
  */
-const generateCartItemsHTML = (cart) => {
+const FALLBACK_EMAIL_TYPO_P =
+    "font-family: 'Roboto', Arial, Helvetica, sans-serif; font-weight: 400; font-style: normal;";
+
+const generateCartItemsHTML = (cart, branding) => {
+    const b = branding || {};
+    const fp = b.typo_p || FALLBACK_EMAIL_TYPO_P;
+    const fh3 = b.typo_h3 || fp;
+    const accent = b.primaryHex || '#25af60';
+    const td = b.textDark || 'rgb(29, 52, 37)';
+    const tdMuted = b.textDarkMutedRgba || 'rgba(29, 52, 37, 0.65)';
+    const tradeBg = b.tradeInPanelBg || '#f0fdf4';
     return cart.map(item => {
         // Check if this is a trade-in product - Display differently, no parsing needed
         if (item.isTradeIn || item.productId === 'trade-in') {
             return `
                 <tr>
-                    <td class="pc-w620-halign-left pc-w620-valign-middle pc-w620-width-100pc" align="left" valign="middle" style="padding: 20px 0px 20px 0px; border-bottom: 1px solid #e7e7d2b3; background-color: #f0fdf4;">
+                    <td class="pc-w620-halign-left pc-w620-valign-middle pc-w620-width-100pc" align="left" valign="middle" style="padding: 20px 0px 20px 0px; border-bottom: 1px solid #e7e7d2b3; background-color: ${tradeBg};">
                         <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                             <tr>
                                 <td valign="top" style="padding: 0px 0px 0px 0px;">
                                     <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
                                         <tr>
                                             <td class="pc-w620-align-left" valign="top" style="padding: 0px 0px 0px 0px;">
-                                                <div class="pc-font-alt" style="line-height: 24px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 600; color: #16a34a;">
+                                                <div class="pc-font-alt" style="line-height: 24px; ${fh3}; font-size: 14px; color: ${accent};">
                                                     <div><span>Trade-In Device</span></div>
                                                 </div>
-                                                <div class="pc-font-alt" style="line-height: 24px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; color: #121212cc; margin-top: 5px;">
-                                                    <div><span>${item.name}</span></div>
+                                                <div class="pc-font-alt" style="line-height: 24px; ${fh3}; font-size: 16px; color: #121212cc; margin-top: 5px;">
+                                                    <div><span>${escapeHtml(item.name)}</span></div>
                                                 </div>
-                                                <div class="pc-font-alt" style="line-height: 24px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; color: #1d3425cc;">
-                                                    <div><span>Condition: ${item.tradeInData?.conditionName || 'N/A'}</span></div>
+                                                <div class="pc-font-alt" style="line-height: 24px; ${fp}; font-size: 14px; color: ${tdMuted};">
+                                                    ${emailFieldPresent(item.tradeInData?.conditionName) ? `<div><span>Condition: ${escapeHtml(item.tradeInData.conditionName)}</span></div>` : ''}
                                                     <div><span>Trade-In Credit Applied</span></div>
                                                 </div>
                                             </td>
@@ -400,22 +413,14 @@ const generateCartItemsHTML = (cart) => {
                             </tr>
                         </table>
                     </td>
-                    <td class="pc-w620-halign-right pc-w620-valign-middle" align="right" valign="middle" style="padding: 0px 0px 0px 0px; border-bottom: 1px solid #e7e7d2b3; background-color: #f0fdf4;">
-                        <div class="pc-font-alt" style="line-height: 22px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 800; color: #16a34a;">
+                    <td class="pc-w620-halign-right pc-w620-valign-middle" align="right" valign="middle" style="padding: 0px 0px 0px 0px; border-bottom: 1px solid #e7e7d2b3; background-color: ${tradeBg};">
+                        <div class="pc-font-alt" style="line-height: 22px; ${fh3}; font-size: 14px; color: ${accent};">
                             <div><span>Credit</span></div>
                         </div>
                     </td>
                 </tr>
             `;
         }
-
-        // Parse regular products - Extract Condition-ColorName (hex)-Storage from name
-        const itemName = item.name || item.productName || 'Unknown Product';
-        const match = itemName.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-        const condition = match ? match[1] : 'Unknown';
-        const colorName = match ? match[2] : 'Unknown';
-        const colorHex = match ? match[3] : '';
-        const storage = match ? match[4] : 'Unknown';
 
         let variantImagePath = null;
         if (item.variantImages && item.variantImages.length > 0) {
@@ -448,9 +453,8 @@ const generateCartItemsHTML = (cart) => {
                                                                                             <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                                                                                                 <tr>
                                                                                                     <td valign="top" class="pc-w620-align-left" align="left" style="padding: 0px 0px 0px 0px;">
-                                                                                                        <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-16 pc-w620-lineHeight-26" style="line-height: 24px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; font-variant-ligatures: normal; color: #121212cc; text-align: left; text-align-last: left;">
-                                                                                                            <div><span>${item.productName}</span>
-                                                                                                            </div>
+                                                                                                        <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-16 pc-w620-lineHeight-26" style="line-height: 24px; letter-spacing: -0px; ${fh3}; font-variant-ligatures: normal; color: #121212cc; text-align: left; text-align-last: left; font-size: 16px;">
+                                                                                                            ${emailFieldPresent(item.productName) ? `<div><span>${escapeHtml(item.productName)}</span></div>` : ''}
                                                                                                         </div>
                                                                                                     </td>
                                                                                                 </tr>
@@ -462,11 +466,9 @@ const generateCartItemsHTML = (cart) => {
                                                                                             <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                                                                                                 <tr>
                                                                                                     <td valign="top" class="pc-w620-align-left" align="left">
-                                                                                                        <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 600; font-variant-ligatures: normal; color: #1d3425cc; text-align: left; text-align-last: left;">
-                                                                                                            <div><span>Condition: ${condition}</span></div>
+                                                                                                        <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${fp}; font-variant-ligatures: normal; color: ${tdMuted}; text-align: left; text-align-last: left; font-size: 14px;">
+                                                                                                            ${buildCartItemVariantDetailsHtml(item)}
                                                                                                             <div><span>Quantity: ${item.qty}</span></div>
-                                                                                                            <div><span>Color: ${colorName}</span></div>
-                                                                                                            <div><span>Storage: ${storage}</span></div>
                                                                                                         </div>
                                                                                                     </td>
                                                                                                 </tr>
@@ -497,7 +499,7 @@ const generateCartItemsHTML = (cart) => {
                                 <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-right" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                                     <tr>
                                         <td valign="top" class="pc-w620-padding-0-0-0-0 pc-w620-align-right" align="right">
-                                            <div class="pc-font-alt pc-w620-align-right pc-w620-fontSize-16 pc-w620-lineHeight-20" style="line-height: 22px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 800; font-variant-ligatures: normal; color: #1d3425; text-align: right; text-align-last: right;">
+                                            <div class="pc-font-alt pc-w620-align-right pc-w620-fontSize-16 pc-w620-lineHeight-20" style="line-height: 22px; letter-spacing: -0px; ${fh3}; font-variant-ligatures: normal; color: ${td}; text-align: right; text-align-last: right; font-size: 14px;">
                                                 <div><span>£${item.salePrice}</span></div>
                                             </div>
                                         </td>
@@ -517,16 +519,42 @@ const generateCartItemsHTML = (cart) => {
  * @param {Object} params - Order parameters
  * @returns {string} HTML string
  */
-const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInformation, contactInformation, totalOrderValue, coupon, discountAmount, discountedOrderValue, cart }) => {
+const generateAdminEmailHTML = ({
+    orderNumber,
+    savedOrder,
+    order,
+    shippingInformation,
+    contactInformation,
+    totalOrderValue,
+    coupon,
+    discountAmount,
+    discountedOrderValue,
+    cart,
+    branding,
+    footerAddressLine,
+}) => {
+    const accent = branding?.primaryHex || '#25af60';
+    const tradeBg = branding?.tradeInPanelBg || '#f0fdf4';
+    const fp = branding?.typo_p || FALLBACK_EMAIL_TYPO_P;
+    const fh1 = branding?.typo_h1 || fp;
+    const fh2 = branding?.typo_h2 || fp;
+    const fh3 = branding?.typo_h3 || fp;
+    const fontLink = googleFontsLinkTag(branding?.googleFontsHref || '');
+    const footerLineRaw =
+        footerAddressLine != null && String(footerAddressLine).trim() !== ''
+            ? String(footerAddressLine).trim()
+            : ORDER_CONFIRMATION_DEFAULTS.footerAddressLine;
+    const footerLineHtml = escapeHtml(footerLineRaw);
     return `
         <!DOCTYPE html>
         <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            ${fontLink}
             <style>
                 body {
-                    font-family: Arial, sans-serif;
+                    ${fp}
                     background-color: #f7f7f7;
                     margin: 0;
                     padding: 0;
@@ -541,12 +569,13 @@ const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInform
                     box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
                 }
                 .header {
-                    background-color: #16a34a;
+                    background-color: ${accent};
                     color: #ffffff;
                     padding: 10px 20px;
                     border-radius: 8px 8px 0 0;
                 }
                 .header h1 {
+                    ${fh1}
                     margin: 0;
                     font-size: 24px;
                 }
@@ -557,9 +586,10 @@ const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInform
                     margin-bottom: 20px;
                 }
                 .order-details h2 {
+                    ${fh2}
                     font-size: 18px;
                     margin: 0;
-                    color: #16a34a;
+                    color: ${accent};
                 }
                 .order-summary {
                     background-color: #f1f1f1;
@@ -567,17 +597,22 @@ const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInform
                     border-radius: 8px;
                     margin-bottom: 20px;
                 }
+                .order-summary h3 {
+                    ${fh3}
+                    margin: 0 0 10px 0;
+                }
                 .order-summary p {
                     margin: 8px 0;
                 }
                 .footer {
+                    ${fp}
                     font-size: 12px;
                     color: #777;
                     text-align: center;
                     margin-top: 20px;
                 }
                 .footer a {
-                    color: #16a34a;
+                    color: ${accent};
                     text-decoration: none;
                 }
             </style>
@@ -615,34 +650,19 @@ const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInform
                                 // Check if trade-in product - Display differently, skip parsing
                                 if (item.isTradeIn || item.productId === 'trade-in') {
                                     return `
-                                    <li style="background-color: #f0fdf4; padding: 10px; border-left: 4px solid #16a34a;">
-                                        <strong style="color: #16a34a;">Trade-In Device</strong> <br>
-                                        <strong>Device:</strong> ${item.name} <br>
-                                        <strong>Condition:</strong> ${item.tradeInData?.conditionName || 'N/A'} <br>
+                                    <li style="background-color: ${tradeBg}; padding: 10px; border-left: 4px solid ${accent};">
+                                        <strong style="color: ${accent};">Trade-In Device</strong> <br>
+                                        <strong>Device:</strong> ${escapeHtml(item.name)} <br>
+                                        ${emailFieldPresent(item.tradeInData?.conditionName) ? `<strong>Condition:</strong> ${escapeHtml(item.tradeInData.conditionName)} <br>` : ''}
                                         <strong>Trade-In Credit:</strong> Recorded for reference <br>
                                     </li>
                                     <br>
                                 `;
                                 }
 
-                                // Parse regular products
-                                const match = item.name.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-                                const condition = match ? match[1] : 'Unknown';
-                                const colorName = match ? match[2] : 'Unknown';
-                                const colorHex = match ? match[3] : '';
-                                const storage = match ? match[4] : 'Unknown';
-
                                 return `
                                 <li>
-                                    <strong>Product:</strong> ${item.productName} <br>
-                                    <strong>Condition:</strong> ${condition} <br>
-                                    <strong>Color:</strong> ${colorName} <br>
-                                    <strong>Storage:</strong> ${storage}GB <br>
-                                    <strong>SKU:</strong> ${item.SKU || 'N/A'} <br>
-                                    <strong>EIN:</strong> ${item.EIN || 'N/A'} <br>
-                                    <strong>Quantity:</strong> ${item.qty} <br>
-                                    <strong>Unit Price:</strong> £${item.salePrice} <br>
-                                    <strong>Subtotal:</strong> £${(item.qty * item.salePrice).toFixed(2)} <br>
+                                    ${buildAdminNewOrderCartItemHtml(item)}
                                 </li>
                                 <br>
                             `}).join('')}
@@ -651,7 +671,7 @@ const generateAdminEmailHTML = ({ orderNumber, savedOrder, order, shippingInform
                 </div>
 
                 <div class="footer">
-                    <p>&copy; 2024 Zextons Limited. All Rights Reserved.</p>
+                    <p>${footerLineHtml}</p>
                 </div>
             </div>
         </body>
@@ -675,11 +695,21 @@ const generateCustomerEmailHTML = async ({
   totalItems,
   shippingInformation,
   contactInformation,
+  branding: brandingParam,
+  /** When set, avoids a second DB read (same payload as admin new-order footer). */
+  confirmationCopy: confirmationCopyPreloaded,
 }) => {
-    const confirmationCopy = await getOrderConfirmationResolved();
+    const branding = brandingParam || (await getEmailBranding());
+    const fp = branding.typo_p || FALLBACK_EMAIL_TYPO_P;
+    const fh2 = branding.typo_h2 || fp;
+    const fh3 = branding.typo_h3 || fp;
+    const confirmationCopy =
+        confirmationCopyPreloaded || (await getOrderConfirmationResolved());
     // Read the HTML email template
-    const emailTemplatePath = path.join(__dirname, '..', '..', 'email', 'orderConfermation', 'index.html');
+    // Template lives at repo root `email/`, not under `src/` (three levels up from `orderService/`)
+    const emailTemplatePath = path.join(__dirname, '..', '..', '..', 'email', 'orderConfermation', 'index.html');
     let emailTemplate = fs.readFileSync(emailTemplatePath, 'utf8');
+    emailTemplate = await applyEmailBrandingToHtml(emailTemplate, branding);
     emailTemplate = applyOrderConfirmationCopyToHtml(emailTemplate, confirmationCopy.fields);
 
     // Filter out trade-in products - customers don't need to see trade-in items in their order confirmation
@@ -687,12 +717,12 @@ const generateCustomerEmailHTML = async ({
     const regularProductsOnly = cart.filter(item => !item.isTradeIn && item.productId !== 'trade-in');
 
     // Generate cart items HTML (excluding trade-ins)
-    const cartItemsHTML = generateCartItemsHTML(regularProductsOnly);
+    const cartItemsHTML = generateCartItemsHTML(regularProductsOnly, branding);
     emailTemplate = emailTemplate.replace('{{cartItems}}', cartItemsHTML);
 
     // Add order number
     const ordernumberHTML = `
-        <div><span style="color: rgb(13, 35, 28);">Confirmation number:</span><span style="color: rgb(29, 52, 37);"> </span><span style="color: rgb(35, 174, 96);">${orderNumber}</span>
+        <div><span style="color: ${branding.textDark};">Confirmation number:</span><span style="color: ${branding.textDarkMutedRgba};"> </span><span style="color: ${branding.accentRgbCss};">${orderNumber}</span>
         </div>
     `;
     emailTemplate = emailTemplate.replace('{{ordernumber}}', ordernumberHTML);
@@ -707,7 +737,7 @@ const generateCustomerEmailHTML = async ({
                     <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                         <tr>
                         <td valign="top" class="pc-w620-align-left" align="left">
-                        <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 600; font-variant-ligatures: normal; color: #121212cc; text-align: left; text-align-last: left;">
+                        <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${fp}; font-variant-ligatures: normal; color: #121212cc; text-align: left; text-align-last: left; font-size: 14px;">
                         <div><span>Subtotal</span>
                         </div>
                         </div>
@@ -724,7 +754,7 @@ const generateCustomerEmailHTML = async ({
                     <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                         <tr>
                         <td valign="top" class="pc-w620-align-left" align="left" style="padding: 0px 0px 0px 0px;">
-                        <div class="pc-font-alt pc-w620-align-left pc-w620-lineHeight-24" style="line-height: 24px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 600; font-variant-ligatures: normal; color: #1d3425; text-align: left; text-align-last: left;">
+                        <div class="pc-font-alt pc-w620-align-left pc-w620-lineHeight-24" style="line-height: 24px; letter-spacing: -0px; ${fp}; font-variant-ligatures: normal; color: ${branding.textDark}; text-align: left; text-align-last: left; font-size: 14px;">
                         <div><span>Discount (${coupon.code})</span>
                         </div>
                         </div>
@@ -749,7 +779,7 @@ const generateCustomerEmailHTML = async ({
                             <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                             <tr>
                             <td valign="top" align="right" style="padding: 0px 0px 0px 0px;">
-                                <div class="pc-font-alt" style="line-height: 140%; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 800; font-variant-ligatures: normal; color: #1c3425; text-align: right; text-align-last: right;">
+                                <div class="pc-font-alt" style="line-height: 140%; letter-spacing: -0px; ${fh3}; font-variant-ligatures: normal; color: ${branding.textDark}; text-align: right; text-align-last: right; font-size: 16px;">
                                 <div><span>£${totalOrderValue}</span>
                                 </div>
                                 </div>
@@ -764,7 +794,7 @@ const generateCustomerEmailHTML = async ({
                             <table border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                             <tr>
                             <td valign="top" class="pc-w620-padding-0-0-0-0" align="right" style="padding: 0px 0px 0px 0px;">
-                                <div class="pc-font-alt" style="line-height: 140%; letter-spacing: 0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: 600; font-variant-ligatures: normal; color: #ff5c5c; text-align: right; text-align-last: right;">
+                                <div class="pc-font-alt" style="line-height: 140%; letter-spacing: 0px; ${fh3}; font-variant-ligatures: normal; color: #ff5c5c; text-align: right; text-align-last: right; font-size: 16px;">
                                 <div><span>-£${discountAmount.toFixed(2)}</span>
                                 </div>
                                 </div>
@@ -796,10 +826,10 @@ const generateCustomerEmailHTML = async ({
             <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                 <tr>
                 <td valign="top" class="pc-w620-padding-0-0-0-0 pc-w620-align-left" align="left">
-                <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-16 pc-w620-lineHeight-20" style="line-height: 22px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: bold; font-variant-ligatures: normal; color: #1d3425; text-align: left; text-align-last: left;">
+                <div class="pc-font-alt pc-w620-align-left pc-w620-fontSize-16 pc-w620-lineHeight-20" style="line-height: 22px; letter-spacing: -0px; ${fh2}; font-variant-ligatures: normal; color: ${branding.textDark}; text-align: left; text-align-last: left; font-size: 16px;">
               <div><span>Total (${totalItems} item${totalItems > 1 ? 's' : ''})</span></div>
-              ${coupon ? `<div style="font-size: 14px; font-weight: 600; color: #16a34a; margin-top: 5px;"><span>You saved £${discountAmount.toFixed(2)}!</span></div>` : ''}
-              <div style="font-size: 18px; font-weight: 800; color: #1d3425; margin-top: 8px;"><span>Total Price: £${discountedOrderValue.toFixed(2)}</span></div>
+              ${coupon ? `<div style="font-size: 14px; font-weight: 600; color: ${branding.primaryHex}; margin-top: 5px;"><span>You saved £${discountAmount.toFixed(2)}!</span></div>` : ''}
+              <div style="font-size: 18px; font-weight: 800; color: ${branding.textDark}; margin-top: 8px;"><span>Total Price: £${discountedOrderValue.toFixed(2)}</span></div>
                 </div>
                 </div>
                 </td>
@@ -1016,6 +1046,9 @@ const createOrderService = async (orderData) => {
         const discountAmount = calculateDiscount(totalOrderValue, coupon);
 
         // Generate customer email HTML with Trustpilot script
+        const sharedEmailBranding = await getEmailBranding();
+        const confirmationCopy = await getOrderConfirmationResolved();
+
         const { html: customerEmailHTML, subject: customerEmailSubject } =
             await generateCustomerEmailHTML({
             orderNumber: order_number_fial,
@@ -1026,20 +1059,25 @@ const createOrderService = async (orderData) => {
             discountedOrderValue,
             totalItems,
             shippingInformation,
-            contactInformation
+            contactInformation,
+            branding: sharedEmailBranding,
+            confirmationCopy,
         });
 
-        // Email options for the customer (with BCC to Trustpilot for review invitations)
+        const orderCcBcc = await getOrderConfirmationCcAndBcc();
         const mailOptionsCustomer = {
             to: contactInformation.email,
-            bcc: EMAIL_ADDRESSES.trustpilot,
             subject: customerEmailSubject,
             html: customerEmailHTML
         };
+        if (orderCcBcc.cc) mailOptionsCustomer.cc = orderCcBcc.cc;
+        if (orderCcBcc.bcc) mailOptionsCustomer.bcc = orderCcBcc.bcc;
 
-        // Email options for the owner
+        const adminNotifyTo = await getOrderNotifyRecipientEmail();
+
+        // Email options for the store (new-order alert; recipient from SMTP settings or env)
         const mailOptionsOwner = {
-            to: EMAIL_ADDRESSES.admin,
+            to: adminNotifyTo,
             subject: `New Order Received - ${order_number_fial}`,
             html: generateAdminEmailHTML({
                 orderNumber: order_number_fial,
@@ -1051,7 +1089,9 @@ const createOrderService = async (orderData) => {
                 coupon,
                 discountAmount,
                 discountedOrderValue,
-                cart
+                cart,
+                branding: sharedEmailBranding,
+                footerAddressLine: confirmationCopy.fields.footerAddressLine,
             })
         };
 
@@ -1060,7 +1100,8 @@ const createOrderService = async (orderData) => {
         // ====================================================================
         if (finalOrder && finalOrder.status === 'Pending') {
             console.log(`\n📧 Order ${finalOrder.orderNumber} is Pending - sending confirmation emails`);
-            console.log(`📧 Trustpilot will receive review invitation via BCC`);
+            if (mailOptionsCustomer.cc) console.log(`📧 Customer confirmation CC: ${JSON.stringify(mailOptionsCustomer.cc)}`);
+            if (mailOptionsCustomer.bcc) console.log(`📧 Customer confirmation BCC: ${JSON.stringify(mailOptionsCustomer.bcc)}`);
 
             // If a coupon was used, update the coupon usage history
             if (coupon && (savedOrder || order)) {
@@ -1100,7 +1141,7 @@ const createOrderService = async (orderData) => {
         console.error("Error creating order:", error);
         return {
             success: false,
-            message: "Internal server error",
+            message: error?.message || "Internal server error",
             status: 500
         };
     }

@@ -4,10 +4,23 @@ const path = require('path');
 const fs = require('fs');
 const { sendMail } = require('../../utils/mailer');
 const {
-  getOrderConfirmationResolved,
-  applyOrderConfirmationCopyToHtml,
+    getOrderConfirmationResolved,
+    applyOrderConfirmationCopyToHtml,
 } = require('../email/orderEmailCopyService');
+const { ORDER_CONFIRMATION_DEFAULTS } = require('../../config/orderEmailTemplateDefaults');
+const { getEmailBranding, applyEmailBrandingToHtml } = require('../../utils/emailBranding');
 const { buildOrderShippedEmail } = require('../email/orderShippedEmailService');
+const {
+    sendOrderUpdateEmailToCustomer,
+    buildOrderDataForStatusEmail,
+} = require('../../../email/OrderUpdateEmailToCustomer/OrderUpdateEmailToCustomer');
+const {
+    buildSimpleCartRowVariantDivs,
+    buildRefundCartItemVariantSpans,
+    buildAdminRefundCartItemVariantHtml,
+    emailFieldPresent,
+    escapeHtml,
+} = require('../../utils/orderStatusEmailDynamicHtml');
 
 
 const updateOrderService = async (id, orderData) => {
@@ -77,8 +90,10 @@ const updateOrderService = async (id, orderData) => {
 
         if (status === 'Pending') {
             // Read the HTML email template
-            const emailTemplatePath = path.join(__dirname, '..', '..', 'email', 'orderConfermation', 'index.html');
+            const emailTemplatePath = path.join(__dirname, '..', '..', '..', 'email', 'orderConfermation', 'index.html');
             let emailTemplate = fs.readFileSync(emailTemplatePath, 'utf8');
+            const branding = await getEmailBranding();
+            emailTemplate = await applyEmailBrandingToHtml(emailTemplate, branding);
             const confirmationCopy = await getOrderConfirmationResolved();
             emailTemplate = applyOrderConfirmationCopyToHtml(
               emailTemplate,
@@ -104,22 +119,14 @@ const updateOrderService = async (id, orderData) => {
 
             // Generate HTML for each cart item
             const cartItemsHTML = updatedOrder.cart.map(item => {
-                // Parse the name to extract: Condition-ColorName (hex)-Storage
-                const match = item.name.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-                const condition = match ? match[1] : 'Unknown';
-                const colorName = match ? match[2] : 'Unknown';
-                const colorHex = match ? match[3] : '';
-                const storage = match ? match[4] : 'Unknown';
                 const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
 
                 return `
                     <tr>
                         <td align="left" valign="middle" style="padding: 20px 0; border-bottom: 1px solid #e7e7d2b3;">
-                            <div><strong>${item.productName}</strong></div>
+                            ${emailFieldPresent(item.productName) ? `<div><strong>${escapeHtml(item.productName)}</strong></div>` : ''}
+                            ${buildSimpleCartRowVariantDivs(item)}
                             <div>Quantity: ${item.qty}</div>
-                            <div>Condition: ${condition}</div>
-                            <div>Color: ${colorName}</div>
-                            <div>Storage: ${storage}</div>
                             <div>Item Subtotal: £${itemSubtotal}</div>
                         </td>
                     </tr>
@@ -136,10 +143,10 @@ const updateOrderService = async (id, orderData) => {
                                     <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
                                         <tr>
                                             <td valign="top" class="pc-w620-align-left" align="left">
-                                                <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: bold; color: #1d3425; text-align: left;">
+                                                <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${branding.typo_h3}; font-size: 16px; color: #1d3425; text-align: left;">
                                                     <span>Subtotal: £${totalOrderValue.toFixed(2)}</span>
                                                 </div>
-                                                <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; font-family: 'Urbanist', Arial, Helvetica, sans-serif; font-size: 16px; font-weight: bold; color: #1d3425; text-align: left;">
+                                                <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${branding.typo_h3}; font-size: 16px; color: #1d3425; text-align: left;">
                                                     <span>Total Price (After Discount): £${finalOrderValue.toFixed(2)}</span>
                                                 </div>
                                             </td>
@@ -208,21 +215,13 @@ const updateOrderService = async (id, orderData) => {
         if (status === 'Refunded') {
             // Generate the list of products in HTML format with full details
             const productList = updatedOrder.cart.map(item => {
-                // Parse the name to extract: Condition-ColorName (hex)-Storage
-                const match = item.name.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-                const condition = match ? match[1] : 'Unknown';
-                const colorName = match ? match[2] : 'Unknown';
-                const colorHex = match ? match[3] : '';
-                const storage = match ? match[4] : 'Unknown';
                 const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
 
                 return `
                     <li style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">
-                        <strong>${item.productName}</strong><br>
-                        <span style="color: #666;">Condition: ${condition}</span><br>
+                        ${emailFieldPresent(item.productName) ? `<strong>${escapeHtml(item.productName)}</strong><br>` : ''}
+                        ${buildRefundCartItemVariantSpans(item)}
                         <span style="color: #666;">Quantity: ${item.qty}</span><br>
-                        <span style="color: #666;">Color: ${colorName}</span><br>
-                        <span style="color: #666;">Storage: ${storage}</span><br>
                         <span style="color: #dc2626; font-weight: bold;">Item Subtotal: £${itemSubtotal}</span>
                     </li>
                 `;
@@ -231,6 +230,14 @@ const updateOrderService = async (id, orderData) => {
             // Determine refund type and amount
             const refundType = updatedOrder.refund?.refundType || 'full';
             const refundAmount = updatedOrder.refund?.refundAmount || updatedOrder.totalOrderValue || 0;
+
+            const orderEmailFooterResolved = await getOrderConfirmationResolved();
+            const adminRefundFooterLine =
+                orderEmailFooterResolved.fields.footerAddressLine != null &&
+                String(orderEmailFooterResolved.fields.footerAddressLine).trim() !== ''
+                    ? String(orderEmailFooterResolved.fields.footerAddressLine).trim()
+                    : ORDER_CONFIRMATION_DEFAULTS.footerAddressLine;
+            const adminRefundFooterHtml = escapeHtml(adminRefundFooterLine);
 
             // Prepare the email template for refund confirmation
             const emailTemplate = `
@@ -438,21 +445,13 @@ const updateOrderService = async (id, orderData) => {
                                     <h3>Order Details:</h3>
                                     <ul>
                                         ${updatedOrder.cart.map(item => {
-                                            // Parse the name to extract: Condition-ColorName (hex)-Storage
-                                            const match = item.name.match(/(.*?)-(.+?) \((.+?)\)-(\d+GB)/);
-                                            const condition = match ? match[1] : 'Unknown';
-                                            const colorName = match ? match[2] : 'Unknown';
-                                            const colorHex = match ? match[3] : '';
-                                            const storage = match ? match[4] : 'Unknown';
                                             const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
 
                                             return `
                                                 <li style="margin-bottom: 15px;">
-                                                    <strong>Product:</strong> ${item.productName} <br>
-                                                    <strong>Condition:</strong> ${condition} <br>
+                                                    ${emailFieldPresent(item.productName) ? `<strong>Product:</strong> ${escapeHtml(item.productName)} <br>` : ''}
+                                                    ${buildAdminRefundCartItemVariantHtml(item)}
                                                     <strong>Quantity:</strong> ${item.qty} <br>
-                                                    <strong>Color:</strong> ${colorName} <br>
-                                                    <strong>Storage:</strong> ${storage} <br>
                                                     <strong>Item Subtotal:</strong> £${itemSubtotal} <br>
                                                 </li>
                                             `;
@@ -462,7 +461,7 @@ const updateOrderService = async (id, orderData) => {
                             </div>
 
                             <div class="footer">
-                                <p>&copy; 2024 Zextons Limited. All Rights Reserved.</p>
+                                <p>${adminRefundFooterHtml}</p>
                             </div>
                         </div>
                     </body>
@@ -478,6 +477,19 @@ const updateOrderService = async (id, orderData) => {
             sendMail(mailOptionsOwner).then(
                 (info) => console.log('Refund email sent to owner:', info.response || info.messageId),
                 (error) => console.log('Error sending refund email to owner:', error)
+            );
+        }
+
+        /** Customer status notification — Shipped / Refunded / Pending use dedicated templates above */
+        const skipGenericStatusEmail = ['Shipped', 'Refunded', 'Pending'];
+        if (
+            status &&
+            !skipGenericStatusEmail.includes(status) &&
+            updatedOrder.contactDetails?.email
+        ) {
+            const orderData = buildOrderDataForStatusEmail(updatedOrder);
+            sendOrderUpdateEmailToCustomer(orderData).catch((err) =>
+                console.error('Order status update email failed:', err)
             );
         }
 

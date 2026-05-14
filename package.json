@@ -12,7 +12,8 @@
     "create-admin": "node scripts/createAdminUser.js",
     "setup-admin": "node scripts/checkAndCreateAdmin.js",
     "seed:variant-attributes": "node src/seeders/variantAttributeSeeder.js",
-    "seed:top-section": "node src/seeders/addTopSectionAndComesWithSeeder.js"
+    "seed:top-section": "node src/seeders/addTopSectionAndComesWithSeeder.js",
+    "seed:superadmin": "node scripts/seedSuperadmin.js"
   },
   "keywords": [],
   "author": "",

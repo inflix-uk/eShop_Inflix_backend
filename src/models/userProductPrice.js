@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
-const groupProductPriceSchema = new mongoose.Schema(
+const userProductPriceSchema = new mongoose.Schema(
   {
-    groupId: {
+    userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'PricingGroup',
+      ref: 'User',
       required: true,
       index: true,
     },
@@ -14,7 +14,7 @@ const groupProductPriceSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    /** Empty string = product-level override; non-empty = per-variant (see utils/pricingVariantKey). */
+    /** Empty = product-level override; non-empty = per-variant (same keys as pricing groups). */
     variantKey: {
       type: String,
       default: '',
@@ -29,6 +29,6 @@ const groupProductPriceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-groupProductPriceSchema.index({ groupId: 1, productId: 1, variantKey: 1 }, { unique: true });
+userProductPriceSchema.index({ userId: 1, productId: 1, variantKey: 1 }, { unique: true });
 
-module.exports = mongoose.model('GroupProductPrice', groupProductPriceSchema);
+module.exports = mongoose.model('UserProductPrice', userProductPriceSchema);

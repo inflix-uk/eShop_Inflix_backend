@@ -1,4 +1,83 @@
 const FooterPage = require('../models/footerPage');
+const PageCategory = require('../models/pageCategory');
+const mongoose = require('mongoose');
+
+/** @returns {string|null} */
+function normalizeFooterCategorySlug(input) {
+  if (input === undefined || input === null) return null;
+  const s = String(input).trim().toLowerCase();
+  if (!s || s === 'null' || s === 'undefined') return null;
+  return s;
+}
+
+async function assertCategoryExists(categorySlug) {
+  if (!categorySlug) return true;
+  const cat = await PageCategory.findOne({ slug: categorySlug });
+  return !!cat;
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function findDuplicateFooterPage(slug, categorySlug, excludeId = null) {
+  // New parent-based uniqueness check for current model.
+  if (categorySlug && mongoose.Types.ObjectId.isValid(String(categorySlug))) {
+    const qParent = { slug, parentPageId: new mongoose.Types.ObjectId(String(categorySlug)) };
+    if (excludeId) return FooterPage.findOne({ ...qParent, _id: { $ne: excludeId } });
+    return FooterPage.findOne(qParent);
+  }
+
+  const q = categorySlug
+    ? { slug, categorySlug }
+    : {
+        slug,
+        $or: [
+          { categorySlug: null },
+          { categorySlug: { $exists: false } },
+          { categorySlug: '' }
+        ]
+      };
+  if (excludeId) {
+    return FooterPage.findOne({ ...q, _id: { $ne: excludeId } });
+  }
+  return FooterPage.findOne(q);
+}
+
+function normalizeParentPageId(input) {
+  if (input === undefined || input === null) return null;
+  const value = String(input).trim();
+  if (!value || value === 'null' || value === 'undefined') return null;
+  return value;
+}
+
+async function assertValidParentPage(parentPageId, currentPageId = null) {
+  if (!parentPageId) return { ok: true, parent: null };
+  if (!mongoose.Types.ObjectId.isValid(parentPageId)) {
+    return { ok: false, message: 'Invalid parent page selected' };
+  }
+  if (currentPageId && String(currentPageId) === String(parentPageId)) {
+    return { ok: false, message: 'A page cannot be parent of itself' };
+  }
+  const parent = await FooterPage.findById(parentPageId).select('_id slug parentPageId');
+  if (!parent) {
+    return { ok: false, message: 'Parent page not found' };
+  }
+  // Keep URL model simple: only one nesting level (/parent/child).
+  if (parent.parentPageId) {
+    return { ok: false, message: 'Selected parent is already a child page; only one nesting level is supported' };
+  }
+  return { ok: true, parent };
+}
+
+async function findDuplicateByParent(slug, parentPageId, excludeId = null) {
+  const q = {
+    slug,
+    parentPageId: parentPageId ? new mongoose.Types.ObjectId(parentPageId) : null,
+  };
+  if (excludeId) return FooterPage.findOne({ ...q, _id: { $ne: excludeId } });
+  return FooterPage.findOne(q);
+}
 const multer = require('multer');
 const moment = require('moment');
 const path = require('path');
@@ -237,13 +316,38 @@ const createFooterPage = async (req, res) => {
       pageData.slug = generateSlug(pageData.slug);
     }
 
-    // Check if slug already exists
-    const existingPage = await FooterPage.findOne({ slug: pageData.slug });
+    const categorySlug = normalizeFooterCategorySlug(pageData.categorySlug);
+    const parentPageId = normalizeParentPageId(pageData.parentPageId);
+    pageData.categorySlug = categorySlug;
+    pageData.parentPageId = parentPageId;
+    if (categorySlug) {
+      const validCat = await assertCategoryExists(categorySlug);
+      if (!validCat) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid page category — create it under Pages categories first'
+        });
+      }
+    }
+
+    const parentValidation = await assertValidParentPage(parentPageId);
+    if (!parentValidation.ok) {
+      return res.status(400).json({
+        success: false,
+        message: parentValidation.message
+      });
+    }
+
+    const existingPage = await findDuplicateByParent(pageData.slug, parentPageId);
     if (existingPage) {
       return res.status(400).json({
         success: false,
-        message: 'A page with this slug already exists'
+        message: 'A page with this slug already exists for this parent page'
       });
+    }
+
+    if (pageData.id) {
+      delete pageData.id;
     }
 
     // Process block images from files
@@ -477,13 +581,47 @@ const updateFooterPage = async (req, res) => {
       pageData.slug = generateSlug(pageData.slug);
     }
 
-    // Check if slug already exists (excluding current page)
-    if (pageData.slug && pageData.slug !== existingPage.slug) {
-      const slugExists = await FooterPage.findOne({ slug: pageData.slug });
+    if (Object.prototype.hasOwnProperty.call(pageData, 'categorySlug')) {
+      const categorySlug = normalizeFooterCategorySlug(pageData.categorySlug);
+      pageData.categorySlug = categorySlug;
+      if (categorySlug) {
+        const validCat = await assertCategoryExists(categorySlug);
+        if (!validCat) {
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid page category — create it under Pages categories first'
+          });
+        }
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(pageData, 'parentPageId')) {
+      pageData.parentPageId = normalizeParentPageId(pageData.parentPageId);
+    }
+
+    const nextSlug = pageData.slug !== undefined ? pageData.slug : existingPage.slug;
+    const nextParentPageId =
+      pageData.parentPageId !== undefined
+        ? normalizeParentPageId(pageData.parentPageId)
+        : normalizeParentPageId(existingPage.parentPageId);
+
+    const parentValidation = await assertValidParentPage(nextParentPageId, id);
+    if (!parentValidation.ok) {
+      return res.status(400).json({
+        success: false,
+        message: parentValidation.message
+      });
+    }
+
+    const slugOrParentChanged =
+      nextSlug !== existingPage.slug ||
+      String(nextParentPageId || '') !== String(existingPage.parentPageId || '');
+
+    if (slugOrParentChanged) {
+      const slugExists = await findDuplicateByParent(nextSlug, nextParentPageId, id);
       if (slugExists) {
         return res.status(400).json({
           success: false,
-          message: 'A page with this slug already exists'
+          message: 'A page with this slug already exists for this parent page'
         });
       }
     }
@@ -660,7 +798,11 @@ const updateFooterPage = async (req, res) => {
     if (!Array.isArray(pageData.blocks)) {
       pageData.blocks = pageData.blocks || [];
     }
-    
+
+    // Avoid passing Mongo id inside update payload (can interfere with field updates)
+    delete pageData.id;
+    delete pageData._id;
+
     const updatedFooterPage = await FooterPage.findByIdAndUpdate(
       id,
       pageData,
@@ -739,40 +881,77 @@ const getFooterPageById = async (req, res) => {
 const getFooterPageBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
-    
+    const rawParentSlug = req.query.parentSlug;
+    const parentSlug = normalizeFooterCategorySlug(
+      Array.isArray(rawParentSlug) ? rawParentSlug[0] : rawParentSlug
+    );
+    const rawCat = req.query.categorySlug;
+    const legacyCategorySlug = normalizeFooterCategorySlug(
+      Array.isArray(rawCat) ? rawCat[0] : rawCat
+    );
+
     // Decode the slug in case it's URL encoded
     const decodedSlug = decodeURIComponent(slug);
-    
-    console.log('Fetching footer page by slug:', decodedSlug);
-    
-    // Try to find the page with the slug (case-insensitive search)
-    // First try exact match (lowercase)
-    let footerPage = await FooterPage.findOne({ slug: decodedSlug.toLowerCase() });
-    
-    // If not found, try case-insensitive regex search
-    if (!footerPage) {
-      footerPage = await FooterPage.findOne({ 
-        slug: { $regex: new RegExp(`^${decodedSlug}$`, 'i') } 
+
+    const slugLower = decodedSlug.toLowerCase();
+
+    let footerPage;
+    if (parentSlug) {
+      const parent = await FooterPage.findOne({
+        slug: parentSlug,
+        parentPageId: null
+      }).select('_id slug');
+      if (parent) {
+        footerPage = await FooterPage.findOne({
+          slug: slugLower,
+          parentPageId: parent._id
+        });
+        if (!footerPage) {
+          footerPage = await FooterPage.findOne({
+            slug: { $regex: new RegExp(`^${escapeRegex(decodedSlug)}$`, 'i') },
+            parentPageId: parent._id
+          });
+        }
+      }
+      // Legacy fallback during migration: treat first segment as old category slug.
+      if (!footerPage) {
+        footerPage = await FooterPage.findOne({ slug: slugLower, categorySlug: parentSlug });
+      }
+      if (!footerPage) {
+        footerPage = await FooterPage.findOne({
+          slug: { $regex: new RegExp(`^${escapeRegex(decodedSlug)}$`, 'i') },
+          categorySlug: parentSlug
+        });
+      }
+    } else if (legacyCategorySlug) {
+      footerPage = await FooterPage.findOne({ slug: slugLower, categorySlug: legacyCategorySlug });
+      if (!footerPage) {
+        footerPage = await FooterPage.findOne({
+          slug: { $regex: new RegExp(`^${escapeRegex(decodedSlug)}$`, 'i') },
+          categorySlug: legacyCategorySlug
+        });
+      }
+    } else {
+      footerPage = await FooterPage.findOne({
+        slug: slugLower,
+        parentPageId: null
       });
+      if (!footerPage) {
+        footerPage = await FooterPage.findOne({
+          slug: { $regex: new RegExp(`^${escapeRegex(decodedSlug)}$`, 'i') },
+          parentPageId: null
+        });
+      }
     }
-    
+
     if (!footerPage) {
-      console.log('Footer page not found for slug:', decodedSlug);
-      // Log available slugs for debugging
-      const allPages = await FooterPage.find({}, { slug: 1, title: 1 });
-      console.log('Available footer page slugs:', allPages.map(p => ({ slug: p.slug, title: p.title })));
-      
       return res.status(404).json({
         success: false,
         message: 'Footer page not found',
         requestedSlug: decodedSlug
       });
     }
-    
-    console.log('Footer page found:', footerPage.title);
-    console.log('Banner Image Alt:', footerPage.bannerImageAlt);
-    console.log('Banner Image Description:', footerPage.bannerImageDescription);
-    
+
     res.status(200).json({
       success: true,
       data: footerPage
@@ -826,9 +1005,12 @@ const getAllFooterPages = async (req, res) => {
     // Get footer pages with pagination
     const footerPages = await FooterPage
       .find(query)
+      .populate('parentPageId', 'slug title')
       .select({
         title: 1,
         slug: 1,
+        categorySlug: 1,
+        parentPageId: 1,
         bannerImage: 1,
         publishStatus: 1,
         publishDate: 1,

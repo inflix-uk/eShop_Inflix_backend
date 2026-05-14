@@ -14,6 +14,75 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+/** First value for comma-separated hop headers (e.g. X-Forwarded-Host). */
+function firstHeaderValue(value) {
+  if (value == null) return "";
+  const raw = Array.isArray(value) ? value[0] : value;
+  return String(raw).split(",")[0].trim();
+}
+
+function parseFrontendUrl(raw) {
+  let trimmed = String(raw || "")
+    .trim()
+    .replace(/^\uFEFF/, "");
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed);
+  } catch (_) {
+    try {
+      return new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/** Host only — used when falling back to header-based base URL. */
+function envFrontendHost() {
+  const u = parseFrontendUrl(process.env.FRONTEND_URL);
+  return u?.host || "";
+}
+
+/** Full origin (https://domain) — preferred for <loc> when FRONTEND_URL is set (ignores proxy proto/host). */
+function envFrontendOrigin() {
+  const u = parseFrontendUrl(process.env.FRONTEND_URL);
+  if (!u) return "";
+  return u.origin.replace(/\/$/, "");
+}
+
+/**
+ * Public storefront host for <loc> URLs. Server-to-server calls (Next → API on
+ * Vercel) often set x-forwarded-host to the API hostname, matching Host — then
+ * we must use x-store-domain (sent by app/sitemap.ts) instead of the API host.
+ */
+function resolveSitemapPublicHost(req) {
+  const configuredHost = envFrontendHost();
+  if (configuredHost) return configuredHost;
+
+  const requestHost = firstHeaderValue(req.headers.host);
+  const xfHost = firstHeaderValue(req.headers["x-forwarded-host"]);
+  const storeDomain = firstHeaderValue(req.headers["x-store-domain"]);
+  const explicit = firstHeaderValue(req.headers["x-sitemap-public-host"]);
+
+  const reqL = requestHost.toLowerCase();
+  if (explicit && explicit.toLowerCase() !== reqL) {
+    return explicit;
+  }
+  if (xfHost && xfHost.toLowerCase() !== reqL) {
+    return xfHost;
+  }
+  if (storeDomain && storeDomain.toLowerCase() !== reqL) {
+    return storeDomain;
+  }
+  return requestHost;
+}
+
 const storefrontSitemapController = {
   sitemapXml: async (req, res) => {
     try {
@@ -22,9 +91,10 @@ const storefrontSitemapController = {
       }
 
       const storeId = req.store._id;
-      const host = req.headers["x-forwarded-host"] || req.headers.host;
-      const protocol = req.headers["x-forwarded-proto"] || "https";
-      const baseUrl = `${protocol}://${host}`;
+      const envOrigin = envFrontendOrigin();
+      const host = resolveSitemapPublicHost(req);
+      const protocol = firstHeaderValue(req.headers["x-forwarded-proto"]) || "https";
+      const baseUrl = envOrigin || `${protocol}://${host}`;
 
       const [products, categories, blogs, newBlogs] = await Promise.all([
         Products.find({ storeId, isdeleted: false })

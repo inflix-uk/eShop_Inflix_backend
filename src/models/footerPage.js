@@ -53,12 +53,31 @@ const footerPageSchema = new mongoose.Schema({
     trim: true,
     maxlength: [200, 'Title cannot be more than 200 characters']
   },
+  /** URL segment for the page (unique per parentPageId — see compound index). */
   slug: {
     type: String,
     required: [true, 'Slug is required'],
-    unique: true,
     trim: true,
     lowercase: true,
+    index: true
+  },
+  /** Legacy grouping slug; kept for backward compatibility with old category-based URLs. */
+  categorySlug: {
+    type: String,
+    default: null,
+    trim: true,
+    lowercase: true,
+    index: true
+  },
+  /**
+   * Parent page reference for nested URLs:
+   * - null => /{slug}
+   * - set  => /{parent.slug}/{slug}
+   */
+  parentPageId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FooterPage',
+    default: null,
     index: true
   },
   blocks: [rowSchema],
@@ -118,6 +137,8 @@ footerPageSchema.pre('save', function(next) {
 
 // Create indexes for efficient querying
 footerPageSchema.index({ publishStatus: 1, publishDate: -1 });
+// Same page slug can exist under different parent pages; root pages use parentPageId null.
+footerPageSchema.index({ parentPageId: 1, slug: 1 }, { unique: true });
 
 const FooterPage = mongoose.model('FooterPage', footerPageSchema);
 

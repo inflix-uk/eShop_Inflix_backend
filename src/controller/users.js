@@ -6,6 +6,24 @@ const crypto = require('crypto');
 const { sendMail } = require('../utils/mailer');
 
 
+const buildLoginUserResponse = (user) => ({
+    _id: user._id,
+    firstname: user.firstname,
+    lastname: user.lastname,
+    email: user.email,
+    pricingGroup: user.pricingGroup || null,
+    phoneNumber: user.phoneNumber,
+    address: user.address,
+    companyname: user.companyname,
+    dateofbirth: user.dateofbirth,
+    role: user.role,
+    userType: user.roleId ? user.roleId.name : null,
+    roleId: user.roleId ? user.roleId._id : null,
+    permissions: user.roleId ? user.roleId.permissions : null,
+    registerForApp: user.registerForApp,
+    createdAt: user.createdAt
+});
+
 const usersController = {
     // Register a new user
     registerUser: async (req, res, next) => {
@@ -292,29 +310,42 @@ const usersController = {
             console.log('loged in suer :' , user);
             
             // Prepare user response with role and permissions
-            const userResponse = {
-                _id: user._id,
-                firstname: user.firstname,
-                lastname: user.lastname,
-                email: user.email,
-                pricingGroup: user.pricingGroup || null,
-                phoneNumber: user.phoneNumber,
-                address: user.address,
-                companyname: user.companyname,
-                dateofbirth: user.dateofbirth,
-                role: user.role,
-                userType: user.roleId ? user.roleId.name : null,
-                roleId: user.roleId ? user.roleId._id : null,
-                permissions: user.roleId ? user.roleId.permissions : null,
-                registerForApp: user.registerForApp,
-                createdAt: user.createdAt
-            };
+            const userResponse = buildLoginUserResponse(user);
             
             // If user found and passwords match, return success message with user data including permissions
             return res.json({ message: "Login successful", status: 201, user: userResponse });
         } catch (error) {
             // Handle errors
             console.error("Error logging in user:", error);
+            res.json({ message: "Internal server error", status: 500 });
+        }
+    },
+
+    superadminLogin: async (req, res, next) => {
+        try {
+            const { email, password } = req.body;
+
+            const user = await User.findOne({ email }).populate('roleId');
+            if (!user) {
+                return res.json({ message: "User not found", status: 404 });
+            }
+
+            const passwordMatch = await bcrypt.compare(password, user.password);
+            if (!passwordMatch) {
+                return res.json({ message: "Invalid password", status: 401 });
+            }
+
+            if (user.role !== "superadmin") {
+                return res.json({ message: "Access denied: superadmin only", status: 403 });
+            }
+
+            return res.json({
+                message: "Superadmin login successful",
+                status: 201,
+                user: buildLoginUserResponse(user)
+            });
+        } catch (error) {
+            console.error("Error logging in superadmin:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
     },

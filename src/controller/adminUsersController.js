@@ -1,9 +1,27 @@
 // controller/adminUsersController.js
 
 const db = require("../../connections/mongo");
+const mongoose = require("mongoose");
 const User = require("../models/user");
 const PricingGroup = require("../models/pricingGroup");
+const Product = require("../models/product");
+const UserProductPrice = require("../models/userProductPrice");
+const { computeVariantKey } = require("../utils/pricingVariantKey");
 const bcrypt = require("bcrypt");
+
+let legacyUserVariantKeysEnsured = false;
+async function ensureLegacyUserProductVariantKeys() {
+  if (legacyUserVariantKeysEnsured) return;
+  legacyUserVariantKeysEnsured = true;
+  try {
+    await UserProductPrice.updateMany(
+      { $or: [{ variantKey: { $exists: false } }, { variantKey: null }] },
+      { $set: { variantKey: "" } }
+    );
+  } catch (e) {
+    console.warn("ensureLegacyUserProductVariantKeys:", e.message);
+  }
+}
 const crypto = require("crypto");
 
 const adminUsersController = {
@@ -75,6 +93,104 @@ const adminUsersController = {
     } catch (err) {
       console.error("Error assigning pricing group:", err);
       return res.status(500).json({ status: 500, message: "Internal server error" });
+    }
+  },
+
+  getUserProductPrices: async (req, res) => {
+    try {
+      await ensureLegacyUserProductVariantKeys();
+      const { id } = req.params;
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ success: false, message: "Invalid user id" });
+      }
+
+      const userExists = await User.exists({ _id: id });
+      if (!userExists) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const rows = await UserProductPrice.find({ userId: id }).lean();
+      return res.status(200).json({ success: true, data: rows });
+    } catch (err) {
+      console.error("Error fetching user product prices:", err);
+      return res.status(500).json({ success: false, message: "Failed to fetch user product prices" });
+    }
+  },
+
+  upsertUserProductPrice: async (req, res) => {
+    try {
+      await ensureLegacyUserProductVariantKeys();
+      const { id } = req.params;
+      const productId = String(req.body?.productId || "").trim();
+      const priceRaw = req.body?.price;
+      const variantKey = req.body?.variantKey != null ? String(req.body.variantKey).trim() : "";
+
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ success: false, message: "Invalid user id" });
+      }
+      if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({ success: false, message: "Invalid product id" });
+      }
+
+      const userExists = await User.exists({ _id: id });
+      if (!userExists) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      const productExists = await Product.exists({ _id: productId });
+      if (!productExists) {
+        return res.status(404).json({ success: false, message: "Product not found" });
+      }
+
+      if (variantKey) {
+        const product = await Product.findById(productId).select("variantValues").lean();
+        const keys = (product?.variantValues || []).map((v, i) => computeVariantKey(v, i));
+        if (!keys.includes(variantKey)) {
+          return res.status(400).json({
+            success: false,
+            message: "variantKey does not match any variant on this product",
+          });
+        }
+      }
+
+      const filter = variantKey
+        ? { userId: id, productId, variantKey }
+        : { userId: id, productId, variantKey: "" };
+
+      const clearRequested =
+        req.body?.clear === true ||
+        priceRaw === "" ||
+        priceRaw === null ||
+        priceRaw === undefined ||
+        (typeof priceRaw === "string" && String(priceRaw).trim() === "");
+
+      if (clearRequested) {
+        await UserProductPrice.deleteOne(filter);
+        return res.status(200).json({
+          success: true,
+          message: "User product price removed",
+          data: null,
+        });
+      }
+
+      const price = Number(priceRaw);
+      if (!Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid price value" });
+      }
+
+      const saved = await UserProductPrice.findOneAndUpdate(
+        filter,
+        { $set: { price, variantKey } },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "User product price saved",
+        data: saved,
+      });
+    } catch (err) {
+      console.error("Error saving user product price:", err);
+      return res.status(500).json({ success: false, message: "Failed to save user product price" });
     }
   },
 

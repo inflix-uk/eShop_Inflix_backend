@@ -9,7 +9,7 @@ const productCategory = require("../models/productCategories");
 const Newsletter = require("../models/newsletter");
 const crypto = require("crypto");
 
-const SITEMAP_ORIGIN = "https://aromadesire.com";
+const SITEMAP_ORIGIN = String(process.env.FRONTEND_URL || "https://aromadesire.com").replace(/\/$/, "");
 
 const optimizedSitemapController = {
   createSitemapOptimized: async (req, res) => {

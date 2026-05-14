@@ -20,6 +20,9 @@ const smtpSettingsController = {
           password: settings.password ? maskPassword(settings.password) : '',
           fromEmail: settings.fromEmail || '',
           fromName: settings.fromName || '',
+          orderNotifyEmail: settings.orderNotifyEmail || '',
+          orderConfirmationCc: settings.orderConfirmationCc || '',
+          orderConfirmationBcc: settings.orderConfirmationBcc || '',
           hasPassword: !!settings.password,
           updatedAt: settings.updatedAt,
           updatedBy: settings.updatedBy,
@@ -37,7 +40,19 @@ const smtpSettingsController = {
 
   saveSettings: async (req, res) => {
     try {
-      const { host, port, secure, username, password, fromEmail, fromName } = req.body;
+      const {
+        host,
+        port,
+        secure,
+        username,
+        password,
+        fromEmail,
+        fromName,
+        orderNotifyEmail,
+        orderConfirmationCc,
+        orderConfirmationBcc,
+        removePassword,
+      } = req.body;
 
       let settings = await SmtpSettings.getSettings();
       const updateData = {
@@ -50,8 +65,19 @@ const smtpSettingsController = {
       if (username !== undefined) updateData.username = String(username || '').trim();
       if (fromEmail !== undefined) updateData.fromEmail = String(fromEmail || '').trim();
       if (fromName !== undefined) updateData.fromName = String(fromName || '').trim();
+      if (orderNotifyEmail !== undefined) {
+        updateData.orderNotifyEmail = String(orderNotifyEmail || '').trim();
+      }
+      if (orderConfirmationCc !== undefined) {
+        updateData.orderConfirmationCc = String(orderConfirmationCc || '').trim();
+      }
+      if (orderConfirmationBcc !== undefined) {
+        updateData.orderConfirmationBcc = String(orderConfirmationBcc || '').trim();
+      }
 
-      if (password && !String(password).startsWith('••••')) {
+      if (removePassword === true) {
+        updateData.password = '';
+      } else if (password && !String(password).startsWith('••••')) {
         updateData.password = String(password).trim();
       }
 
@@ -68,6 +94,9 @@ const smtpSettingsController = {
           password: settings.password ? maskPassword(settings.password) : '',
           fromEmail: settings.fromEmail || '',
           fromName: settings.fromName || '',
+          orderNotifyEmail: settings.orderNotifyEmail || '',
+          orderConfirmationCc: settings.orderConfirmationCc || '',
+          orderConfirmationBcc: settings.orderConfirmationBcc || '',
           hasPassword: !!settings.password,
           updatedAt: settings.updatedAt,
         },
@@ -93,20 +122,24 @@ const smtpSettingsController = {
       }
 
       const overrides = {
-        host: body.host || existing?.host,
+        host: String(body.host ?? existing?.host ?? '').trim(),
         port: body.port !== undefined && body.port !== '' ? body.port : existing?.port,
         secure: body.secure !== undefined ? body.secure : existing?.secure,
-        username: body.username || existing?.username,
-        password,
-        fromEmail: body.fromEmail || existing?.fromEmail,
-        fromName: body.fromName || existing?.fromName,
+        username: String(body.username ?? existing?.username ?? '').trim(),
+        password: typeof password === 'string' ? password : String(password || ''),
+        fromEmail: String(body.fromEmail ?? existing?.fromEmail ?? '').trim(),
+        fromName: String(body.fromName ?? existing?.fromName ?? '').trim(),
       };
 
       const effective = await resolveEffectiveConfig(overrides);
-      if (!effective.host || !effective.user || !effective.pass) {
+      const missing = [];
+      if (!effective.host) missing.push('host');
+      if (!effective.user) missing.push('username');
+      if (!effective.pass) missing.push('password');
+      if (missing.length > 0) {
         return res.status(400).json({
           success: false,
-          message: 'Host, username, and password are required to test SMTP',
+          message: `Missing SMTP ${missing.join(', ')}. Type the password in the admin form (it is never shown after save) or save settings with a password first.`,
         });
       }
 
@@ -118,10 +151,17 @@ const smtpSettingsController = {
       });
     } catch (error) {
       console.error('Error testing SMTP connection:', error);
+      const rawMessage = String(error?.message || 'SMTP connection failed');
+      const isInvalidAuth =
+        rawMessage.includes('535') ||
+        /invalid login|authentication|auth failed/i.test(rawMessage);
+      const actionableMessage = isInvalidAuth
+        ? 'SMTP authentication failed (535). Use the mailbox password or an app password (Gmail/Google Workspace). Username is usually the full email. Port 465 = implicit SSL (Use SSL on). Port 587 = STARTTLS (Use SSL off in admin). Ensure SMTP is enabled for the account.'
+        : rawMessage;
       res.status(400).json({
         success: false,
         message: 'SMTP connection failed',
-        error: error.message,
+        error: actionableMessage,
       });
     }
   },
