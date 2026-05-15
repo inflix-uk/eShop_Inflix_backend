@@ -245,6 +245,7 @@ router.get('/get/google/categories',                       googleCategoriesContr
 router.get('/get/google/categories/counts',                googleCategoriesController.getGoogleCategoryCounts);
 router.get('/get/google/categories/top-level',             googleCategoriesController.getTopLevelGoogleCategories);
 router.get('/get/google/categories/children/:parentGoogleId', googleCategoriesController.getChildrenOfGoogleCategory);
+router.get('/get/google/category/by-google-id/:googleId',  googleCategoriesController.getGoogleCategoryByGoogleId);
 router.get('/get/google/category/:id',                     googleCategoriesController.getGoogleCategoryById);
 router.post('/create/google/category',                     googleCategoriesController.createGoogleCategory);
 router.patch('/update/google/category/:id',                googleCategoriesController.updateGoogleCategory);
@@ -494,6 +495,7 @@ router.get('/uploads/feed/:filename',                  adminStatsController.down
 
 // Sitemap Generation
 router.get('/sitemap.xml', resolveStoreByDomain, storefrontSitemapController.sitemapXml);
+router.get('/sitemap-images.xml', resolveStoreByDomain, storefrontSitemapController.sitemapImagesXml);
 router.post('/create/sitemap',                         siteMapController.createSitemap);
 router.post('/create/sitemap/optimized',               optimizedSitemapController.createSitemapOptimized);
 
@@ -854,6 +856,9 @@ const logoController = require('../controller/logoController');
 const { handleLogoUpload, handleFaviconUpload } = require('../controller/logoController');
 router.get('/get/logo', requireAdmin, logoController.getLogo);
 router.get('/get/logo/public', logoController.getLogoPublic);
+/** Alias for storefront / admin tools expecting this path (same JSON as get/logo/public). */
+router.get('/admin/logo', logoController.getLogoPublic);
+router.get('/api/admin/logo', logoController.getLogoPublic);
 router.post('/update/logo', requireAdmin, handleLogoUpload, logoController.updateLogo);
 router.delete('/delete/logo', requireAdmin, logoController.deleteLogo);
 router.post('/update/favicon', requireAdmin, handleFaviconUpload, logoController.updateFavicon);

@@ -96,8 +96,19 @@ const productCategoriescontroller = {
         }
 
         // Extract data from the request body
-        const { name, metaTitle, metaDescription, isPublish, isFeatured } =
-          req.body;
+        const {
+          name,
+          metaTitle,
+          metaDescription,
+          metaKeywords,
+          metaSchemas,
+          content,
+          isPublish,
+          isFeatured,
+          googleCategoryId,
+          googleCategoryName,
+          googleCategoryFullPath,
+        } = req.body;
 
         // Generate folder name from category name
         const folderName = name ? name.toLowerCase().replace(/[^a-z0-9-_]/g, '_') : 'category';
@@ -123,15 +134,37 @@ const productCategoriescontroller = {
         }
 
         // Create a new product category instance
+        let parsedMetaSchemas = [];
+        if (metaSchemas) {
+          try {
+            parsedMetaSchemas =
+              typeof metaSchemas === "string" ? JSON.parse(metaSchemas) : metaSchemas;
+            if (!Array.isArray(parsedMetaSchemas)) parsedMetaSchemas = [];
+          } catch {
+            parsedMetaSchemas = [];
+          }
+        }
+
+        const googleIdNum =
+          googleCategoryId !== undefined && googleCategoryId !== ""
+            ? Number(googleCategoryId)
+            : null;
+
         const newProductCategory = new ProductCategory({
           name,
           metaTitle,
           metaDescription,
+          metaKeywords: metaKeywords || null,
+          metaSchemas: parsedMetaSchemas,
+          content: content || null,
           isPublish,
           isFeatured,
           Logo: LogoImage,
           metaImage,
           bannerImage,
+          googleCategoryId: Number.isFinite(googleIdNum) ? googleIdNum : null,
+          googleCategoryName: googleCategoryName || null,
+          googleCategoryFullPath: googleCategoryFullPath || null,
         });
 
         // Save the product category to the database
@@ -329,6 +362,9 @@ const productCategoriescontroller = {
           content,
           content_blocks,
           categoryBlockImageCount,
+          googleCategoryId,
+          googleCategoryName,
+          googleCategoryFullPath,
         } = req.body;
         console.log(req.body);
 
@@ -400,6 +436,20 @@ const productCategoriescontroller = {
         // Parse and update metaSchemas
         if (req.body.metaSchemas) {
           productCategory.metaSchemas = JSON.parse(req.body.metaSchemas);
+        }
+
+        if (googleCategoryId !== undefined) {
+          const googleIdNum =
+            googleCategoryId !== null && googleCategoryId !== ""
+              ? Number(googleCategoryId)
+              : null;
+          productCategory.googleCategoryId = Number.isFinite(googleIdNum) ? googleIdNum : null;
+          productCategory.googleCategoryName =
+            googleCategoryName !== undefined ? googleCategoryName || null : productCategory.googleCategoryName;
+          productCategory.googleCategoryFullPath =
+            googleCategoryFullPath !== undefined
+              ? googleCategoryFullPath || null
+              : productCategory.googleCategoryFullPath;
         }
 
         // Block-based page content (same pipeline as product / homepage)

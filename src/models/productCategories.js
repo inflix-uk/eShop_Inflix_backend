@@ -119,6 +119,22 @@ const productCategoriesSchema = new Schema({
         type: Boolean,
         default: null
     },
+    /** Google Merchant taxonomy (leaf selection from cascade picker). */
+    googleCategoryId: {
+        type: Number,
+        default: null,
+        index: true,
+    },
+    googleCategoryName: {
+        type: String,
+        default: null,
+        trim: true,
+    },
+    googleCategoryFullPath: {
+        type: String,
+        default: null,
+        trim: true,
+    },
     createdAt: {
         type: Date,
         default: Date.now

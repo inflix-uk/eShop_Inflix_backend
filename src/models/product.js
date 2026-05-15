@@ -54,6 +54,12 @@ const productSchema = new Schema({
         type: String,
         default: null
     },
+    /** Single Product Central category — used for Google Merchant taxonomy via category.googleCategoryFullPath */
+    mainCategory: {
+        type: String,
+        default: null,
+        index: true,
+    },
     subCategory: {
         type: String,
         default: null
