@@ -137,4 +137,65 @@ function attachLineImageUrlsToOrder(order) {
     };
 }
 
-module.exports = { resolveOrderLineImageUrlServer, attachLineImageUrlsToOrder };
+const INVALID_SITEMAP_IMAGE_RE =
+    /(?:^|\/)placeholder(?:\.[a-z0-9]+)?$|\/categories\/|\/logo(?:s)?\/|favicon/i;
+
+function isValidSitemapProductImageUrl(url) {
+    const t = String(url || "").trim();
+    if (!/^https?:\/\//i.test(t)) return false;
+    if (t.startsWith("data:")) return false;
+    if (INVALID_SITEMAP_IMAGE_RE.test(t)) return false;
+    try {
+        return Boolean(new URL(t).hostname);
+    } catch {
+        return false;
+    }
+}
+
+function pushSitemapImageUrl(out, seen, url) {
+    if (!isValidSitemapProductImageUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+}
+
+function collectSlotsForSitemap(slots, spacesOn, out, seen) {
+    if (!Array.isArray(slots)) return;
+    for (const slot of slots) {
+        const url = fromSlot(slot, spacesOn);
+        pushSitemapImageUrl(out, seen, url);
+    }
+}
+
+/**
+ * Image URLs for product sitemap entries — mirrors storefront product gallery sources:
+ * single / base variant URL: meta_Image + Gallery_Images; variant URL: variantImages, else Gallery_Images.
+ * @param {Record<string, unknown>} product
+ * @param {Record<string, unknown>|null} matchedVariant
+ * @returns {string[]}
+ */
+function collectSitemapProductImageUrls(product, matchedVariant) {
+    const spacesOn = spacesStorage.isSpacesListConfigured();
+    const seen = new Set();
+    const out = [];
+    const variant =
+        matchedVariant && typeof matchedVariant === "object" ? matchedVariant : null;
+
+    if (variant) {
+        collectSlotsForSitemap(variant.variantImages, spacesOn, out, seen);
+        if (out.length === 0) {
+            collectSlotsForSitemap(product?.Gallery_Images, spacesOn, out, seen);
+        }
+    } else {
+        const metaUrl = fromSlot(product?.meta_Image, spacesOn);
+        pushSitemapImageUrl(out, seen, metaUrl);
+        collectSlotsForSitemap(product?.Gallery_Images, spacesOn, out, seen);
+    }
+
+    return out;
+}
+
+module.exports = {
+    resolveOrderLineImageUrlServer,
+    attachLineImageUrlsToOrder,
+    collectSitemapProductImageUrls,
+};

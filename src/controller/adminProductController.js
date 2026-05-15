@@ -270,7 +270,7 @@ const adminProductController = {
 
                 // Extract data from request
                 const {
-                    name, category, subcategory, tags, brand, condition, is_featured,
+                    name, category, subcategory, mainCategory, tags, brand, condition, is_featured,
                     is_refundable, is_authenticated, low_stock_quantity_alert,
                     Shipping_Information, has_warranty, productType, discount,
                     Purchase_Quantity, status, Seo_Meta, Product_summary,
@@ -284,7 +284,7 @@ const adminProductController = {
 
                 // Call service to handle business logic
                 const result = await updateProductService.updateProduct(id, {
-                    name, category, subcategory, tags, brand, condition, is_featured,
+                    name, category, subcategory, mainCategory, tags, brand, condition, is_featured,
                     is_refundable, is_authenticated, low_stock_quantity_alert,
                     has_warranty, productType, status, Seo_Meta, Product_summary,
                     Product_description, Product_description_blocks, descriptionBlockImageCount,

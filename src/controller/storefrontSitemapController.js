@@ -3,6 +3,19 @@ const ProductCategory = require("../models/productCategories");
 const Blog = require("../models/blog");
 const { Blog: NewBlog } = require("../models/newblog/newBlog");
 const generateSitemapXML = require("../utils/generateSitemapXML");
+const generateSitemapProductImagesXML =
+  require("../utils/generateSitemapXML").generateSitemapProductImagesXML;
+const { getNewBlogSitemapPathSegment } = require("../utils/newBlogSitemapPath");
+const { collectSitemapProductImageUrls } = require("../utils/orderLineImageUrlServer");
+
+/** Footer / static content pages (Next app routes, trailing-slash canonical). */
+const STATIC_STOREFRONT_PATHS = [
+  "privacy-policy",
+  "refund-policy",
+  "shipping-policy",
+  "terms-conditions",
+  "about-us",
+];
 
 function slugify(value) {
   return String(value || "")
@@ -56,6 +69,31 @@ function envFrontendOrigin() {
   return u.origin.replace(/\/$/, "");
 }
 
+/** Canonical storefront origin for sitemap <loc> (no www — matches https://aromadesire.com/). */
+function canonicalSitemapOrigin(raw) {
+  const trimmed = String(raw || "")
+    .trim()
+    .replace(/\/$/, "");
+  if (!trimmed) return "";
+  try {
+    const u = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    if (u.hostname.toLowerCase().startsWith("www.")) {
+      u.hostname = u.hostname.slice(4);
+    }
+    return u.origin;
+  } catch {
+    return trimmed;
+  }
+}
+
+function resolveSitemapBaseUrl(req) {
+  const envOrigin = envFrontendOrigin();
+  const host = resolveSitemapPublicHost(req);
+  const protocol = firstHeaderValue(req.headers["x-forwarded-proto"]) || "https";
+  const raw = envOrigin || `${protocol}://${host}`;
+  return canonicalSitemapOrigin(raw);
+}
+
 /**
  * Public storefront host for <loc> URLs. Server-to-server calls (Next → API on
  * Vercel) often set x-forwarded-host to the API hostname, matching Host — then
@@ -83,6 +121,45 @@ function resolveSitemapPublicHost(req) {
   return requestHost;
 }
 
+function appendProductSitemapEntries(urls, products, baseUrl, changefreq = "weekly") {
+  products.forEach((product) => {
+    const productSlug = (product.producturl || "").replace(/-\d{13}$/, "");
+    if (!productSlug) return;
+    const lastmod = product.updatedAt
+      ? new Date(product.updatedAt).toISOString()
+      : undefined;
+    const productImages = collectSitemapProductImageUrls(product, null);
+    const productEntry = {
+      loc: `${baseUrl}/products/${productSlug}`,
+      changefreq,
+      priority: 0.7,
+      lastmod,
+    };
+    if (productImages.length > 0) {
+      productEntry.images = productImages;
+    }
+    urls.push(productEntry);
+
+    if (product.productType?.type !== "single" && Array.isArray(product.variantValues)) {
+      product.variantValues.forEach((variant) => {
+        const variantSlug = variant.slug || slugify(variant.name || "");
+        if (!variantSlug) return;
+        const variantImages = collectSitemapProductImageUrls(product, variant);
+        const variantEntry = {
+          loc: `${baseUrl}/products/${productSlug}/${variantSlug}`,
+          changefreq,
+          priority: 0.7,
+          lastmod,
+        };
+        if (variantImages.length > 0) {
+          variantEntry.images = variantImages;
+        }
+        urls.push(variantEntry);
+      });
+    }
+  });
+}
+
 const storefrontSitemapController = {
   sitemapXml: async (req, res) => {
     try {
@@ -91,21 +168,19 @@ const storefrontSitemapController = {
       }
 
       const storeId = req.store._id;
-      const envOrigin = envFrontendOrigin();
-      const host = resolveSitemapPublicHost(req);
-      const protocol = firstHeaderValue(req.headers["x-forwarded-proto"]) || "https";
-      const baseUrl = envOrigin || `${protocol}://${host}`;
+      const baseUrl = resolveSitemapBaseUrl(req);
 
       const [products, categories, blogs, newBlogs] = await Promise.all([
         Products.find({ storeId, isdeleted: false })
-          .select("producturl variantValues productType updatedAt")
+          .select("producturl variantValues productType updatedAt Gallery_Images meta_Image")
           .lean(),
         ProductCategory.find({ storeId })
-          .select("name slug subCategory updatedAt")
+          .select("name slug updatedAt")
           .lean(),
         Blog.find({ storeId }).select("name updatedAt").lean(),
         NewBlog.find({ storeId, publishStatus: "published" })
-          .select("slug updatedAt")
+          .select("slug updatedAt categories")
+          .populate({ path: "categories", select: "name" })
           .lean(),
       ]);
 
@@ -120,35 +195,16 @@ const storefrontSitemapController = {
         changefreq: "monthly",
         priority: 0.8,
       });
-      urls.push({
-        loc: `${baseUrl}/subcategory`,
-        changefreq: "weekly",
-        priority: 0.9,
-      });
 
-      products.forEach((product) => {
-        const productSlug = (product.producturl || "").replace(/-\d{13}$/, "");
-        if (!productSlug) return;
+      STATIC_STOREFRONT_PATHS.forEach((slug) => {
         urls.push({
-          loc: `${baseUrl}/products/${productSlug}`,
-          changefreq: "weekly",
-          priority: 0.7,
-          lastmod: product.updatedAt ? new Date(product.updatedAt).toISOString() : undefined,
+          loc: `${baseUrl}/${slug}`,
+          changefreq: "yearly",
+          priority: 0.4,
         });
-
-        if (product.productType?.type !== "single" && Array.isArray(product.variantValues)) {
-          product.variantValues.forEach((variant) => {
-            const variantSlug = variant.slug || slugify(variant.name || "");
-            if (!variantSlug) return;
-            urls.push({
-              loc: `${baseUrl}/products/${productSlug}-${variantSlug}`,
-              changefreq: "weekly",
-              priority: 0.7,
-              lastmod: product.updatedAt ? new Date(product.updatedAt).toISOString() : undefined,
-            });
-          });
-        }
       });
+
+      appendProductSitemapEntries(urls, products, baseUrl);
 
       categories.forEach((category) => {
         const categorySlug = category.slug || slugify(category.name || "");
@@ -159,19 +215,6 @@ const storefrontSitemapController = {
           priority: 0.6,
           lastmod: category.updatedAt ? new Date(category.updatedAt).toISOString() : undefined,
         });
-
-        if (Array.isArray(category.subCategory)) {
-          category.subCategory.forEach((sub) => {
-            const subSlug = slugify(sub || "");
-            if (!subSlug) return;
-            urls.push({
-              loc: `${baseUrl}/subcategory/${subSlug}`,
-              changefreq: "monthly",
-              priority: 0.5,
-              lastmod: category.updatedAt ? new Date(category.updatedAt).toISOString() : undefined,
-            });
-          });
-        }
       });
 
       blogs.forEach((blog) => {
@@ -186,9 +229,10 @@ const storefrontSitemapController = {
       });
 
       newBlogs.forEach((blog) => {
-        if (!blog.slug) return;
+        const pathSeg = getNewBlogSitemapPathSegment(blog);
+        if (!pathSeg) return;
         urls.push({
-          loc: `${baseUrl}/blogs/new/${blog.slug}`,
+          loc: `${baseUrl}/${pathSeg}`,
           changefreq: "monthly",
           priority: 0.7,
           lastmod: blog.updatedAt ? new Date(blog.updatedAt).toISOString() : undefined,
@@ -202,6 +246,32 @@ const storefrontSitemapController = {
     } catch (error) {
       console.error("storefront sitemap error:", error);
       return res.status(500).json({ message: "Failed to generate sitemap" });
+    }
+  },
+
+  sitemapImagesXml: async (req, res) => {
+    try {
+      if (!req.store?._id) {
+        return res.status(404).json({ message: "Store not found for domain" });
+      }
+
+      const storeId = req.store._id;
+      const baseUrl = resolveSitemapBaseUrl(req);
+
+      const products = await Products.find({ storeId, isdeleted: false })
+        .select("producturl variantValues productType updatedAt Gallery_Images meta_Image")
+        .lean();
+
+      const productUrls = [];
+      appendProductSitemapEntries(productUrls, products, baseUrl, "daily");
+
+      const xml = generateSitemapProductImagesXML(productUrls);
+      res.setHeader("Content-Type", "application/xml");
+      res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate");
+      return res.status(200).send(xml);
+    } catch (error) {
+      console.error("storefront sitemap-images error:", error);
+      return res.status(500).json({ message: "Failed to generate product image sitemap" });
     }
   },
 };

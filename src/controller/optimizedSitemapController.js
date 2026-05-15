@@ -8,6 +8,7 @@ const Products = require("../models/product");
 const productCategory = require("../models/productCategories");
 const Newsletter = require("../models/newsletter");
 const crypto = require("crypto");
+const { getNewBlogSitemapPathSegment } = require("../utils/newBlogSitemapPath");
 
 const SITEMAP_ORIGIN = String(process.env.FRONTEND_URL || "https://aromadesire.com").replace(/\/$/, "");
 
@@ -31,7 +32,6 @@ const optimizedSitemapController = {
       const staticUrls = [
         { url: "/", changefreq: "daily", priority: 1.0 },
         { url: "/categories", changefreq: "monthly", priority: 0.8 },
-        { url: "/subcategory", changefreq: "weekly", priority: 0.9 },
       ];
       allUrls.push(...staticUrls);
 
@@ -100,18 +100,22 @@ const optimizedSitemapController = {
       console.log("Processing new blogs...");
       if (allUrls.length < MAX_URLS && Date.now() - startTime < 80000) {
         const newblogs = await NewBlog.find({ publishStatus: "published" })
-          .select("slug")
+          .select("slug categories")
+          .populate({ path: "categories", select: "name" })
           .lean()
           .limit(1000);
-          
-        const newblogUrls = newblogs.map((newblog) => {
-          const blogSlug = newblog.slug;
-          return {
-            url: `${SITEMAP_ORIGIN}/blogs/new/${blogSlug}`,
-            changefreq: "monthly",
-            priority: 0.7,
-          };
-        });
+
+        const newblogUrls = newblogs
+          .map((newblog) => {
+            const pathSeg = getNewBlogSitemapPathSegment(newblog);
+            if (!pathSeg) return null;
+            return {
+              url: `${SITEMAP_ORIGIN}/${pathSeg}`,
+              changefreq: "monthly",
+              priority: 0.7,
+            };
+          })
+          .filter(Boolean);
         
         allUrls.push(...newblogUrls);
       }

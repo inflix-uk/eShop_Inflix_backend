@@ -58,6 +58,22 @@ module.exports = {
     }
   },
 
+  // GET /get/google/category/by-google-id/:googleId
+  getGoogleCategoryByGoogleId: async (req, res) => {
+    try {
+      const googleId = Number(req.params.googleId);
+      if (!Number.isFinite(googleId)) {
+        return res.status(400).json({ message: 'Invalid googleId', status: 400 });
+      }
+      const doc = await GoogleCategory.findOne({ googleId }).lean();
+      if (!doc) return res.status(404).json({ message: 'Not found', status: 404 });
+      return res.json({ message: 'OK', status: 200, googleCategory: doc });
+    } catch (error) {
+      console.error('Error fetching google category by googleId:', error);
+      return res.status(500).json({ message: 'Failed to fetch', status: 500 });
+    }
+  },
+
   // GET /get/google/category/:id
   getGoogleCategoryById: async (req, res) => {
     try {
@@ -195,7 +211,11 @@ module.exports = {
   // GET /get/google/categories/top-level
   getTopLevelGoogleCategories: async (req, res) => {
     try {
-      const items = await GoogleCategory.find({ level: 1 }).sort({ name: 1 }).lean();
+      const query = { level: 1 };
+      if (req.query.isActive === 'true' || req.query.activeOnly === '1') {
+        query.isActive = true;
+      }
+      const items = await GoogleCategory.find(query).sort({ name: 1 }).lean();
       return res.json({ status: 200, googleCategories: items });
     } catch (error) {
       console.error('Error fetching top-level:', error);
@@ -207,7 +227,11 @@ module.exports = {
   getChildrenOfGoogleCategory: async (req, res) => {
     try {
       const pid = req.params.parentGoogleId === 'null' ? null : Number(req.params.parentGoogleId);
-      const items = await GoogleCategory.find({ parentGoogleId: pid }).sort({ name: 1 }).lean();
+      const query = { parentGoogleId: pid };
+      if (req.query.isActive === 'true' || req.query.activeOnly === '1') {
+        query.isActive = true;
+      }
+      const items = await GoogleCategory.find(query).sort({ name: 1 }).lean();
       return res.json({ status: 200, googleCategories: items });
     } catch (error) {
       console.error('Error fetching children:', error);

@@ -804,7 +804,7 @@ class UpdateProductService {
     async updateProduct(productId, reqData) {
         try {
             const {
-                name, category, subcategory, tags, brand, condition, is_featured,
+                name, category, subcategory, mainCategory, tags, brand, condition, is_featured,
                 is_refundable, is_authenticated, low_stock_quantity_alert,
                 has_warranty, productType, status, Seo_Meta, Product_summary,
                 Product_description,
@@ -870,6 +870,10 @@ class UpdateProductService {
                 ? producturl
                 : this.generateSlug(name);
             product.category = category;
+            product.mainCategory =
+              mainCategory !== undefined && mainCategory !== null && String(mainCategory).trim() !== ""
+                ? String(mainCategory).trim()
+                : null;
             product.tags = tags;
             product.subCategory = subcategory;
             product.brand = brand;

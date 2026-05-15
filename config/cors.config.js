@@ -1,10 +1,25 @@
 require('dotenv').config();
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.ADMINPANEL_URL,
+/** Browser Origin has no trailing slash; env vars often mistakenly include one. */
+function normalizeOriginUrl(value) {
+  if (!value || typeof value !== 'string') return '';
+  return value.trim().replace(/\/+$/, '');
+}
 
-].filter(Boolean);
+const extraOrigins = String(process.env.CORS_EXTRA_ORIGINS || '')
+  .split(',')
+  .map((s) => normalizeOriginUrl(s))
+  .filter(Boolean);
+
+const allowedOrigins = [
+  ...new Set(
+    [
+      ...extraOrigins,
+      normalizeOriginUrl(process.env.FRONTEND_URL),
+      normalizeOriginUrl(process.env.ADMINPANEL_URL),
+    ].filter(Boolean)
+  ),
+];
 
 const corsConfig = {
   origin: function (origin, callback) {
@@ -12,7 +27,8 @@ const corsConfig = {
       return callback(null, true);  
     }
 
-    if (allowedOrigins.includes(origin)) {
+    const normalizedRequestOrigin = normalizeOriginUrl(origin);
+    if (allowedOrigins.includes(normalizedRequestOrigin)) {
       callback(null, true);
     } else {
       if (process.env.NODE_ENV === 'production') {

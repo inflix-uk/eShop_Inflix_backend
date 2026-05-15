@@ -1,5 +1,7 @@
 const { Blog } = require('../../models/newblog/newBlog');
 const Category = require('../../models/blogCategory');
+const resolveStoreByDomain = require('../../middleware/resolveStoreByDomain');
+const findStoreByRequestOrEnv = resolveStoreByDomain.findStoreByRequestOrEnv;
 const multer = require('multer');
 const moment = require('moment');
 const path = require('path');
@@ -429,6 +431,13 @@ const createBlogPost = async (req, res) => {
       }
     }
     
+    if (blogData.storeId == null || blogData.storeId === '') {
+      const store = await findStoreByRequestOrEnv(req);
+      if (store?._id) {
+        blogData.storeId = store._id;
+      }
+    }
+    
     // Create a new blog post instance
     const newBlog = new Blog(blogData);
     
@@ -581,12 +590,29 @@ const updateBlogPost = async (req, res) => {
     }
 
     // Strip non-schema / upload helper keys; partial tab-wise updates only $set defined fields
+    const existingForStore = await Blog.findById(id).select('storeId').lean();
+    if (!existingForStore) {
+      return res.status(404).json({
+        success: false,
+        message: 'Blog post not found'
+      });
+    }
+    const missingStore = !existingForStore.storeId;
+    const payloadHasStore =
+      blogData.storeId != null && String(blogData.storeId).trim() !== '';
+    if (missingStore && !payloadHasStore) {
+      const store = await findStoreByRequestOrEnv(req);
+      if (store?._id) {
+        blogData.storeId = store._id;
+      }
+    }
+
     const allowedFields = new Set([
       'title', 'slug', 'content', 'excerpt', 'blocks', 'categories', 'tags',
       'publishStatus', 'publishDate', 'metaTitle', 'metaDescription', 'metaTags',
       'metaSchema', 'featuredImage', 'featuredImageAlt', 'featuredImageDescription',
       'bannerImage', 'bannerImageAlt', 'bannerImageDescription', 'newBlog',
-      'author', 'reviewer'
+      'author', 'reviewer', 'storeId'
     ]);
     delete blogData.id;
     delete blogData._id;
