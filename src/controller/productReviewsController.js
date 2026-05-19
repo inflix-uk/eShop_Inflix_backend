@@ -51,9 +51,12 @@ const productReviewsController = {
                 return res.json({ message: 'Product not found', status: 404 });
             }
 
-            // Get all approved reviews for this product
-            const reviews = await ProductReview.find({ productId: id, status: 'Approved' })
-                .sort({ createdAt: -1 });
+            // Storefront: approved only. Admin panel: ?includeAll=true returns every status.
+            const reviewQuery = { productId: id };
+            if (req.query.includeAll !== 'true') {
+                reviewQuery.status = 'Approved';
+            }
+            const reviews = await ProductReview.find(reviewQuery).sort({ createdAt: -1 });
 
             res.json({
                 message: 'Reviews successfully retrieved',
