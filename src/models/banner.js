@@ -20,14 +20,57 @@ const bannerSchema = new Schema({
         default: true,
         index: true
     },
+    /** `image` = photo background; `video` = looping video behind text */
+    backgroundMedia: {
+        type: String,
+        enum: ['image', 'video'],
+        default: 'image',
+        index: true
+    },
     imageLarge: {
         type: String,
-        required: true
+        default: ''
     },
     imageSmall: {
         type: String,
-        required: true
+        default: ''
     },
+    videoLarge: {
+        type: String,
+        default: null
+    },
+    videoSmall: {
+        type: String,
+        default: null
+    },
+    /** Tint over video (hex) */
+    overlayColor: {
+        type: String,
+        trim: true,
+        default: '#000000'
+    },
+    /** 0–100 — darkness of overlay on video */
+    overlayOpacity: {
+        type: Number,
+        default: 35,
+        min: 0,
+        max: 100
+    },
+    /** Video crop frame: hero | 16:9 | 21:9 | 4:3 | 9:16 | custom */
+    videoDesktopLayout: {
+        type: String,
+        default: 'hero',
+        trim: true
+    },
+    videoDesktopWidthPx: { type: Number, default: null },
+    videoDesktopHeightPx: { type: Number, default: null },
+    videoMobileLayout: {
+        type: String,
+        default: 'hero',
+        trim: true
+    },
+    videoMobileWidthPx: { type: Number, default: null },
+    videoMobileHeightPx: { type: Number, default: null },
     altText: {
         type: String,
         required: true,

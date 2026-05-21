@@ -97,14 +97,19 @@ function replaceFileReferenceInBlocks(blocks, placeholder, fileUrl) {
           block.content.imageUrl = fileUrl;
           return true;
         }
-        if (
-          block.type === 'widget' &&
-          block.content &&
-          block.content.widgetType === 'video' &&
-          block.content.videoUrl === placeholder
-        ) {
-          block.content.videoUrl = fileUrl;
-          return true;
+        if (block.type === 'widget' && block.content && block.content.widgetType === 'video') {
+          if (block.content.videoUrl === placeholder) {
+            block.content.videoUrl = fileUrl;
+            return true;
+          }
+          if (Array.isArray(block.content.items)) {
+            for (const vi of block.content.items) {
+              if (vi && vi.videoUrl === placeholder) {
+                vi.videoUrl = fileUrl;
+                return true;
+              }
+            }
+          }
         }
         if (
           block.type === 'widget' &&
