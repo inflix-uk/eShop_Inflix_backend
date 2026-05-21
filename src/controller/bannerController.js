@@ -35,8 +35,19 @@ const diskStorage = multer.diskStorage({
     }
 });
 
-// File filter for image validation
+// File filter for image / video fields
 const fileFilter = (req, file, cb) => {
+    const isVideoField =
+        file.fieldname === 'videoLarge' || file.fieldname === 'videoSmall';
+    if (isVideoField) {
+        const allowedVideo = /\.(mp4|webm|ogg)$/i;
+        if (allowedVideo.test(file.originalname) || (file.mimetype && file.mimetype.startsWith('video/'))) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only video files are allowed (mp4, webm, ogg)'), false);
+        }
+        return;
+    }
     const allowedTypes = /\.(jpg|jpeg|png|webp)$/i;
     if (allowedTypes.test(file.originalname)) {
         cb(null, true);
@@ -47,12 +58,14 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
     storage: useBlobStorage ? memoryStorage : diskStorage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB (videos)
     fileFilter: fileFilter
 }).fields([
     { name: 'imageLarge', maxCount: 1 },
     { name: 'imageSmall', maxCount: 1 },
-    { name: 'extraImage', maxCount: 1 }
+    { name: 'extraImage', maxCount: 1 },
+    { name: 'videoLarge', maxCount: 1 },
+    { name: 'videoSmall', maxCount: 1 }
 ]);
 
 // Middleware to handle file uploads
@@ -62,7 +75,7 @@ const handleBannerUpload = (req, res, next) => {
             if (err.code === 'LIMIT_FILE_SIZE') {
                 return res.status(400).json({
                     success: false,
-                    message: 'File size exceeds 5MB limit',
+                    message: 'File size exceeds 50MB limit',
                     error: err.message
                 });
             }
@@ -139,6 +152,71 @@ function getAdminUserId(req) {
 // VALIDATION FUNCTIONS
 // ============================================================================
 
+function isVideoBackground(data) {
+    return data && data.backgroundMedia === 'video';
+}
+
+function validateBackgroundMedia(data, errors) {
+    if (isVideoBackground(data)) {
+        if (!data.videoLarge || String(data.videoLarge).trim() === '') {
+            errors.push('videoLarge is required when using video background');
+        }
+    } else {
+        if (!data.imageLarge || String(data.imageLarge).trim() === '') {
+            errors.push('imageLarge is required');
+        }
+        if (!data.imageSmall || String(data.imageSmall).trim() === '') {
+            errors.push('imageSmall is required');
+        }
+    }
+    if (data.overlayColor && !isValidHexColor(data.overlayColor)) {
+        errors.push('overlayColor must be a valid hex color (#RRGGBB)');
+    }
+    if (data.overlayOpacity !== undefined && data.overlayOpacity !== null) {
+        const n = Number(data.overlayOpacity);
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+            errors.push('overlayOpacity must be between 0 and 100');
+        }
+    }
+    if (isVideoBackground(data)) {
+        const desktopLayout = data.videoDesktopLayout || 'hero';
+        const mobileLayout = data.videoMobileLayout || 'hero';
+        if (desktopLayout === 'custom') {
+            const w = Number(data.videoDesktopWidthPx);
+            const h = Number(data.videoDesktopHeightPx);
+            if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) {
+                errors.push('videoDesktopWidthPx and videoDesktopHeightPx are required for custom desktop video size');
+            }
+        }
+        if (mobileLayout === 'custom') {
+            const w = Number(data.videoMobileWidthPx);
+            const h = Number(data.videoMobileHeightPx);
+            if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) {
+                errors.push('videoMobileWidthPx and videoMobileHeightPx are required for custom mobile video size');
+            }
+        }
+    }
+}
+
+function normalizeVideoLayoutFields(data) {
+    if (!data || data.backgroundMedia !== 'video') return;
+    const allowed = ['hero', '16:9', '21:9', '4:3', '9:16', 'custom'];
+    if (!allowed.includes(data.videoDesktopLayout)) data.videoDesktopLayout = 'hero';
+    if (!allowed.includes(data.videoMobileLayout)) data.videoMobileLayout = 'hero';
+    if (data.videoDesktopWidthPx !== undefined && data.videoDesktopWidthPx !== null) {
+        data.videoDesktopWidthPx = Math.min(3840, Math.max(1, Math.round(Number(data.videoDesktopWidthPx))));
+    }
+    if (data.videoDesktopHeightPx !== undefined && data.videoDesktopHeightPx !== null) {
+        data.videoDesktopHeightPx = Math.min(2160, Math.max(1, Math.round(Number(data.videoDesktopHeightPx))));
+    }
+    if (data.videoMobileWidthPx !== undefined && data.videoMobileWidthPx !== null) {
+        data.videoMobileWidthPx = Math.min(3840, Math.max(1, Math.round(Number(data.videoMobileWidthPx))));
+    }
+    if (data.videoMobileHeightPx !== undefined && data.videoMobileHeightPx !== null) {
+        data.videoMobileHeightPx = Math.min(2160, Math.max(1, Math.round(Number(data.videoMobileHeightPx))));
+    }
+}
+
 function validateSimpleBanner(data) {
     const errors = [];
     
@@ -146,13 +224,7 @@ function validateSimpleBanner(data) {
         errors.push('Type must be "simple"');
     }
     
-    if (!data.imageLarge) {
-        errors.push('imageLarge is required');
-    }
-    
-    if (!data.imageSmall) {
-        errors.push('imageSmall is required');
-    }
+    validateBackgroundMedia(data, errors);
     
     if (!data.buttonText || data.buttonText.trim() === '') {
         errors.push('buttonText is required for simple type');
@@ -181,13 +253,7 @@ function validateFullBanner(data) {
         errors.push('Type must be "full"');
     }
     
-    if (!data.imageLarge) {
-        errors.push('imageLarge is required');
-    }
-    
-    if (!data.imageSmall) {
-        errors.push('imageSmall is required');
-    }
+    validateBackgroundMedia(data, errors);
     
     if (!data.altText || data.altText.trim() === '') {
         errors.push('altText is required');
@@ -354,7 +420,28 @@ function setLayoutDefaults(content) {
 }
 
 // Helper function to ensure color and font size fields are present in response (for backward compatibility)
+function ensureBannerMediaDefaults(banner) {
+    if (!banner) return banner;
+    if (!banner.backgroundMedia) {
+        banner.backgroundMedia = 'image';
+    }
+    if (banner.backgroundMedia !== 'image' && banner.backgroundMedia !== 'video') {
+        banner.backgroundMedia =
+            banner.videoLarge || banner.videoSmall ? 'video' : 'image';
+    }
+    if (!banner.overlayColor) {
+        banner.overlayColor = '#000000';
+    }
+    if (banner.overlayOpacity === undefined || banner.overlayOpacity === null) {
+        banner.overlayOpacity = 35;
+    }
+    if (!banner.videoDesktopLayout) banner.videoDesktopLayout = 'hero';
+    if (!banner.videoMobileLayout) banner.videoMobileLayout = 'hero';
+    return banner;
+}
+
 function ensureColorFieldsInResponse(banner) {
+    ensureBannerMediaDefaults(banner);
     if (banner && banner.type === 'full' && banner.content) {
         // Ensure color fields
         if (!banner.content.titleColor) {
@@ -575,6 +662,12 @@ const bannerController = {
                     if (req.files.extraImage && req.files.extraImage[0]) {
                         bannerData.extraImage = await uploadToBlob(req.files.extraImage[0], 'banners');
                     }
+                    if (req.files.videoLarge && req.files.videoLarge[0]) {
+                        bannerData.videoLarge = await uploadToBlob(req.files.videoLarge[0], 'banners/videos');
+                    }
+                    if (req.files.videoSmall && req.files.videoSmall[0]) {
+                        bannerData.videoSmall = await uploadToBlob(req.files.videoSmall[0], 'banners/videos');
+                    }
                 } else {
                     // Local disk storage
                     if (req.files.imageLarge && req.files.imageLarge[0]) {
@@ -586,8 +679,21 @@ const bannerController = {
                     if (req.files.extraImage && req.files.extraImage[0]) {
                         bannerData.extraImage = getFileUrl(req.files.extraImage[0]);
                     }
+                    if (req.files.videoLarge && req.files.videoLarge[0]) {
+                        bannerData.videoLarge = getFileUrl(req.files.videoLarge[0]);
+                    }
+                    if (req.files.videoSmall && req.files.videoSmall[0]) {
+                        bannerData.videoSmall = getFileUrl(req.files.videoSmall[0]);
+                    }
                 }
             }
+            if (bannerData.backgroundMedia === 'video' && bannerData.videoLarge && !bannerData.videoSmall) {
+                bannerData.videoSmall = bannerData.videoLarge;
+            }
+            if (bannerData.overlayOpacity !== undefined && bannerData.overlayOpacity !== null) {
+                bannerData.overlayOpacity = Math.min(100, Math.max(0, Math.round(Number(bannerData.overlayOpacity))));
+            }
+            normalizeVideoLayoutFields(bannerData);
             
             // Validate based on type
             let validationErrors = [];
@@ -751,7 +857,9 @@ const bannerController = {
             const oldFiles = {
                 imageLarge: existingBanner.imageLarge,
                 imageSmall: existingBanner.imageSmall,
-                extraImage: existingBanner.extraImage
+                extraImage: existingBanner.extraImage,
+                videoLarge: existingBanner.videoLarge,
+                videoSmall: existingBanner.videoSmall
             };
             
             // Process new uploaded files
@@ -767,6 +875,12 @@ const bannerController = {
                     if (req.files.extraImage && req.files.extraImage[0]) {
                         bannerData.extraImage = await uploadToBlob(req.files.extraImage[0], 'banners');
                     }
+                    if (req.files.videoLarge && req.files.videoLarge[0]) {
+                        bannerData.videoLarge = await uploadToBlob(req.files.videoLarge[0], 'banners/videos');
+                    }
+                    if (req.files.videoSmall && req.files.videoSmall[0]) {
+                        bannerData.videoSmall = await uploadToBlob(req.files.videoSmall[0], 'banners/videos');
+                    }
                 } else {
                     // Local disk storage
                     if (req.files.imageLarge && req.files.imageLarge[0]) {
@@ -778,8 +892,22 @@ const bannerController = {
                     if (req.files.extraImage && req.files.extraImage[0]) {
                         bannerData.extraImage = getFileUrl(req.files.extraImage[0]);
                     }
+                    if (req.files.videoLarge && req.files.videoLarge[0]) {
+                        bannerData.videoLarge = getFileUrl(req.files.videoLarge[0]);
+                    }
+                    if (req.files.videoSmall && req.files.videoSmall[0]) {
+                        bannerData.videoSmall = getFileUrl(req.files.videoSmall[0]);
+                    }
                 }
             }
+            if (bannerData.removeVideoLarge === true) {
+                bannerData.videoLarge = null;
+            }
+            if (bannerData.removeVideoSmall === true) {
+                bannerData.videoSmall = null;
+            }
+            delete bannerData.removeVideoLarge;
+            delete bannerData.removeVideoSmall;
             
             // Merge with existing data
             const updateData = {
@@ -787,6 +915,16 @@ const bannerController = {
                 ...bannerData,
                 updatedAt: new Date()
             };
+            if (updateData.backgroundMedia === 'video' && updateData.videoLarge && !updateData.videoSmall) {
+                updateData.videoSmall = updateData.videoLarge;
+            }
+            if (updateData.overlayOpacity !== undefined && updateData.overlayOpacity !== null) {
+                updateData.overlayOpacity = Math.min(
+                    100,
+                    Math.max(0, Math.round(Number(updateData.overlayOpacity)))
+                );
+            }
+            normalizeVideoLayoutFields(updateData);
             
             // Validate based on type
             const bannerType = updateData.type || existingBanner.type;
@@ -859,7 +997,7 @@ const bannerController = {
             Object.assign(existingBanner, updateData);
             await existingBanner.save();
             
-            // Delete old files if new ones were uploaded
+            // Delete old files if new ones were uploaded or removed
             if (req.files) {
                 if (req.files.imageLarge && req.files.imageLarge[0] && oldFiles.imageLarge) {
                     await deleteFile(oldFiles.imageLarge);
@@ -870,6 +1008,18 @@ const bannerController = {
                 if (req.files.extraImage && req.files.extraImage[0] && oldFiles.extraImage) {
                     await deleteFile(oldFiles.extraImage);
                 }
+                if (req.files.videoLarge && req.files.videoLarge[0] && oldFiles.videoLarge) {
+                    await deleteFile(oldFiles.videoLarge);
+                }
+                if (req.files.videoSmall && req.files.videoSmall[0] && oldFiles.videoSmall) {
+                    await deleteFile(oldFiles.videoSmall);
+                }
+            }
+            if (updateData.videoLarge === null && oldFiles.videoLarge) {
+                await deleteFile(oldFiles.videoLarge);
+            }
+            if (updateData.videoSmall === null && oldFiles.videoSmall) {
+                await deleteFile(oldFiles.videoSmall);
             }
             
             const updatedBanner = await Banner.findById(id)
