@@ -161,6 +161,57 @@ const updatePricingGroup = async (req, res) => {
   }
 };
 
+const setGroupProductInclusion = async (req, res) => {
+  try {
+    const groupId = req.params.id;
+    const productId = String(req.body?.productId || '').trim();
+    const included = req.body?.included !== false;
+
+    if (!mongoose.Types.ObjectId.isValid(groupId)) {
+      return res.status(400).json({ success: false, message: 'Invalid group id' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: 'Invalid product id' });
+    }
+
+    const group = await PricingGroup.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Pricing group not found' });
+    }
+    const productExists = await Product.exists({ _id: productId });
+    if (!productExists) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    if (included) {
+      await PricingGroup.updateOne(
+        { _id: groupId },
+        { $pull: { excludedProductIds: productId } }
+      );
+    } else {
+      await PricingGroup.updateOne(
+        { _id: groupId },
+        { $addToSet: { excludedProductIds: productId } }
+      );
+      await GroupProductPrice.deleteMany({ groupId, productId });
+    }
+
+    const updated = await PricingGroup.findById(groupId).lean();
+    return res.status(200).json({
+      success: true,
+      message: included ? 'Product included in group' : 'Product excluded from group',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('setGroupProductInclusion:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update product inclusion',
+      error: error.message,
+    });
+  }
+};
+
 const deletePricingGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -296,4 +347,5 @@ module.exports = {
   deletePricingGroup,
   upsertGroupProductPrice,
   getGroupProductPrices,
+  setGroupProductInclusion,
 };

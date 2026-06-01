@@ -8,6 +8,11 @@ const pricingGroupSchema = new mongoose.Schema(
       trim: true,
       unique: true,
     },
+    /** Products unchecked in admin — group prices do not apply for this group. */
+    excludedProductIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+      default: [],
+    },
   },
   { timestamps: true }
 );

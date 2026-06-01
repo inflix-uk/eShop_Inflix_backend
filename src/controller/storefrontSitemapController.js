@@ -7,15 +7,7 @@ const generateSitemapProductImagesXML =
   require("../utils/generateSitemapXML").generateSitemapProductImagesXML;
 const { getNewBlogSitemapPathSegment } = require("../utils/newBlogSitemapPath");
 const { collectSitemapProductImageUrls } = require("../utils/orderLineImageUrlServer");
-
-/** Footer / static content pages (Next app routes, trailing-slash canonical). */
-const STATIC_STOREFRONT_PATHS = [
-  "privacy-policy",
-  "refund-policy",
-  "shipping-policy",
-  "terms-conditions",
-  "about-us",
-];
+const { appendFooterPageSitemapEntries } = require("../utils/footerPageSitemapPaths");
 
 function slugify(value) {
   return String(value || "")
@@ -196,13 +188,7 @@ const storefrontSitemapController = {
         priority: 0.8,
       });
 
-      STATIC_STOREFRONT_PATHS.forEach((slug) => {
-        urls.push({
-          loc: `${baseUrl}/${slug}`,
-          changefreq: "yearly",
-          priority: 0.4,
-        });
-      });
+      await appendFooterPageSitemapEntries(urls, storeId, baseUrl);
 
       appendProductSitemapEntries(urls, products, baseUrl);
 

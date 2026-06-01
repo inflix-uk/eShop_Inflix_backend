@@ -2,6 +2,8 @@
 const db = require("../../connections/mongo");
 const Product = require("../models/product");
 const GroupProductPrice = require("../models/groupProductPrice");
+const PricingGroup = require("../models/pricingGroup");
+const User = require("../models/user");
 const UserProductPrice = require("../models/userProductPrice");
 const { computeVariantKey } = require("../utils/pricingVariantKey");
 const productCategory = require("../models/productCategories");
@@ -118,14 +120,27 @@ const adminProductController = {
                 return String(value).trim().toLowerCase();
             };
 
-            const [groupOverrides, userOverrides] = await Promise.all([
+            const [groupOverrides, userOverrides, groupDoc, userDoc] = await Promise.all([
                 scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)
                     ? GroupProductPrice.find({ groupId: scopedGroupId }).select('productId price variantKey').lean()
                     : Promise.resolve([]),
                 scopedUserId && mongoose.Types.ObjectId.isValid(scopedUserId)
                     ? UserProductPrice.find({ userId: scopedUserId }).select('productId price variantKey').lean()
                     : Promise.resolve([]),
+                scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)
+                    ? PricingGroup.findById(scopedGroupId).select('excludedProductIds').lean()
+                    : Promise.resolve(null),
+                scopedUserId && mongoose.Types.ObjectId.isValid(scopedUserId)
+                    ? User.findById(scopedUserId).select('excludedProductIds').lean()
+                    : Promise.resolve(null),
             ]);
+
+            const excludedFromGroup = new Set(
+                (groupDoc?.excludedProductIds || []).map((id) => normalizeId(id))
+            );
+            const excludedFromUser = new Set(
+                (userDoc?.excludedProductIds || []).map((id) => normalizeId(id))
+            );
 
             const groupOverrideMap = new Map();
             for (const item of groupOverrides) {
@@ -171,22 +186,32 @@ const adminProductController = {
 
             const productsWithResolvedPrice = products.map((product) => {
                 const pid = normalizeId(product._id);
-                const userPriceWhole = userOverrideMap.get(pid);
-                const groupPriceWhole = groupOverrideMap.get(pid);
+                const groupExcluded = excludedFromGroup.has(pid);
+                const userExcluded = excludedFromUser.has(pid);
+                const userPriceWhole = userExcluded ? undefined : userOverrideMap.get(pid);
+                const groupPriceWhole = groupExcluded ? undefined : groupOverrideMap.get(pid);
                 const variants = Array.isArray(product.variantValues) ? product.variantValues : [];
 
                 if (variants.length > 0) {
                     const nextVariants = variants.map((v, idx) => {
                         const vk = computeVariantKey(v, idx);
                         const composite = `${pid}::${vk}`;
-                        const groupSpecific = groupOverrideMap.get(composite);
+                        const groupSpecific = groupExcluded ? undefined : groupOverrideMap.get(composite);
                         // Per-variant group: only variant-specific row (not product-level).
                         const groupPrice =
-                            Number.isFinite(groupSpecific) && groupSpecific > 0 ? groupSpecific : null;
-                        const userSpecific = userOverrideMap.get(composite);
+                            !groupExcluded &&
+                            Number.isFinite(groupSpecific) &&
+                            groupSpecific > 0
+                                ? groupSpecific
+                                : null;
+                        const userSpecific = userExcluded ? undefined : userOverrideMap.get(composite);
                         // Per-variant user: only variant-specific row (not product-level).
                         const userPrice =
-                            Number.isFinite(userSpecific) && userSpecific > 0 ? userSpecific : null;
+                            !userExcluded &&
+                            Number.isFinite(userSpecific) &&
+                            userSpecific > 0
+                                ? userSpecific
+                                : null;
                         const orig = variantOriginalUnit(v);
                         const resolved =
                             Number.isFinite(userPrice) && userPrice > 0

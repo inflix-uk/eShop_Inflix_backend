@@ -1,6 +1,7 @@
 const FooterPage = require('../models/footerPage');
 const PageCategory = require('../models/pageCategory');
 const mongoose = require('mongoose');
+const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
 
 /** @returns {string|null} */
 function normalizeFooterCategorySlug(input) {
@@ -500,6 +501,11 @@ const createFooterPage = async (req, res) => {
     }
     
     console.log('Final page data for saving:', JSON.stringify(pageData, null, 2));
+
+    const store = await resolveStoreByDomain.findStoreByRequestOrEnv(req);
+    if (store?._id && !pageData.storeId) {
+      pageData.storeId = store._id;
+    }
     
     // Create a new footer page instance
     const newFooterPage = new FooterPage(pageData);
