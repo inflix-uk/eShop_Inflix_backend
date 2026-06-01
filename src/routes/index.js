@@ -157,6 +157,7 @@ router.patch('/admin/reset-password/:id',        adminUsersController.resetUserP
 router.put('/api/users/:id/assign-group',        requireAdmin, adminUsersController.assignPricingGroup);
 router.get('/api/users/:id/product-prices',      requireAdmin, adminUsersController.getUserProductPrices);
 router.post('/api/users/:id/product-price',      requireAdmin, adminUsersController.upsertUserProductPrice);
+router.post('/api/users/:id/product-inclusion',  requireAdmin, adminUsersController.setUserProductInclusion);
 
 // ========================================================================
 // PRICING GROUPS MANAGEMENT
@@ -167,6 +168,7 @@ router.get('/pricing-groups/:id', requireAdmin, pricingGroupController.getPricin
 router.put('/pricing-groups/:id', requireAdmin, pricingGroupController.updatePricingGroup);
 router.delete('/pricing-groups/:id', requireAdmin, pricingGroupController.deletePricingGroup);
 router.post('/pricing-groups/:id/product-price', requireAdmin, pricingGroupController.upsertGroupProductPrice);
+router.post('/pricing-groups/:id/product-inclusion', requireAdmin, pricingGroupController.setGroupProductInclusion);
 router.get('/pricing-groups/:id/product-prices', requireAdmin, pricingGroupController.getGroupProductPrices);
 
 // API aliases for pricing groups
@@ -175,6 +177,7 @@ router.get('/api/pricing-groups', requireAdmin, pricingGroupController.getAllPri
 router.put('/api/pricing-groups/:id', requireAdmin, pricingGroupController.updatePricingGroup);
 router.delete('/api/pricing-groups/:id', requireAdmin, pricingGroupController.deletePricingGroup);
 router.post('/api/pricing-groups/:id/product-price', requireAdmin, pricingGroupController.upsertGroupProductPrice);
+router.post('/api/pricing-groups/:id/product-inclusion', requireAdmin, pricingGroupController.setGroupProductInclusion);
 
 // ========================================================================
 // BLOG MANAGEMENT (Main E-commerce)

@@ -102,6 +102,13 @@ const footerPageSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  /** Multi-store: footer pages scoped to a storefront (null = legacy / all stores in DB). */
+  storeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Store',
+    default: null,
+    index: true,
+  },
   // SEO fields
   metaTitle: {
     type: String,

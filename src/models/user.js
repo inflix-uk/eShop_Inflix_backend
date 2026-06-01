@@ -60,6 +60,11 @@ const userSchema = new mongoose.Schema({
         ref: 'PricingGroup',
         default: null
     },
+    /** Per-user product exclusions — no user-specific custom prices for these products. */
+    excludedProductIds: {
+        type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+        default: [],
+    },
     registerForApp: {
         type: Boolean,
         default: false

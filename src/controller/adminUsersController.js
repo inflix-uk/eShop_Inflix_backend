@@ -96,6 +96,51 @@ const adminUsersController = {
     }
   },
 
+  setUserProductInclusion: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const productId = String(req.body?.productId || "").trim();
+      const included = req.body?.included !== false;
+
+      if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ success: false, message: "Invalid user id" });
+      }
+      if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({ success: false, message: "Invalid product id" });
+      }
+
+      const user = await User.findById(id);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+      const productExists = await Product.exists({ _id: productId });
+      if (!productExists) {
+        return res.status(404).json({ success: false, message: "Product not found" });
+      }
+
+      if (included) {
+        await User.updateOne({ _id: id }, { $pull: { excludedProductIds: productId } });
+      } else {
+        await User.updateOne({ _id: id }, { $addToSet: { excludedProductIds: productId } });
+        await UserProductPrice.deleteMany({ userId: id, productId });
+      }
+
+      const updated = await User.findById(id).lean();
+      return res.status(200).json({
+        success: true,
+        message: included ? "Product included for user pricing" : "Product excluded from user pricing",
+        data: updated,
+      });
+    } catch (err) {
+      console.error("setUserProductInclusion:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to update product inclusion",
+        error: err.message,
+      });
+    }
+  },
+
   getUserProductPrices: async (req, res) => {
     try {
       await ensureLegacyUserProductVariantKeys();
