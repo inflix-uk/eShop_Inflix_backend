@@ -191,7 +191,9 @@ class Server {
     // Cookie parser
     this.app.use(cookieParser());
     
-    // Static files
+    // Garage/S3 media (before local static — streams from bucket when not on disk)
+    const { garageMediaProxy } = require('./src/middleware/garageMediaProxy');
+    this.app.use('/uploads', garageMediaProxy);
     this.app.use('/uploads', express.static('uploads'));
     
     // Request timeout configuration

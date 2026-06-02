@@ -178,8 +178,33 @@ function resolvePublicEndpointUrl() {
 }
 
 /**
+ * Serve public media through the API (/uploads/... proxy) when Garage s3_web is unavailable.
+ * Default on; set DO_SPACES_SERVE_MEDIA_VIA_API=false to use webpreview / s3_web URLs only.
+ */
+function resolveGarageApiMediaBaseUrl() {
+    const raw = (process.env.DO_SPACES_SERVE_MEDIA_VIA_API || "")
+        .trim()
+        .toLowerCase();
+    if (["false", "0", "no", "off"].includes(raw)) return "";
+    if (!isGarageStorage()) return "";
+
+    for (const candidate of [
+        process.env.BACKEND_URL,
+        process.env.API_URL,
+        process.env.PUBLIC_API_URL,
+    ]) {
+        const u = (candidate || "").trim();
+        if (u) {
+            return normalizeEndpointString(u, { defaultScheme: "https" });
+        }
+    }
+    return "";
+}
+
+/**
  * When API and public hosts differ (e.g. s3api.* vs webpreview.*), DO_SPACES_ENDPOINT is the
  * full browser origin for objects — https://webpreview.example.com/uploads/...
+ * Not used when {@link resolveGarageApiMediaBaseUrl} is active (default).
  */
 function resolveGarageFlatPublicBaseUrl() {
     const explicit = (process.env.DO_SPACES_PUBLIC_BASE_URL || "").trim();
@@ -203,7 +228,9 @@ function resolveGarageFlatPublicBaseUrl() {
  * Skipped when {@link resolveGarageFlatPublicBaseUrl} applies (split API vs web host).
  */
 function resolveGarageWebRootDomain() {
-    if (resolveGarageFlatPublicBaseUrl()) return "";
+    if (resolveGarageApiMediaBaseUrl() || resolveGarageFlatPublicBaseUrl()) {
+        return "";
+    }
 
     const explicit = (
         process.env.GARAGE_WEB_ROOT_DOMAIN ||
@@ -532,6 +559,7 @@ module.exports = {
     extractS3RawResponseSnippet,
     shouldAllowInsecureTls,
     parseHostnameFromEndpointInput,
+    resolveGarageApiMediaBaseUrl,
     resolveGarageFlatPublicBaseUrl,
     resolveGarageWebRootDomain,
     buildGarageWebPublicUrl,

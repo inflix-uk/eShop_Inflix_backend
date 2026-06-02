@@ -10,6 +10,7 @@ const {
     isGarageStorage,
     resolvePublicEndpointUrl,
     resolveS3ApiEndpointUrl,
+    resolveGarageApiMediaBaseUrl,
     resolveGarageFlatPublicBaseUrl,
     resolveGarageWebRootDomain,
     buildGarageWebPublicUrl,
@@ -108,6 +109,8 @@ function buildPublicUrlForKey(key) {
     }
     const bucket = process.env.DO_SPACES_BUCKET;
     if (isGarageStorage()) {
+        const apiBase = resolveGarageApiMediaBaseUrl();
+        if (apiBase) return `${apiBase}/${urlKey}`;
         const flatBase = resolveGarageFlatPublicBaseUrl();
         if (flatBase) return `${flatBase}/${urlKey}`;
         const webUrl = buildGarageWebPublicUrl(bucket, urlKey);
@@ -122,8 +125,7 @@ function buildPublicUrlForKey(key) {
 /**
  * Extract object key from a public URL (custom base, path-style, or virtual-host).
  */
-function extractKeyFromGarageFlatBase(url) {
-    const base = resolveGarageFlatPublicBaseUrl();
+function extractKeyFromGaragePublicBase(url, base) {
     if (!base) return null;
     try {
         const baseUrl = new URL(`${base.replace(/\/+$/, "")}/`);
@@ -160,7 +162,15 @@ function extractKeyFromPublicUrl(url) {
         const bucket = process.env.DO_SPACES_BUCKET;
 
         if (isGarageStorage() && bucket) {
-            const flatKey = extractKeyFromGarageFlatBase(url);
+            const apiKey = extractKeyFromGaragePublicBase(
+                url,
+                resolveGarageApiMediaBaseUrl()
+            );
+            if (apiKey) return apiKey;
+            const flatKey = extractKeyFromGaragePublicBase(
+                url,
+                resolveGarageFlatPublicBaseUrl()
+            );
             if (flatKey) return flatKey;
             const webKey = extractKeyFromGarageWebHost(parsed, bucket);
             if (webKey) return webKey;
