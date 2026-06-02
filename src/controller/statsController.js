@@ -1035,7 +1035,7 @@ const statsController = {
                     error: "Missing or invalid `key`",
                 });
             }
-            const trimmed = key.trim();
+            const trimmed = spacesStorage.normalizeS3ObjectKey(key.trim());
             const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
             if (main && !trimmed.startsWith(`${main}/`)) {
                 return res.status(403).json({
@@ -1220,7 +1220,9 @@ const statsController = {
                 });
             }
 
-            const trimmedKey = String(key).trim();
+            const trimmedKey = spacesStorage.normalizeS3ObjectKey(
+                String(key).trim()
+            );
             const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
             if (main && !trimmedKey.startsWith(`${main}/`)) {
                 return res.status(403).json({

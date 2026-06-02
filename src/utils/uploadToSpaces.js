@@ -55,6 +55,38 @@ function normalizeEndpointUrl(endpoint) {
     return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
+/** S3 object keys use literal `/` separators — never `%2F` in the key string sent to PutObject/List/Delete. */
+function normalizeS3ObjectKey(key) {
+    return String(key || "")
+        .replace(/^\/+/, "")
+        .replace(/\\/g, "/")
+        .replace(/%2F/gi, "/");
+}
+
+/** Encode each path segment for browser URLs; keep `/` as real path separators. */
+function encodePublicUrlKeyPath(key) {
+    const trimmed = normalizeS3ObjectKey(key);
+    if (!trimmed) return "";
+    return trimmed
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+}
+
+function decodeUrlPathSegments(path) {
+    return String(path || "")
+        .split("/")
+        .map((segment) => {
+            if (!segment) return segment;
+            try {
+                return decodeURIComponent(segment);
+            } catch {
+                return segment;
+            }
+        })
+        .join("/");
+}
+
 /**
  * Public URL for an object key. Prefer `DO_SPACES_PUBLIC_BASE_URL` (e.g. short CDN / custom domain)
  * so returned URLs are shorter than `https://{bucket}.{region}.digitaloceanspaces.com/...`.
@@ -64,20 +96,20 @@ function normalizeEndpointUrl(endpoint) {
  * DigitalOcean (virtual-host): `https://{bucket}.{host}/{key}`
  */
 function buildPublicUrlForKey(key) {
-    const trimmedKey = String(key || "").replace(/^\/+/, "");
+    const urlKey = encodePublicUrlKeyPath(key);
     const custom = (process.env.DO_SPACES_PUBLIC_BASE_URL || "")
         .trim()
         .replace(/\/+$/, "");
     if (custom) {
-        return `${custom}/${trimmedKey}`;
+        return `${custom}/${urlKey}`;
     }
     const bucket = process.env.DO_SPACES_BUCKET;
     if (isGarageStorage()) {
         const base = normalizeEndpointUrl(resolvePublicEndpointUrl());
-        return `${base}/${bucket}/${trimmedKey}`;
+        return `${base}/${bucket}/${urlKey}`;
     }
     const host = getPublicBaseUrl();
-    return `https://${bucket}.${host}/${trimmedKey}`;
+    return `https://${bucket}.${host}/${urlKey}`;
 }
 
 /**
@@ -86,12 +118,12 @@ function buildPublicUrlForKey(key) {
 function extractKeyFromPublicUrl(url) {
     try {
         const parsed = new URL(url);
-        let path = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+        let path = decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""));
         const bucket = process.env.DO_SPACES_BUCKET;
         if (isGarageStorage() && bucket && path.startsWith(`${bucket}/`)) {
             path = path.slice(bucket.length + 1);
         }
-        return path;
+        return normalizeS3ObjectKey(path);
     } catch {
         return null;
     }
@@ -142,7 +174,9 @@ async function uploadFile(file, folder) {
 
     const normalizedFolder = validateFolder(folder);
     const fileName = buildCompactFilename(file.originalname);
-    const key = `${process.env.MAIN_FOLDER}/${normalizedFolder}/${fileName}`;
+    const key = normalizeS3ObjectKey(
+        `${process.env.MAIN_FOLDER}/${normalizedFolder}/${fileName}`
+    );
     const bucket = process.env.DO_SPACES_BUCKET;
 
     try {
@@ -177,12 +211,13 @@ async function deleteFile(key) {
     await ensureS3Ready();
 
     const bucket = process.env.DO_SPACES_BUCKET;
+    const objectKey = normalizeS3ObjectKey(key);
 
     try {
         await s3Client.send(
             new DeleteObjectCommand({
                 Bucket: bucket,
-                Key: key,
+                Key: objectKey,
             })
         );
     } catch (error) {
@@ -202,7 +237,9 @@ async function deleteFile(key) {
 async function copyObject(sourceKey, destinationKey) {
     await ensureS3Ready();
     const bucket = process.env.DO_SPACES_BUCKET;
-    const encodedSource = sourceKey
+    const normalizedSource = normalizeS3ObjectKey(sourceKey);
+    const normalizedDestination = normalizeS3ObjectKey(destinationKey);
+    const encodedSource = normalizedSource
         .split("/")
         .map((segment) => encodeURIComponent(segment))
         .join("/");
@@ -213,7 +250,7 @@ async function copyObject(sourceKey, destinationKey) {
         await s3Client.send(
             new CopyObjectCommand({
                 Bucket: bucket,
-                Key: destinationKey,
+                Key: normalizedDestination,
                 CopySource: copySource,
                 ACL: "public-read",
                 MetadataDirective: "COPY",
@@ -257,22 +294,21 @@ async function listAllObjects() {
     let ContinuationToken;
     try {
         do {
-            const listInput = {
-                Bucket: bucket,
-                Prefix: prefix || undefined,
-                MaxKeys: 1000,
-                ContinuationToken,
-            };
-            if (isGarageStorage()) {
-                listInput.EncodingType = "url";
-            }
             const resp = await s3Client.send(
-                new ListObjectsV2Command(listInput)
+                new ListObjectsV2Command({
+                    Bucket: bucket,
+                    Prefix: prefix || undefined,
+                    MaxKeys: 1000,
+                    ContinuationToken,
+                })
             );
             if (resp.Contents && resp.Contents.length > 0) {
                 for (const obj of resp.Contents) {
                     if (!obj.Key || obj.Key.endsWith("/")) continue;
-                    out.push({ Key: obj.Key, Size: obj.Size || 0 });
+                    out.push({
+                        Key: normalizeS3ObjectKey(obj.Key),
+                        Size: obj.Size || 0,
+                    });
                 }
             }
             ContinuationToken = resp.IsTruncated
@@ -303,4 +339,5 @@ module.exports = {
     stripMainFolderFromKey,
     buildPublicUrlForKey,
     extractKeyFromPublicUrl,
+    normalizeS3ObjectKey,
 };
