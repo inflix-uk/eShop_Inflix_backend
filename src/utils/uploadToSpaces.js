@@ -10,7 +10,12 @@ const {
     isGarageStorage,
     resolveEndpointUrl,
     formatS3DnsError,
+    preloadGarageServerIp,
 } = require("./s3Config");
+
+async function ensureS3Ready() {
+    await preloadGarageServerIp();
+}
 
 function sanitizeFilename(fileName = "") {
     return fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -131,6 +136,7 @@ function isSpacesUploadPathAllowed(folder) {
 
 async function uploadFile(file, folder) {
     if (!file) return null;
+    await ensureS3Ready();
 
     const normalizedFolder = validateFolder(folder);
     const fileName = buildCompactFilename(file.originalname);
@@ -166,6 +172,7 @@ async function uploadFile(file, folder) {
 
 async function deleteFile(key) {
     if (!key) return;
+    await ensureS3Ready();
 
     const bucket = process.env.DO_SPACES_BUCKET;
 
@@ -191,6 +198,7 @@ async function deleteFile(key) {
  * Server-side copy (e.g. rename) within the same bucket.
  */
 async function copyObject(sourceKey, destinationKey) {
+    await ensureS3Ready();
     const bucket = process.env.DO_SPACES_BUCKET;
     const encodedSource = sourceKey
         .split("/")
@@ -240,6 +248,7 @@ function getListPrefix() {
  */
 async function listAllObjects() {
     if (!isSpacesListConfigured()) return [];
+    await ensureS3Ready();
     const bucket = process.env.DO_SPACES_BUCKET;
     const prefix = getListPrefix();
     const out = [];

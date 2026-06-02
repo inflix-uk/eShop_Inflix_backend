@@ -246,12 +246,15 @@ class Server {
     this.app.use(errorHandler);
   }
 
-  start() {
+  async start() {
     // Don't start HTTP server on Vercel (serverless)
     if (process.env.VERCEL === '1' || process.env.VERCEL_ENV) {
       console.log('🚀 Running on Vercel (serverless mode)');
       return;
     }
+
+    const { preloadGarageServerIp } = require('./src/utils/s3Config');
+    await preloadGarageServerIp();
 
     this.httpServer.listen(this.port, () => {
       console.log('╔════════════════════════════════════════════════════╗');

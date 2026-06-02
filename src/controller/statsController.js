@@ -1016,7 +1016,9 @@ const statsController = {
         } catch (err) {
             console.error("Spaces media list failed:", err);
             const dnsHint = formatS3DnsError(err);
-            return res.status(500).json({
+            const status =
+                err.code === "GARAGE_ENDPOINT_UNRESOLVED" ? 503 : 500;
+            return res.status(status).json({
                 success: false,
                 error: err.message || "Unable to list Spaces objects",
                 ...(dnsHint ? { hint: dnsHint } : {}),
