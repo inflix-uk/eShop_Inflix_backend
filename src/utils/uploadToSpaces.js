@@ -10,6 +10,8 @@ const {
     isGarageStorage,
     resolvePublicEndpointUrl,
     resolveS3ApiEndpointUrl,
+    resolveGarageWebRootDomain,
+    buildGarageWebPublicUrl,
     formatS3ConnectionError,
     preloadGarageServerIp,
 } = require("./s3Config");
@@ -92,7 +94,7 @@ function decodeUrlPathSegments(path) {
  * so returned URLs are shorter than `https://{bucket}.{region}.digitaloceanspaces.com/...`.
  * Example: DO_SPACES_PUBLIC_BASE_URL=https://cdn.example.com  →  https://cdn.example.com/aroma/banners/...
  *
- * Garage (path-style): `{endpoint}/{bucket}/{key}`
+ * Garage (s3_web website): `https://{bucket}{webRootDomain}/{key}` — S3 API URLs are not public.
  * DigitalOcean (virtual-host): `https://{bucket}.{host}/{key}`
  */
 function buildPublicUrlForKey(key) {
@@ -105,6 +107,8 @@ function buildPublicUrlForKey(key) {
     }
     const bucket = process.env.DO_SPACES_BUCKET;
     if (isGarageStorage()) {
+        const webUrl = buildGarageWebPublicUrl(bucket, urlKey);
+        if (webUrl) return webUrl;
         const base = normalizeEndpointUrl(resolvePublicEndpointUrl());
         return `${base}/${bucket}/${urlKey}`;
     }
@@ -115,11 +119,34 @@ function buildPublicUrlForKey(key) {
 /**
  * Extract object key from a public URL (custom base, path-style, or virtual-host).
  */
+function extractKeyFromGarageWebHost(parsed, bucket) {
+    const rootDomain = resolveGarageWebRootDomain();
+    if (!rootDomain || !bucket) return null;
+    const suffix = rootDomain.startsWith(".")
+        ? rootDomain.slice(1)
+        : rootDomain;
+    const host = parsed.hostname || "";
+    if (!host.endsWith(suffix) || host.length <= suffix.length + 1) {
+        return null;
+    }
+    const hostBucket = host.slice(0, -(suffix.length + 1));
+    if (hostBucket !== bucket) return null;
+    return normalizeS3ObjectKey(
+        decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""))
+    );
+}
+
 function extractKeyFromPublicUrl(url) {
     try {
         const parsed = new URL(url);
-        let path = decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""));
         const bucket = process.env.DO_SPACES_BUCKET;
+
+        if (isGarageStorage() && bucket) {
+            const webKey = extractKeyFromGarageWebHost(parsed, bucket);
+            if (webKey) return webKey;
+        }
+
+        let path = decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""));
         if (isGarageStorage() && bucket && path.startsWith(`${bucket}/`)) {
             path = path.slice(bucket.length + 1);
         }

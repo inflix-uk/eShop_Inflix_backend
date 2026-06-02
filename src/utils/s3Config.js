@@ -177,6 +177,56 @@ function resolvePublicEndpointUrl() {
     return normalizeEndpointString(raw, { defaultScheme: "https" });
 }
 
+/**
+ * Garage s3_web root_domain (see garage.toml [s3_web] root_domain).
+ * Public objects are served at https://{bucket}{rootDomain}/{key}, not via the S3 API path-style URL.
+ */
+function resolveGarageWebRootDomain() {
+    const explicit = (
+        process.env.GARAGE_WEB_ROOT_DOMAIN ||
+        process.env.DO_SPACES_WEB_ROOT_DOMAIN ||
+        ""
+    ).trim();
+    if (explicit) {
+        return explicit.startsWith(".") ? explicit : `.${explicit}`;
+    }
+
+    const webEndpoint = (
+        process.env.GARAGE_WEB_ENDPOINT ||
+        process.env.DO_SPACES_WEB_ENDPOINT ||
+        ""
+    ).trim();
+    if (webEndpoint) {
+        const host = parseHostnameFromEndpointInput(webEndpoint);
+        return host ? `.${host}` : "";
+    }
+
+    if (!isGarageStorage()) return "";
+    const apiHost = parseHostnameFromEndpointInput(resolvePublicEndpointUrl());
+    return apiHost ? `.${apiHost}` : "";
+}
+
+function resolveGarageWebUrlScheme() {
+    const webEndpoint = (
+        process.env.GARAGE_WEB_ENDPOINT ||
+        process.env.DO_SPACES_WEB_ENDPOINT ||
+        ""
+    ).trim();
+    if (webEndpoint && /^http:\/\//i.test(webEndpoint)) return "http";
+    return "https";
+}
+
+/**
+ * Browser URL for a Garage website bucket (anonymous read on s3_web, port 3902).
+ * Example: bucket spectro, root .s3-foo.sslip.io → https://spectro.s3-foo.sslip.io/uploads/logo/x.png
+ */
+function buildGarageWebPublicUrl(bucket, urlKey) {
+    const rootDomain = resolveGarageWebRootDomain();
+    if (!rootDomain || !bucket || !urlKey) return null;
+    const scheme = resolveGarageWebUrlScheme();
+    return `${scheme}://${bucket}${rootDomain}/${urlKey}`;
+}
+
 function useInternalGarageS3Endpoint() {
     const raw = process.env.DO_SPACES_S3_USE_INTERNAL;
     if (raw !== undefined && String(raw).trim() !== "") {
@@ -459,4 +509,6 @@ module.exports = {
     extractS3RawResponseSnippet,
     shouldAllowInsecureTls,
     parseHostnameFromEndpointInput,
+    resolveGarageWebRootDomain,
+    buildGarageWebPublicUrl,
 };
