@@ -14,7 +14,7 @@ const RequestOrder = require("../models/requestOrder");
 const MediaFile = require("../models/mediaFile");
 const blobStorage = require("../utils/blobStorage");
 const spacesStorage = require("../utils/uploadToSpaces");
-const { formatS3DnsError } = require("../utils/s3Config");
+const { formatS3ConnectionError } = require("../utils/s3Config");
 const { resolveOrderLineImageUrlServer } = require("../utils/orderLineImageUrlServer");
 
 const crypto = require("crypto");
@@ -1015,7 +1015,7 @@ const statsController = {
             });
         } catch (err) {
             console.error("Spaces media list failed:", err);
-            const dnsHint = formatS3DnsError(err);
+            const dnsHint = formatS3ConnectionError(err);
             const status =
                 err.code === "GARAGE_ENDPOINT_UNRESOLVED" ? 503 : 500;
             return res.status(status).json({

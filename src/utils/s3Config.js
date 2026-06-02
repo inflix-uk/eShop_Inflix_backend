@@ -1,5 +1,7 @@
 const dns = require("dns");
+const https = require("https");
 const { S3Client } = require("@aws-sdk/client-s3");
+const { NodeHttpHandler } = require("@smithy/node-http-handler");
 const dnsLookup = dns.promises.lookup;
 
 const S3_STORAGE_PROVIDERS = new Set(["spaces", "digitalocean", "garage"]);
@@ -194,11 +196,43 @@ function getS3Region() {
     return isGarageStorage() ? "garage" : "nyc3";
 }
 
+/**
+ * Coolify/sslip.io Garage endpoints often use self-signed certs.
+ * Opt out with DO_SPACES_TLS_INSECURE=false (or DO_SPACES_TLS_REJECT_UNAUTHORIZED=true).
+ */
+function shouldAllowInsecureTls() {
+    const raw =
+        process.env.DO_SPACES_TLS_INSECURE ??
+        process.env.DO_SPACES_INSECURE_SSL ??
+        process.env.GARAGE_TLS_INSECURE;
+    if (raw !== undefined && String(raw).trim() !== "") {
+        const v = String(raw).trim().toLowerCase();
+        if (["0", "false", "no", "off"].includes(v)) return false;
+        if (["1", "true", "yes", "on"].includes(v)) return true;
+    }
+    const strict =
+        process.env.DO_SPACES_TLS_REJECT_UNAUTHORIZED ??
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    if (strict !== undefined && String(strict).trim() !== "") {
+        return !["1", "true", "yes", "on"].includes(
+            String(strict).trim().toLowerCase()
+        );
+    }
+    return isGarageStorage();
+}
+
+function buildS3RequestHandler() {
+    if (!shouldAllowInsecureTls()) return undefined;
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+    return new NodeHttpHandler({ httpsAgent });
+}
+
 function getClientCacheKey() {
     return [
         resolveEndpointUrl(),
         getS3Region(),
         isGarageStorage(),
+        shouldAllowInsecureTls(),
         process.env.DO_SPACES_KEY || "",
         process.env.DO_SPACES_SECRET || "",
     ].join("|");
@@ -229,7 +263,8 @@ function getS3Client() {
 
     const endpoint = resolveEndpointUrl();
     assertGarageEndpointResolvable(endpoint);
-    cachedClient = new S3Client({
+    const requestHandler = buildS3RequestHandler();
+    const clientConfig = {
         endpoint: endpoint || undefined,
         region: getS3Region(),
         credentials: {
@@ -237,9 +272,29 @@ function getS3Client() {
             secretAccessKey: process.env.DO_SPACES_SECRET,
         },
         forcePathStyle: isGarageStorage(),
-    });
+    };
+    if (requestHandler) {
+        clientConfig.requestHandler = requestHandler;
+        if (process.env.NODE_ENV !== "test") {
+            console.info(
+                "[S3] TLS certificate verification disabled for Garage/Coolify endpoint"
+            );
+        }
+    }
+    cachedClient = new S3Client(clientConfig);
     cachedClientKey = key;
     return cachedClient;
+}
+
+function formatS3TlsError(error) {
+    const msg = error?.message || "";
+    if (!/self[- ]signed certificate|unable to verify the first certificate|UNABLE_TO_VERIFY_LEAF_SIGNATURE/i.test(msg)) {
+        return null;
+    }
+    return (
+        "Garage/Coolify S3 uses a self-signed TLS certificate. Deploy the latest API build (auto-disables TLS verify for STORAGE_PROVIDER=garage) " +
+        "or set DO_SPACES_TLS_INSECURE=true. Prefer a valid cert on your Garage reverse proxy in production."
+    );
 }
 
 function formatS3DnsError(error) {
@@ -269,6 +324,10 @@ function formatS3DnsError(error) {
     return hint;
 }
 
+function formatS3ConnectionError(error) {
+    return formatS3TlsError(error) || formatS3DnsError(error);
+}
+
 module.exports = {
     S3_STORAGE_PROVIDERS,
     normalizeStorageProvider,
@@ -283,5 +342,8 @@ module.exports = {
     getS3ClientAsync,
     getS3Region,
     formatS3DnsError,
+    formatS3TlsError,
+    formatS3ConnectionError,
+    shouldAllowInsecureTls,
     parseHostnameFromEndpointInput,
 };

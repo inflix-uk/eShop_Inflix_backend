@@ -9,7 +9,7 @@ const s3Client = require("./s3");
 const {
     isGarageStorage,
     resolveEndpointUrl,
-    formatS3DnsError,
+    formatS3ConnectionError,
     preloadGarageServerIp,
 } = require("./s3Config");
 
@@ -96,7 +96,7 @@ function extractKeyFromPublicUrl(url) {
 }
 
 function buildSpacesErrorContext(error) {
-    const dnsHint = formatS3DnsError(error);
+    const dnsHint = formatS3ConnectionError(error);
     return {
         message: error?.message || "Unknown Spaces error",
         code: error?.Code || error?.code || null,
