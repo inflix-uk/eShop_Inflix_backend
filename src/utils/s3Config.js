@@ -178,10 +178,33 @@ function resolvePublicEndpointUrl() {
 }
 
 /**
+ * When API and public hosts differ (e.g. s3api.* vs webpreview.*), DO_SPACES_ENDPOINT is the
+ * full browser origin for objects — https://webpreview.example.com/uploads/...
+ */
+function resolveGarageFlatPublicBaseUrl() {
+    const explicit = (process.env.DO_SPACES_PUBLIC_BASE_URL || "").trim();
+    if (explicit) {
+        return normalizeEndpointString(explicit, { defaultScheme: "https" });
+    }
+    const s3Raw = (process.env.DO_SPACES_S3_ENDPOINT || "").trim();
+    const webRaw = (process.env.DO_SPACES_ENDPOINT || "").trim();
+    if (!s3Raw || !webRaw) return "";
+    const s3Host = parseHostnameFromEndpointInput(s3Raw);
+    const webHost = parseHostnameFromEndpointInput(webRaw);
+    if (s3Host && webHost && s3Host !== webHost) {
+        return normalizeEndpointString(webRaw, { defaultScheme: "https" });
+    }
+    return "";
+}
+
+/**
  * Garage s3_web root_domain (see garage.toml [s3_web] root_domain).
  * Public objects are served at https://{bucket}{rootDomain}/{key}, not via the S3 API path-style URL.
+ * Skipped when {@link resolveGarageFlatPublicBaseUrl} applies (split API vs web host).
  */
 function resolveGarageWebRootDomain() {
+    if (resolveGarageFlatPublicBaseUrl()) return "";
+
     const explicit = (
         process.env.GARAGE_WEB_ROOT_DOMAIN ||
         process.env.DO_SPACES_WEB_ROOT_DOMAIN ||
@@ -509,6 +532,7 @@ module.exports = {
     extractS3RawResponseSnippet,
     shouldAllowInsecureTls,
     parseHostnameFromEndpointInput,
+    resolveGarageFlatPublicBaseUrl,
     resolveGarageWebRootDomain,
     buildGarageWebPublicUrl,
 };
