@@ -6,6 +6,7 @@ const {
     CopyObjectCommand,
 } = require("@aws-sdk/client-s3");
 const s3Client = require("./s3");
+const { isGarageStorage } = s3Client;
 
 function sanitizeFilename(fileName = "") {
     return fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -35,10 +36,19 @@ function getPublicBaseUrl() {
     return endpoint.replace(/^https?:\/\//, "");
 }
 
+function normalizeEndpointUrl(endpoint) {
+    const trimmed = String(endpoint || "").trim().replace(/\/+$/, "");
+    if (!trimmed) return "";
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 /**
  * Public URL for an object key. Prefer `DO_SPACES_PUBLIC_BASE_URL` (e.g. short CDN / custom domain)
  * so returned URLs are shorter than `https://{bucket}.{region}.digitaloceanspaces.com/...`.
  * Example: DO_SPACES_PUBLIC_BASE_URL=https://cdn.example.com  →  https://cdn.example.com/aroma/banners/...
+ *
+ * Garage (path-style): `{endpoint}/{bucket}/{key}`
+ * DigitalOcean (virtual-host): `https://{bucket}.{host}/{key}`
  */
 function buildPublicUrlForKey(key) {
     const trimmedKey = String(key || "").replace(/^\/+/, "");
@@ -49,8 +59,29 @@ function buildPublicUrlForKey(key) {
         return `${custom}/${trimmedKey}`;
     }
     const bucket = process.env.DO_SPACES_BUCKET;
+    if (isGarageStorage()) {
+        const base = normalizeEndpointUrl(process.env.DO_SPACES_ENDPOINT);
+        return `${base}/${bucket}/${trimmedKey}`;
+    }
     const host = getPublicBaseUrl();
     return `https://${bucket}.${host}/${trimmedKey}`;
+}
+
+/**
+ * Extract object key from a public URL (custom base, path-style, or virtual-host).
+ */
+function extractKeyFromPublicUrl(url) {
+    try {
+        const parsed = new URL(url);
+        let path = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+        const bucket = process.env.DO_SPACES_BUCKET;
+        if (isGarageStorage() && bucket && path.startsWith(`${bucket}/`)) {
+            path = path.slice(bucket.length + 1);
+        }
+        return path;
+    } catch {
+        return null;
+    }
 }
 
 function buildSpacesErrorContext(error) {
@@ -246,4 +277,5 @@ module.exports = {
     isSpacesUploadPathAllowed,
     stripMainFolderFromKey,
     buildPublicUrlForKey,
+    extractKeyFromPublicUrl,
 };
