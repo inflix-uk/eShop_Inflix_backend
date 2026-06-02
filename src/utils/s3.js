@@ -1,39 +1,30 @@
-const { S3Client } = require("@aws-sdk/client-s3");
+const {
+    getS3Client,
+    isGarageStorage,
+    isS3StorageProvider,
+    normalizeStorageProvider,
+    resolveEndpointUrl,
+    formatS3DnsError,
+} = require("./s3Config");
 
-const S3_STORAGE_PROVIDERS = new Set(["spaces", "digitalocean", "garage"]);
+/** Proxy so existing `require("./s3")` callers keep using `.send()` with lazy, env-aware client. */
+const s3ClientProxy = new Proxy(
+    {},
+    {
+        get(_target, prop) {
+            if (prop === "isGarageStorage") return isGarageStorage;
+            if (prop === "isS3StorageProvider") return isS3StorageProvider;
+            if (prop === "normalizeStorageProvider")
+                return normalizeStorageProvider;
+            if (prop === "resolveEndpointUrl") return resolveEndpointUrl;
+            if (prop === "formatS3DnsError") return formatS3DnsError;
+            if (prop === "getS3Client") return getS3Client;
 
-function normalizeStorageProvider() {
-    const raw = (process.env.STORAGE_PROVIDER || "digitalocean")
-        .trim()
-        .toLowerCase();
-    if (raw === "spaces") return "digitalocean";
-    return raw;
-}
+            const client = getS3Client();
+            const value = client[prop];
+            return typeof value === "function" ? value.bind(client) : value;
+        },
+    }
+);
 
-function isGarageStorage() {
-    return normalizeStorageProvider() === "garage";
-}
-
-function isS3StorageProvider() {
-    return S3_STORAGE_PROVIDERS.has(
-        (process.env.STORAGE_PROVIDER || "digitalocean").trim().toLowerCase()
-    );
-}
-
-const isGarage = isGarageStorage();
-
-const s3Client = new S3Client({
-    endpoint: process.env.DO_SPACES_ENDPOINT,
-    region:
-        process.env.DO_SPACES_REGION || (isGarage ? "garage" : "nyc3"),
-    credentials: {
-        accessKeyId: process.env.DO_SPACES_KEY,
-        secretAccessKey: process.env.DO_SPACES_SECRET,
-    },
-    forcePathStyle: isGarage,
-});
-
-module.exports = s3Client;
-module.exports.isGarageStorage = isGarageStorage;
-module.exports.isS3StorageProvider = isS3StorageProvider;
-module.exports.normalizeStorageProvider = normalizeStorageProvider;
+module.exports = s3ClientProxy;

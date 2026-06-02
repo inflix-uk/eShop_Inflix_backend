@@ -6,7 +6,11 @@ const {
     CopyObjectCommand,
 } = require("@aws-sdk/client-s3");
 const s3Client = require("./s3");
-const { isGarageStorage } = s3Client;
+const {
+    isGarageStorage,
+    resolveEndpointUrl,
+    formatS3DnsError,
+} = require("./s3Config");
 
 function sanitizeFilename(fileName = "") {
     return fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -32,12 +36,14 @@ function buildCompactFilename(originalName = "") {
 }
 
 function getPublicBaseUrl() {
-    const endpoint = process.env.DO_SPACES_ENDPOINT || "";
+    const endpoint = resolveEndpointUrl() || process.env.DO_SPACES_ENDPOINT || "";
     return endpoint.replace(/^https?:\/\//, "");
 }
 
 function normalizeEndpointUrl(endpoint) {
-    const trimmed = String(endpoint || "").trim().replace(/\/+$/, "");
+    const trimmed = String(endpoint || resolveEndpointUrl() || "")
+        .trim()
+        .replace(/\/+$/, "");
     if (!trimmed) return "";
     return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
@@ -60,7 +66,7 @@ function buildPublicUrlForKey(key) {
     }
     const bucket = process.env.DO_SPACES_BUCKET;
     if (isGarageStorage()) {
-        const base = normalizeEndpointUrl(process.env.DO_SPACES_ENDPOINT);
+        const base = normalizeEndpointUrl(resolveEndpointUrl());
         return `${base}/${bucket}/${trimmedKey}`;
     }
     const host = getPublicBaseUrl();
@@ -85,12 +91,16 @@ function extractKeyFromPublicUrl(url) {
 }
 
 function buildSpacesErrorContext(error) {
+    const dnsHint = formatS3DnsError(error);
     return {
         message: error?.message || "Unknown Spaces error",
         code: error?.Code || error?.code || null,
         statusCode: error?.$metadata?.httpStatusCode || null,
         requestId: error?.RequestId || error?.$metadata?.requestId || null,
         hostId: error?.HostId || null,
+        endpoint: resolveEndpointUrl() || process.env.DO_SPACES_ENDPOINT || null,
+        storageProvider: process.env.STORAGE_PROVIDER || null,
+        ...(dnsHint ? { hint: dnsHint } : {}),
     };
 }
 
@@ -144,7 +154,7 @@ async function uploadFile(file, folder) {
         console.error("[Spaces Upload Error]", {
             ...buildSpacesErrorContext(error),
             bucket,
-            endpoint: process.env.DO_SPACES_ENDPOINT || null,
+            endpoint: resolveEndpointUrl() || null,
             folder: normalizedFolder,
             key,
             originalName: file.originalname,
@@ -170,7 +180,7 @@ async function deleteFile(key) {
         console.error("[Spaces Delete Error]", {
             ...buildSpacesErrorContext(error),
             bucket,
-            endpoint: process.env.DO_SPACES_ENDPOINT || null,
+            endpoint: resolveEndpointUrl() || null,
             key,
         });
         throw error;
