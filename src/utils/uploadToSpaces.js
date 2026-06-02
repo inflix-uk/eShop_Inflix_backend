@@ -8,7 +8,8 @@ const {
 const s3Client = require("./s3");
 const {
     isGarageStorage,
-    resolveEndpointUrl,
+    resolvePublicEndpointUrl,
+    resolveS3ApiEndpointUrl,
     formatS3ConnectionError,
     preloadGarageServerIp,
 } = require("./s3Config");
@@ -41,12 +42,13 @@ function buildCompactFilename(originalName = "") {
 }
 
 function getPublicBaseUrl() {
-    const endpoint = resolveEndpointUrl() || process.env.DO_SPACES_ENDPOINT || "";
+    const endpoint =
+        resolvePublicEndpointUrl() || process.env.DO_SPACES_ENDPOINT || "";
     return endpoint.replace(/^https?:\/\//, "");
 }
 
 function normalizeEndpointUrl(endpoint) {
-    const trimmed = String(endpoint || resolveEndpointUrl() || "")
+    const trimmed = String(endpoint || resolvePublicEndpointUrl() || "")
         .trim()
         .replace(/\/+$/, "");
     if (!trimmed) return "";
@@ -71,7 +73,7 @@ function buildPublicUrlForKey(key) {
     }
     const bucket = process.env.DO_SPACES_BUCKET;
     if (isGarageStorage()) {
-        const base = normalizeEndpointUrl(resolveEndpointUrl());
+        const base = normalizeEndpointUrl(resolvePublicEndpointUrl());
         return `${base}/${bucket}/${trimmedKey}`;
     }
     const host = getPublicBaseUrl();
@@ -103,7 +105,7 @@ function buildSpacesErrorContext(error) {
         statusCode: error?.$metadata?.httpStatusCode || null,
         requestId: error?.RequestId || error?.$metadata?.requestId || null,
         hostId: error?.HostId || null,
-        endpoint: resolveEndpointUrl() || process.env.DO_SPACES_ENDPOINT || null,
+        endpoint: resolveS3ApiEndpointUrl() || null,
         storageProvider: process.env.STORAGE_PROVIDER || null,
         ...(dnsHint ? { hint: dnsHint } : {}),
     };
@@ -160,7 +162,7 @@ async function uploadFile(file, folder) {
         console.error("[Spaces Upload Error]", {
             ...buildSpacesErrorContext(error),
             bucket,
-            endpoint: resolveEndpointUrl() || null,
+            endpoint: resolveS3ApiEndpointUrl() || null,
             folder: normalizedFolder,
             key,
             originalName: file.originalname,
@@ -187,7 +189,7 @@ async function deleteFile(key) {
         console.error("[Spaces Delete Error]", {
             ...buildSpacesErrorContext(error),
             bucket,
-            endpoint: resolveEndpointUrl() || null,
+            endpoint: resolveS3ApiEndpointUrl() || null,
             key,
         });
         throw error;
@@ -255,13 +257,17 @@ async function listAllObjects() {
     let ContinuationToken;
     try {
         do {
+            const listInput = {
+                Bucket: bucket,
+                Prefix: prefix || undefined,
+                MaxKeys: 1000,
+                ContinuationToken,
+            };
+            if (isGarageStorage()) {
+                listInput.EncodingType = "url";
+            }
             const resp = await s3Client.send(
-                new ListObjectsV2Command({
-                    Bucket: bucket,
-                    Prefix: prefix || undefined,
-                    MaxKeys: 1000,
-                    ContinuationToken,
-                })
+                new ListObjectsV2Command(listInput)
             );
             if (resp.Contents && resp.Contents.length > 0) {
                 for (const obj of resp.Contents) {

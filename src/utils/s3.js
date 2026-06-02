@@ -4,6 +4,8 @@ const {
     isS3StorageProvider,
     normalizeStorageProvider,
     resolveEndpointUrl,
+    resolvePublicEndpointUrl,
+    resolveS3ApiEndpointUrl,
     formatS3DnsError,
 } = require("./s3Config");
 
@@ -17,6 +19,9 @@ const s3ClientProxy = new Proxy(
             if (prop === "normalizeStorageProvider")
                 return normalizeStorageProvider;
             if (prop === "resolveEndpointUrl") return resolveEndpointUrl;
+            if (prop === "resolvePublicEndpointUrl")
+                return resolvePublicEndpointUrl;
+            if (prop === "resolveS3ApiEndpointUrl") return resolveS3ApiEndpointUrl;
             if (prop === "formatS3DnsError") return formatS3DnsError;
             if (prop === "getS3Client") return getS3Client;
 

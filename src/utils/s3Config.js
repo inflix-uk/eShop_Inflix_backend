@@ -160,19 +160,82 @@ function expandBareGarageEndpoint(raw) {
     return expanded;
 }
 
-function resolveEndpointUrl() {
-    const raw = (
-        process.env.DO_SPACES_S3_ENDPOINT ||
-        process.env.DO_SPACES_ENDPOINT ||
-        ""
-    ).trim();
-    if (!raw) return "";
-
-    let endpoint = expandBareGarageEndpoint(raw);
+function normalizeEndpointString(raw, { defaultScheme = "https" } = {}) {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) return "";
+    let endpoint = expandBareGarageEndpoint(trimmed);
     if (!/^https?:\/\//i.test(endpoint)) {
-        endpoint = `https://${endpoint}`;
+        endpoint = `${defaultScheme}://${endpoint}`;
     }
     return endpoint.replace(/\/+$/, "");
+}
+
+/** HTTPS/sslip URL for browser-facing object links (Coolify proxy). */
+function resolvePublicEndpointUrl() {
+    const raw = (process.env.DO_SPACES_ENDPOINT || "").trim();
+    if (!raw) return "";
+    return normalizeEndpointString(raw, { defaultScheme: "https" });
+}
+
+function useInternalGarageS3Endpoint() {
+    const raw = process.env.DO_SPACES_S3_USE_INTERNAL;
+    if (raw !== undefined && String(raw).trim() !== "") {
+        return !["0", "false", "no", "off"].includes(
+            String(raw).trim().toLowerCase()
+        );
+    }
+    return (
+        normalizeStorageProvider() === "garage" ||
+        needsBareGarageEndpointExpansion() ||
+        endpointHostnameLooksLikeGarage(
+            parseHostnameFromEndpointInput(process.env.DO_SPACES_ENDPOINT)
+        )
+    );
+}
+
+/**
+ * S3 API URL for the AWS SDK. Prefer internal HTTP :3900 (real Garage API);
+ * Coolify HTTPS sslip routes often return non-XML (e.g. JSON "null").
+ */
+function resolveS3ApiEndpointUrl() {
+    const s3Explicit = (process.env.DO_SPACES_S3_ENDPOINT || "").trim();
+    if (s3Explicit) {
+        return normalizeEndpointString(s3Explicit, {
+            defaultScheme: s3Explicit.includes(":") ? "http" : "https",
+        });
+    }
+
+    if (useInternalGarageS3Endpoint()) {
+        const internalHost = (
+            process.env.DO_SPACES_S3_INTERNAL_HOST ||
+            process.env.GARAGE_S3_HOST ||
+            ""
+        ).trim();
+        const port = (process.env.DO_SPACES_S3_PORT || "3900").trim();
+        if (internalHost) {
+            if (/^https?:\/\//i.test(internalHost)) {
+                return internalHost.replace(/\/+$/, "");
+            }
+            return `http://${internalHost.replace(/\/+$/, "")}:${port}`;
+        }
+        const ip = inferGarageServerIp();
+        if (ip) {
+            const internal = `http://${ip}:${port}`;
+            if (process.env.NODE_ENV !== "test") {
+                console.info(
+                    `[S3] Using internal Garage S3 API at ${internal} (set DO_SPACES_S3_ENDPOINT to override)`
+                );
+            }
+            return internal;
+        }
+    }
+
+    return resolvePublicEndpointUrl();
+}
+
+/** @deprecated Alias for public URL; SDK uses {@link resolveS3ApiEndpointUrl}. */
+function resolveEndpointUrl() {
+    return resolvePublicEndpointUrl();
 }
 
 function endpointHostnameLooksLikeGarage(hostname) {
@@ -181,8 +244,12 @@ function endpointHostnameLooksLikeGarage(hostname) {
 
 function isGarageStorage() {
     if (normalizeStorageProvider() === "garage") return true;
-    const host = parseHostnameFromEndpointInput(resolveEndpointUrl());
-    return endpointHostnameLooksLikeGarage(host);
+    const hosts = [
+        parseHostnameFromEndpointInput(process.env.DO_SPACES_ENDPOINT),
+        parseHostnameFromEndpointInput(process.env.DO_SPACES_S3_ENDPOINT),
+        parseHostnameFromEndpointInput(resolveS3ApiEndpointUrl()),
+    ];
+    return hosts.some(endpointHostnameLooksLikeGarage);
 }
 
 function isS3StorageProvider() {
@@ -218,7 +285,8 @@ function shouldAllowInsecureTls() {
             String(strict).trim().toLowerCase()
         );
     }
-    return isGarageStorage();
+    const apiEndpoint = resolveS3ApiEndpointUrl();
+    return isGarageStorage() && /^https:/i.test(apiEndpoint);
 }
 
 function buildS3RequestHandler() {
@@ -229,7 +297,7 @@ function buildS3RequestHandler() {
 
 function getClientCacheKey() {
     return [
-        resolveEndpointUrl(),
+        resolveS3ApiEndpointUrl(),
         getS3Region(),
         isGarageStorage(),
         shouldAllowInsecureTls(),
@@ -241,6 +309,7 @@ function getClientCacheKey() {
 function assertGarageEndpointResolvable(endpoint) {
     const host = parseHostnameFromEndpointInput(endpoint);
     if (!endpointHostnameLooksLikeGarage(host) || host.includes(".")) return;
+    if (useInternalGarageS3Endpoint() && inferGarageServerIp()) return;
     const err = new Error(
         `Garage S3 endpoint "${host}" is not a public hostname. Set DO_SPACES_ENDPOINT to the full Coolify S3 URL ` +
             `(e.g. https://${host}.31.97.59.14.sslip.io), or set DO_SPACES_SERVER_IP / DO_SPACES_ENDPOINT_SUFFIX, ` +
@@ -261,7 +330,7 @@ function getS3Client() {
         return cachedClient;
     }
 
-    const endpoint = resolveEndpointUrl();
+    const endpoint = resolveS3ApiEndpointUrl();
     assertGarageEndpointResolvable(endpoint);
     const requestHandler = buildS3RequestHandler();
     const clientConfig = {
@@ -297,6 +366,39 @@ function formatS3TlsError(error) {
     );
 }
 
+function extractS3RawResponseSnippet(error) {
+    try {
+        const body = error?.$response?.body;
+        if (!body) return null;
+        const text =
+            typeof body === "string"
+                ? body
+                : Buffer.isBuffer(body)
+                  ? body.toString("utf8")
+                  : body instanceof Uint8Array
+                    ? Buffer.from(body).toString("utf8")
+                    : null;
+        if (!text) return null;
+        return text.trim().slice(0, 400);
+    } catch {
+        return null;
+    }
+}
+
+function formatS3DeserializationError(error) {
+    const msg = error?.message || "";
+    if (!/deserialization error|char .* is not expected/i.test(msg)) {
+        return null;
+    }
+    const raw = extractS3RawResponseSnippet(error);
+    const status = error?.$response?.statusCode;
+    let hint =
+        "The S3 API returned a non-XML response (wrong URL or proxy). For Coolify/Garage, set DO_SPACES_S3_ENDPOINT to the internal S3 API, e.g. http://127.0.0.1:3900 or http://<docker-service-name>:3900. Keep DO_SPACES_ENDPOINT for public browser URLs.";
+    if (status) hint += ` HTTP ${status}.`;
+    if (raw) hint += ` Response preview: ${raw}`;
+    return hint;
+}
+
 function formatS3DnsError(error) {
     const code = error?.code || error?.errno || "";
     const msg = error?.message || "";
@@ -305,7 +407,10 @@ function formatS3DnsError(error) {
     ) {
         return null;
     }
-    const endpoint = resolveEndpointUrl() || process.env.DO_SPACES_ENDPOINT || "";
+    const endpoint =
+        resolveS3ApiEndpointUrl() ||
+        process.env.DO_SPACES_ENDPOINT ||
+        "";
     const host = parseHostnameFromEndpointInput(endpoint);
     const inferredIp = inferGarageServerIp();
     let hint =
@@ -325,13 +430,19 @@ function formatS3DnsError(error) {
 }
 
 function formatS3ConnectionError(error) {
-    return formatS3TlsError(error) || formatS3DnsError(error);
+    return (
+        formatS3DeserializationError(error) ||
+        formatS3TlsError(error) ||
+        formatS3DnsError(error)
+    );
 }
 
 module.exports = {
     S3_STORAGE_PROVIDERS,
     normalizeStorageProvider,
     resolveEndpointUrl,
+    resolvePublicEndpointUrl,
+    resolveS3ApiEndpointUrl,
     expandBareGarageEndpoint,
     inferGarageServerIp,
     preloadGarageServerIp,
@@ -343,7 +454,9 @@ module.exports = {
     getS3Region,
     formatS3DnsError,
     formatS3TlsError,
+    formatS3DeserializationError,
     formatS3ConnectionError,
+    extractS3RawResponseSnippet,
     shouldAllowInsecureTls,
     parseHostnameFromEndpointInput,
 };
