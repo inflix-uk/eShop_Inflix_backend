@@ -22,6 +22,45 @@ async function ensureS3Ready() {
     await preloadGarageServerIp();
 }
 
+const DEFAULT_MAIN_FOLDER = "uploads";
+
+/** Trimmed MAIN_FOLDER, or empty when unset/invalid (never the literal "undefined"). */
+function getMainFolderPrefix() {
+    const main = String(process.env.MAIN_FOLDER ?? "")
+        .trim()
+        .replace(/^\/+|\/+$/g, "");
+    if (!main || main === "undefined") return "";
+    return main;
+}
+
+/** Prefix used in S3 object keys (defaults to uploads when MAIN_FOLDER is unset). */
+function getStorageKeyPrefix() {
+    return getMainFolderPrefix() || DEFAULT_MAIN_FOLDER;
+}
+
+/** Remove legacy `undefined/` keys and leading slashes. */
+function normalizeStorageKey(key) {
+    return String(key || "")
+        .replace(/^\/+/, "")
+        .replace(/^undefined\//, "");
+}
+
+function buildObjectKey(normalizedFolder, fileName) {
+    const prefix = getStorageKeyPrefix();
+    return `${prefix}/${normalizedFolder}/${fileName}`;
+}
+
+function getBackendPublicBase() {
+    const base = (
+        process.env.DO_SPACES_PUBLIC_BASE_URL ||
+        process.env.BACKEND_URL ||
+        ""
+    )
+        .trim()
+        .replace(/\/+$/, "");
+    return base;
+}
+
 function sanitizeFilename(fileName = "") {
     return fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
 }
@@ -61,8 +100,7 @@ function normalizeEndpointUrl(endpoint) {
 
 /** S3 object keys use literal `/` separators — never `%2F` in the key string sent to PutObject/List/Delete. */
 function normalizeS3ObjectKey(key) {
-    return String(key || "")
-        .replace(/^\/+/, "")
+    return normalizeStorageKey(String(key || ""))
         .replace(/\\/g, "/")
         .replace(/%2F/gi, "/");
 }
@@ -101,23 +139,29 @@ function decodeUrlPathSegments(path) {
  */
 function buildPublicUrlForKey(key) {
     const urlKey = encodePublicUrlKeyPath(key);
+    if (!urlKey) return "";
+
     const custom = (process.env.DO_SPACES_PUBLIC_BASE_URL || "")
         .trim()
         .replace(/\/+$/, "");
     if (custom) {
         return `${custom}/${urlKey}`;
     }
-    const bucket = process.env.DO_SPACES_BUCKET;
+
     if (isGarageStorage()) {
-        const apiBase = resolveGarageApiMediaBaseUrl();
+        const apiBase =
+            resolveGarageApiMediaBaseUrl() || getBackendPublicBase();
         if (apiBase) return `${apiBase}/${urlKey}`;
         const flatBase = resolveGarageFlatPublicBaseUrl();
         if (flatBase) return `${flatBase}/${urlKey}`;
+        const bucket = process.env.DO_SPACES_BUCKET;
         const webUrl = buildGarageWebPublicUrl(bucket, urlKey);
         if (webUrl) return webUrl;
         const base = normalizeEndpointUrl(resolvePublicEndpointUrl());
         return `${base}/${bucket}/${urlKey}`;
     }
+
+    const bucket = process.env.DO_SPACES_BUCKET;
     const host = getPublicBaseUrl();
     return `https://${bucket}.${host}/${urlKey}`;
 }
@@ -232,7 +276,7 @@ async function uploadFile(file, folder) {
     const normalizedFolder = validateFolder(folder);
     const fileName = buildCompactFilename(file.originalname);
     const key = normalizeS3ObjectKey(
-        `${process.env.MAIN_FOLDER}/${normalizedFolder}/${fileName}`
+        buildObjectKey(normalizedFolder, fileName)
     );
     const bucket = process.env.DO_SPACES_BUCKET;
 
@@ -334,8 +378,7 @@ function isSpacesListConfigured() {
 }
 
 function getListPrefix() {
-    const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
-    return main ? `${main.replace(/\/$/, "")}/` : "";
+    return `${getStorageKeyPrefix()}/`;
 }
 
 /**
@@ -380,10 +423,13 @@ async function listAllObjects() {
 }
 
 function stripMainFolderFromKey(key) {
-    const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
-    if (!main) return key;
-    const p = `${main}/`;
-    return key.startsWith(p) ? key.slice(p.length) : key;
+    const normalized = normalizeStorageKey(key);
+    const prefix = getStorageKeyPrefix();
+    const p = `${prefix}/`;
+    if (normalized.startsWith(p)) {
+        return normalized.slice(p.length);
+    }
+    return normalized;
 }
 
 module.exports = {
@@ -395,6 +441,10 @@ module.exports = {
     isSpacesUploadPathAllowed,
     stripMainFolderFromKey,
     buildPublicUrlForKey,
+    buildObjectKey,
+    getStorageKeyPrefix,
+    getMainFolderPrefix,
+    normalizeStorageKey,
     extractKeyFromPublicUrl,
     normalizeS3ObjectKey,
 };
