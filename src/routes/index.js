@@ -942,6 +942,37 @@ router.get(
 );
 
 // ========================================================================
+// CRM — Customer 360 (admin)
+// ========================================================================
+const customer360Controller = require('../controller/customer360Controller');
+router.get('/admin/crm/customers', requireAdmin, customer360Controller.listCustomers);
+router.get(
+  '/admin/crm/customers/:userId/360',
+  requireAdmin,
+  customer360Controller.getCustomer360
+);
+router.get(
+  '/admin/crm/customers/:userId/notes',
+  requireAdmin,
+  customer360Controller.listNotes
+);
+router.post(
+  '/admin/crm/customers/:userId/notes',
+  requireAdmin,
+  customer360Controller.createNote
+);
+router.patch(
+  '/admin/crm/customers/:userId/notes/:noteId',
+  requireAdmin,
+  customer360Controller.updateNote
+);
+router.delete(
+  '/admin/crm/customers/:userId/notes/:noteId',
+  requireAdmin,
+  customer360Controller.deleteNote
+);
+
+// ========================================================================
 // CRON JOB ROUTES
 // ========================================================================
 router.use('/cron', cronRoutes);

@@ -6,6 +6,7 @@ const PricingGroup = require("../models/pricingGroup");
 const User = require("../models/user");
 const UserProductPrice = require("../models/userProductPrice");
 const { computeVariantKey } = require("../utils/pricingVariantKey");
+const { applyBrandFilterToQuery, isUnassignedBrandFilter } = require("../utils/productBrandFilters");
 const productCategory = require("../models/productCategories");
 
 const bcrypt = require("bcrypt");
@@ -1953,10 +1954,13 @@ const adminProductController = {
             // Build filter query
             let filterQuery = { isdeleted: { $ne: true } };
 
-            // Add brand filter if provided (case-insensitive)
             if (brandFilter) {
-                filterQuery.brand = { $regex: new RegExp(`^${brandFilter}$`, 'i') };
+                filterQuery = applyBrandFilterToQuery(filterQuery, brandFilter);
             }
+
+            const brandLabel = isUnassignedBrandFilter(brandFilter)
+              ? 'unassigned brand'
+              : brandFilter;
 
             // Fetch products and count in parallel for better performance
             // Use explicit field selection (faster than exclusion)
@@ -2003,7 +2007,7 @@ const adminProductController = {
 
             // Send response with status code 200
             res.status(201).json({
-              message: `Batch of products retrieved${brandFilter ? ` for brand: ${brandFilter}` : ''}`,
+              message: `Batch of products retrieved${brandFilter ? ` for ${brandLabel}` : ''}`,
               products,
               totalProductsCount,
               status: 201,
