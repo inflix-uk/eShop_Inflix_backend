@@ -12,13 +12,28 @@ function normalizePresets(raw) {
   return { ...raw };
 }
 
+/** Logo is managed in Logo Management — never persist navbar-local logoUrl. */
+function withoutNavbarLogoOverride(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
+  return { ...config, logoUrl: '' };
+}
+
+function sanitizePresets(presets) {
+  const normalized = normalizePresets(presets);
+  const next = {};
+  for (const [key, value] of Object.entries(normalized)) {
+    next[key] = withoutNavbarLogoOverride(value);
+  }
+  return next;
+}
+
 const getNavbarVariantTestPublic = async (req, res) => {
   try {
     const doc = await NavbarVariantTest.findOne().lean();
     return res.status(200).json({
       success: true,
       data: {
-        config: doc?.config || null,
+        config: withoutNavbarLogoOverride(doc?.config || null),
         updatedAt: doc?.updatedAt || null,
       },
     });
@@ -37,8 +52,8 @@ const getNavbarVariantTestAdmin = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
-        config: doc?.config || null,
-        presets: normalizePresets(doc?.presets),
+        config: withoutNavbarLogoOverride(doc?.config || null),
+        presets: sanitizePresets(doc?.presets),
         updatedAt: doc?.updatedAt || null,
       },
     });
@@ -69,17 +84,19 @@ const putNavbarVariantTest = async (req, res) => {
       });
     }
 
+    const sanitizedConfig = withoutNavbarLogoOverride(config);
+
     const existing = await NavbarVariantTest.findOne().lean();
-    let presets = normalizePresets(existing?.presets);
+    let presets = sanitizePresets(existing?.presets);
     const legacyKey = presetKeyFromConfig(existing?.config);
     if (Object.keys(presets).length === 0 && legacyKey && existing?.config) {
-      presets[legacyKey] = existing.config;
+      presets[legacyKey] = withoutNavbarLogoOverride(existing.config);
     }
-    presets[presetKey] = config;
+    presets[presetKey] = sanitizedConfig;
 
     const doc = await NavbarVariantTest.findOneAndUpdate(
       {},
-      { config, presets },
+      { config: sanitizedConfig, presets },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).lean();
 
@@ -87,8 +104,8 @@ const putNavbarVariantTest = async (req, res) => {
       success: true,
       message: 'Navbar variant test config saved',
       data: {
-        config: doc?.config || null,
-        presets: normalizePresets(doc?.presets),
+        config: withoutNavbarLogoOverride(doc?.config || null),
+        presets: sanitizePresets(doc?.presets),
         updatedAt: doc?.updatedAt || null,
       },
     });
