@@ -2,7 +2,12 @@ const UNASSIGNED_BRAND_KEY = '__unassigned__';
 
 function unassignedBrandQuery() {
   return {
-    $or: [{ brand: null }, { brand: '' }, { brand: { $exists: false } }],
+    $or: [
+      { brand: null },
+      { brand: '' },
+      { brand: { $exists: false } },
+      { brand: { $regex: /^\s*$/ } },
+    ],
   };
 }
 
