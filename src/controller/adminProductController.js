@@ -451,41 +451,55 @@ const adminProductController = {
                 return res.json({ message: 'Product not found', status: 404 });
             }
 
-            // First, merge duplicate groups with same name and remove duplicate images
+            const normalizeSlug = (slug) => {
+                if (!slug) return '';
+                return String(slug)
+                    .toLowerCase()
+                    .trim()
+                    .replace(/^variant\s+/i, '')
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '')
+                    .replace(/-+/g, '-');
+            };
+
+            const targetKey = normalizeSlug(optionSlug);
+
+            // First, merge duplicate groups with same normalized name and remove duplicate images
             const mergedGroups = {};
             (product.varImgGroup || []).forEach(group => {
-                if (!mergedGroups[group.name]) {
-                    mergedGroups[group.name] = {
-                        name: group.name,
+                const key = normalizeSlug(group.name);
+                if (!key) return;
+
+                if (!mergedGroups[key]) {
+                    mergedGroups[key] = {
+                        name: key,
                         varImg: [],
                         _id: group._id
                     };
                 }
-                // Add unique images only (by url or path)
                 (group.varImg || []).forEach(img => {
-                    const exists = mergedGroups[group.name].varImg.some(
+                    const exists = mergedGroups[key].varImg.some(
                         existing => existing.url === img.url || existing.path === img.path
                     );
                     if (!exists) {
-                        mergedGroups[group.name].varImg.push(img);
+                        mergedGroups[key].varImg.push(img);
                     }
                 });
             });
 
-            // Now delete the image at the specified index from the target group
-            if (mergedGroups[optionSlug]) {
-                const varImg = mergedGroups[optionSlug].varImg;
+            if (mergedGroups[targetKey]) {
+                const varImg = mergedGroups[targetKey].varImg;
                 if (imageIndex >= 0 && imageIndex < varImg.length) {
                     varImg.splice(imageIndex, 1);
                 }
             }
 
-            // Convert back to array
             const updatedVarImgGroup = Object.values(mergedGroups);
 
-            // Update variantValues - remove image at index from matching variants
             const updatedVariantValues = (product.variantValues || []).map(variant => {
-                if (variant.name && variant.name.includes(optionSlug)) {
+                const parts = String(variant.name || '').split('-');
+                const matchesOption = parts.some((part) => normalizeSlug(part) === targetKey);
+                if (matchesOption) {
                     const updatedImages = [...(variant.variantImages || [])];
                     if (imageIndex >= 0 && imageIndex < updatedImages.length) {
                         updatedImages.splice(imageIndex, 1);
