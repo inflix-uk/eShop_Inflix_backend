@@ -104,6 +104,7 @@ async function uploadFile(file, folder) {
                 Body: file.buffer,
                 ContentType: file.mimetype,
                 ACL: "public-read",
+                CacheControl: "public, max-age=31536000, immutable",
             })
         );
 
@@ -165,7 +166,8 @@ async function copyObject(sourceKey, destinationKey) {
                 Key: destinationKey,
                 CopySource: copySource,
                 ACL: "public-read",
-                MetadataDirective: "COPY",
+                MetadataDirective: "REPLACE",
+                CacheControl: "public, max-age=31536000, immutable",
             })
         );
     } catch (error) {

@@ -1,14 +1,14 @@
 const sharp = require("sharp");
 
-const QUALITY = 70;
+const QUALITY = 95;
 /** Only run WebP conversion (resize + encode) when original is larger than this. */
 const WEBP_CONVERSION_MIN_BYTES = 2 * 1024 * 1024; // 2 MiB
 
 function resolveMaxWidth(folder = "") {
     const normalized = String(folder).toLowerCase();
-    if (normalized.includes("product")) return 500;
-    if (normalized.includes("banner")) return 1200;
-    return 800;
+    if (normalized.includes("product")) return 800;
+    if (normalized.includes("banner")) return 1920;
+    return 1200;
 }
 
 async function optimizeImageForUpload(file, folder = "") {

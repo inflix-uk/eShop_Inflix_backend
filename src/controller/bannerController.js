@@ -48,11 +48,13 @@ const fileFilter = (req, file, cb) => {
         }
         return;
     }
-    const allowedTypes = /\.(jpg|jpeg|png|webp)$/i;
-    if (allowedTypes.test(file.originalname)) {
+    const allowedTypes = /\.(jpg|jpeg|png|webp|gif)$/i;
+    const isValidExtension = allowedTypes.test(file.originalname);
+    const isValidMimetype = file.mimetype && file.mimetype.startsWith('image/');
+    if (isValidExtension || isValidMimetype) {
         cb(null, true);
     } else {
-        cb(new Error('Only image files are allowed (jpg, jpeg, png, webp)'), false);
+        cb(new Error('Only image files are allowed (jpg, jpeg, png, webp, gif)'), false);
     }
 };
 
