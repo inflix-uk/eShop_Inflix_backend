@@ -170,6 +170,30 @@ function validateBackgroundMedia(data, errors) {
         if (!data.imageSmall || String(data.imageSmall).trim() === '') {
             errors.push('imageSmall is required');
         }
+        const dimPairs = [
+            ['imageLargeWidthPx', 'imageLargeHeightPx', 'desktop'],
+            ['imageSmallWidthPx', 'imageSmallHeightPx', 'mobile'],
+        ];
+        for (const [wKey, hKey, label] of dimPairs) {
+            const w = Number(data[wKey]);
+            const h = Number(data[hKey]);
+            if (
+                data[wKey] !== undefined &&
+                data[wKey] !== null &&
+                data[wKey] !== '' &&
+                (!Number.isFinite(w) || w <= 0)
+            ) {
+                errors.push(`${wKey} must be a positive number for ${label} hero image`);
+            }
+            if (
+                data[hKey] !== undefined &&
+                data[hKey] !== null &&
+                data[hKey] !== '' &&
+                (!Number.isFinite(h) || h <= 0)
+            ) {
+                errors.push(`${hKey} must be a positive number for ${label} hero image`);
+            }
+        }
     }
     if (data.overlayColor && !isValidHexColor(data.overlayColor)) {
         errors.push('overlayColor must be a valid hex color (#RRGGBB)');
@@ -198,6 +222,37 @@ function validateBackgroundMedia(data, errors) {
             }
         }
     }
+}
+
+const DEFAULT_IMAGE_LARGE_W = 1200;
+const DEFAULT_IMAGE_LARGE_H = 417;
+const DEFAULT_IMAGE_SMALL_W = 1080;
+const DEFAULT_IMAGE_SMALL_H = 1920;
+
+function clampBannerImagePx(value, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.min(3840, Math.max(1, Math.round(n)));
+}
+
+function normalizeImageDimensionFields(data) {
+    if (!data || data.backgroundMedia === 'video') return;
+    data.imageLargeWidthPx = clampBannerImagePx(
+        data.imageLargeWidthPx,
+        DEFAULT_IMAGE_LARGE_W
+    );
+    data.imageLargeHeightPx = clampBannerImagePx(
+        data.imageLargeHeightPx,
+        DEFAULT_IMAGE_LARGE_H
+    );
+    data.imageSmallWidthPx = clampBannerImagePx(
+        data.imageSmallWidthPx,
+        DEFAULT_IMAGE_SMALL_W
+    );
+    data.imageSmallHeightPx = clampBannerImagePx(
+        data.imageSmallHeightPx,
+        DEFAULT_IMAGE_SMALL_H
+    );
 }
 
 function normalizeVideoLayoutFields(data) {
@@ -439,6 +494,24 @@ function ensureBannerMediaDefaults(banner) {
     }
     if (!banner.videoDesktopLayout) banner.videoDesktopLayout = 'hero';
     if (!banner.videoMobileLayout) banner.videoMobileLayout = 'hero';
+    if (banner.backgroundMedia !== 'video') {
+        banner.imageLargeWidthPx = clampBannerImagePx(
+            banner.imageLargeWidthPx,
+            DEFAULT_IMAGE_LARGE_W
+        );
+        banner.imageLargeHeightPx = clampBannerImagePx(
+            banner.imageLargeHeightPx,
+            DEFAULT_IMAGE_LARGE_H
+        );
+        banner.imageSmallWidthPx = clampBannerImagePx(
+            banner.imageSmallWidthPx,
+            DEFAULT_IMAGE_SMALL_W
+        );
+        banner.imageSmallHeightPx = clampBannerImagePx(
+            banner.imageSmallHeightPx,
+            DEFAULT_IMAGE_SMALL_H
+        );
+    }
     return banner;
 }
 
@@ -696,6 +769,7 @@ const bannerController = {
                 bannerData.overlayOpacity = Math.min(100, Math.max(0, Math.round(Number(bannerData.overlayOpacity))));
             }
             normalizeVideoLayoutFields(bannerData);
+            normalizeImageDimensionFields(bannerData);
             
             // Validate based on type
             let validationErrors = [];
@@ -927,6 +1001,7 @@ const bannerController = {
                 );
             }
             normalizeVideoLayoutFields(updateData);
+            normalizeImageDimensionFields(updateData);
             
             // Validate based on type
             const bannerType = updateData.type || existingBanner.type;
