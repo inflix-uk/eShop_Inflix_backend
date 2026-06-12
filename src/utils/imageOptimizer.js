@@ -11,8 +11,18 @@ function resolveMaxWidth(folder = "") {
     return 1200;
 }
 
+/** Hero/banner uploads: store original bytes (no resize, no WebP). */
+function shouldPreserveOriginalUpload(folder = "") {
+    const normalized = String(folder).toLowerCase();
+    return normalized.includes("banner");
+}
+
 async function optimizeImageForUpload(file, folder = "") {
     if (!file || !file.buffer || !String(file.mimetype || "").startsWith("image/")) {
+        return file;
+    }
+
+    if (shouldPreserveOriginalUpload(folder)) {
         return file;
     }
 

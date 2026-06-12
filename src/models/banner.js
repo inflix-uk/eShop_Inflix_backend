@@ -35,6 +35,11 @@ const bannerSchema = new Schema({
         type: String,
         default: ''
     },
+    /** Admin-defined hero image dimensions (px) — upload + storefront use these sizes */
+    imageLargeWidthPx: { type: Number, default: 1200 },
+    imageLargeHeightPx: { type: Number, default: 417 },
+    imageSmallWidthPx: { type: Number, default: 1080 },
+    imageSmallHeightPx: { type: Number, default: 1920 },
     videoLarge: {
         type: String,
         default: null
