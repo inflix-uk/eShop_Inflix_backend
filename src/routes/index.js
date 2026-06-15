@@ -44,6 +44,7 @@ const smtpSettingsController = require('../controller/smtpSettingsController');
 const publicContactController = require('../controller/publicContactController');
 const contactUsWidgetController = require('../controller/contactUsWidgetController');
 const shippingSettingsController = require('../controller/shippingSettingsController');
+const productCardSettingsController = require('../controller/productCardSettingsController');
 const robotsSettingsController = require('../controller/robotsSettingsController');
 const homepageDataController = require('../controller/homepageDataController');
 const homepageNavLinksController = require('../controller/homepageNavLinksController');
@@ -124,6 +125,13 @@ router.delete('/shipping/methods/:methodId',    requireAdmin, shippingSettingsCo
 router.patch('/shipping/methods/:methodId/toggle', requireAdmin, shippingSettingsController.toggleMethodStatus);
 router.patch('/shipping/free-shipping',         requireAdmin, shippingSettingsController.updateFreeShipping);
 router.post('/shipping/methods/reorder',        requireAdmin, shippingSettingsController.reorderMethods);
+
+// ========================================================================
+// PRODUCT CARD SETTINGS MANAGEMENT
+// ========================================================================
+router.get('/product-card/settings',            requireAdmin, productCardSettingsController.getSettings);
+router.get('/product-card/settings/public',     productCardSettingsController.getSettingsPublic);
+router.put('/product-card/settings',            requireAdmin, productCardSettingsController.updateSettings);
 
 // ========================================================================
 // USER AUTHENTICATION & REGISTRATION
