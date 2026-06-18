@@ -950,6 +950,86 @@ router.get(
 );
 
 // ========================================================================
+// BOOKING ROUTES (Phase 1 — settings, packages, availability)
+// ========================================================================
+const bookingSettingsController = require('../controller/bookingSettingsController');
+const bookingPackageController = require('../controller/bookingPackageController');
+const bookingAvailabilityController = require('../controller/bookingAvailabilityController');
+const bookingBlockedDateController = require('../controller/bookingBlockedDateController');
+
+router.get('/booking/settings/public', bookingSettingsController.getPublicSettings);
+router.get('/get/booking/packages', bookingPackageController.getPublicPackages);
+router.get('/get/booking/package/:id', bookingPackageController.getPackageById);
+
+router.get('/booking/settings', requireAdmin, bookingSettingsController.getAdminSettings);
+router.patch('/booking/settings', requireAdmin, bookingSettingsController.updateSettings);
+
+router.post('/create/booking/package', requireAdmin, bookingPackageController.createPackage);
+router.post(
+  '/booking/upload-package-image',
+  requireAdmin,
+  bookingPackageController.handlePackageImageUpload,
+  bookingPackageController.uploadPackageImage
+);
+router.get('/get/booking/packages/admin', requireAdmin, bookingPackageController.getAdminPackages);
+router.patch('/update/booking/package/:id', requireAdmin, bookingPackageController.updatePackage);
+router.delete('/delete/booking/package/:id', requireAdmin, bookingPackageController.deletePackage);
+
+router.post(
+  '/create/booking/availability',
+  requireAdmin,
+  bookingAvailabilityController.createAvailability
+);
+router.get('/get/booking/availability', requireAdmin, bookingAvailabilityController.getAvailability);
+router.patch(
+  '/update/booking/availability/:id',
+  requireAdmin,
+  bookingAvailabilityController.updateAvailability
+);
+router.delete(
+  '/delete/booking/availability/:id',
+  requireAdmin,
+  bookingAvailabilityController.deleteAvailability
+);
+
+router.post(
+  '/create/booking/blocked-date',
+  requireAdmin,
+  bookingBlockedDateController.createBlockedDate
+);
+router.get('/get/booking/blocked-dates', requireAdmin, bookingBlockedDateController.getBlockedDates);
+router.delete(
+  '/delete/booking/blocked-date/:id',
+  requireAdmin,
+  bookingBlockedDateController.deleteBlockedDate
+);
+
+// ========================================================================
+// BOOKING ROUTES (Phase 2 + 3 — slots, holds, bookings)
+// ========================================================================
+const bookingController = require('../controller/bookingController');
+const bookingPaymentController = require('../controller/bookingPaymentController');
+
+// Admin routes first (specific routes before parameterized routes)
+router.get('/get/booking/admin', requireAdmin, bookingController.getAdminBookings);
+router.get('/get/booking/admin/slots', requireAdmin, bookingController.getAdminSlotsForDate);
+router.get('/get/booking/admin/:id', requireAdmin, bookingController.getAdminBookingById);
+router.post('/create/booking/admin', requireAdmin, bookingController.createAdminBooking);
+router.patch('/status/booking/:id', requireAdmin, bookingController.updateBookingStatus);
+router.patch('/payment-status/booking/:id', requireAdmin, bookingController.updatePaymentStatus);
+router.post('/cancel/booking/:id', requireAdmin, bookingController.cancelBooking);
+router.post('/reschedule/booking/:id', requireAdmin, bookingController.rescheduleBooking);
+
+// Public routes
+router.get('/get/booking/slots', bookingController.getAvailableSlots);
+router.post('/create/booking/hold', bookingController.createSlotHold);
+router.post('/release/booking/hold', bookingController.releaseSlotHold);
+router.post('/create/booking', bookingController.createBooking);
+router.post('/get/booking/user', bookingController.getUserBookings);
+router.post('/create/booking/payment-intent', bookingPaymentController.createBookingPaymentIntent);
+router.get('/get/booking/:bookingNumber', bookingController.getBookingByNumber);
+
+// ========================================================================
 // CRON JOB ROUTES
 // ========================================================================
 router.use('/cron', cronRoutes);
