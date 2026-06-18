@@ -3,11 +3,13 @@ const { put, del, list } = require('@vercel/blob');
 const spacesStorage = require('./uploadToSpaces');
 const { optimizeImageForUpload } = require('./imageOptimizer');
 
-/** Default uploads target: S3-compatible DigitalOcean Spaces. Set STORAGE_PROVIDER=blob + BLOB_READ_WRITE_TOKEN for Vercel Blob. */
-const DEFAULT_STORAGE_PROVIDER = 'spaces';
+/** Default uploads target: S3-compatible storage. Set STORAGE_PROVIDER=blob + BLOB_READ_WRITE_TOKEN for Vercel Blob. */
+const DEFAULT_STORAGE_PROVIDER = 'digitalocean';
+
+const S3_STORAGE_PROVIDERS = new Set(['spaces', 'digitalocean', 'garage']);
 
 /**
- * Unified upload/delete facade — Spaces (S3) by default, Vercel Blob when STORAGE_PROVIDER=blob.
+ * Unified upload/delete facade — S3 (DigitalOcean Spaces / Garage) by default, Vercel Blob when STORAGE_PROVIDER=blob.
  */
 class BlobStorage {
     constructor() {
@@ -29,7 +31,7 @@ class BlobStorage {
         )
             .trim()
             .toLowerCase();
-        return provider === 'spaces' ? 'spaces' : 'blob';
+        return S3_STORAGE_PROVIDERS.has(provider) ? 'spaces' : 'blob';
     }
 
     /** True only when Vercel Blob token exists (listing / blob-native flows). */
@@ -216,12 +218,7 @@ class BlobStorage {
     }
 
     extractSpacesKeyFromUrl(url) {
-        try {
-            const parsed = new URL(url);
-            return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-        } catch (error) {
-            return null;
-        }
+        return spacesStorage.extractKeyFromPublicUrl(url);
     }
 
     /**

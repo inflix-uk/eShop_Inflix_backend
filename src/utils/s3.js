@@ -1,12 +1,35 @@
-const { S3Client } = require("@aws-sdk/client-s3");
+const {
+    getS3Client,
+    isGarageStorage,
+    isS3StorageProvider,
+    normalizeStorageProvider,
+    resolveEndpointUrl,
+    resolvePublicEndpointUrl,
+    resolveS3ApiEndpointUrl,
+    formatS3DnsError,
+} = require("./s3Config");
 
-const s3Client = new S3Client({
-    region: "us-east-1",
-    endpoint: process.env.DO_SPACES_ENDPOINT,
-    credentials: {
-        accessKeyId: process.env.DO_SPACES_KEY,
-        secretAccessKey: process.env.DO_SPACES_SECRET,
-    },
-});
+/** Proxy so existing `require("./s3")` callers keep using `.send()` with lazy, env-aware client. */
+const s3ClientProxy = new Proxy(
+    {},
+    {
+        get(_target, prop) {
+            if (prop === "isGarageStorage") return isGarageStorage;
+            if (prop === "isS3StorageProvider") return isS3StorageProvider;
+            if (prop === "normalizeStorageProvider")
+                return normalizeStorageProvider;
+            if (prop === "resolveEndpointUrl") return resolveEndpointUrl;
+            if (prop === "resolvePublicEndpointUrl")
+                return resolvePublicEndpointUrl;
+            if (prop === "resolveS3ApiEndpointUrl") return resolveS3ApiEndpointUrl;
+            if (prop === "formatS3DnsError") return formatS3DnsError;
+            if (prop === "getS3Client") return getS3Client;
 
-module.exports = s3Client;
+            const client = getS3Client();
+            const value = client[prop];
+            return typeof value === "function" ? value.bind(client) : value;
+        },
+    }
+);
+
+module.exports = s3ClientProxy;

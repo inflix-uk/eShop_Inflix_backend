@@ -14,6 +14,7 @@ const RequestOrder = require("../models/requestOrder");
 const MediaFile = require("../models/mediaFile");
 const blobStorage = require("../utils/blobStorage");
 const spacesStorage = require("../utils/uploadToSpaces");
+const { formatS3ConnectionError } = require("../utils/s3Config");
 const { resolveOrderLineImageUrlServer } = require("../utils/orderLineImageUrlServer");
 
 const crypto = require("crypto");
@@ -1014,9 +1015,13 @@ const statsController = {
             });
         } catch (err) {
             console.error("Spaces media list failed:", err);
-            return res.status(500).json({
+            const dnsHint = formatS3ConnectionError(err);
+            const status =
+                err.code === "GARAGE_ENDPOINT_UNRESOLVED" ? 503 : 500;
+            return res.status(status).json({
                 success: false,
                 error: err.message || "Unable to list Spaces objects",
+                ...(dnsHint ? { hint: dnsHint } : {}),
             });
         }
     },
@@ -1030,7 +1035,7 @@ const statsController = {
                     error: "Missing or invalid `key`",
                 });
             }
-            const trimmed = key.trim();
+            const trimmed = spacesStorage.normalizeS3ObjectKey(key.trim());
             const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
             if (main && !trimmed.startsWith(`${main}/`)) {
                 return res.status(403).json({
@@ -1215,7 +1220,9 @@ const statsController = {
                 });
             }
 
-            const trimmedKey = String(key).trim();
+            const trimmedKey = spacesStorage.normalizeS3ObjectKey(
+                String(key).trim()
+            );
             const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
             if (main && !trimmedKey.startsWith(`${main}/`)) {
                 return res.status(403).json({

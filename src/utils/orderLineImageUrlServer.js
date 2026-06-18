@@ -45,12 +45,13 @@ function buildDiskUrl(pathOrRel) {
 }
 
 function toSpacesKey(relativePath) {
-    const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
-    const clean = String(relativePath || "").replace(/^\/+/, "");
+    const prefix = spacesStorage.getStorageKeyPrefix();
+    const clean = spacesStorage.normalizeStorageKey(
+        String(relativePath || "").replace(/^\/+/, "")
+    );
     if (!clean) return "";
-    if (!main) return clean;
-    if (clean.startsWith(`${main}/`)) return clean;
-    return `${main}/${clean}`.replace(/\/+/g, "/");
+    if (clean.startsWith(`${prefix}/`)) return clean;
+    return `${prefix}/${clean}`.replace(/\/+/g, "/");
 }
 
 function fromString(s, spacesOn) {
