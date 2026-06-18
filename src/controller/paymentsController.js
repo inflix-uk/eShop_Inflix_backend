@@ -6,6 +6,9 @@ const Order = require("../models/order");
 const StripeSettings = require("../models/stripeSettings");
 const CheckoutLog = require("../models/checkoutLog");
 
+// Booking payment confirmation service
+const { confirmBookingPayment, handleBookingPaymentFailed } = require('../services/bookingService/confirmBooking');
+
 // Fire-and-forget logger — never throws, never blocks the caller
 const writeLog = (entry) => {
   try {
@@ -1292,7 +1295,9 @@ const paymentsController = {
                         }
                     }
 
-                    // Find and update the order by paymentIntentId stored in metadata or by matching
+                    // Check if this is a booking payment or order payment
+                    const metadataPaymentType = paymentIntent.metadata?.paymentType;
+                    const bookingNumber = paymentIntent.metadata?.bookingNumber;
                     const orderNumber = paymentIntent.metadata?.orderNumber;
 
                     writeLog({
@@ -1300,9 +1305,12 @@ const paymentsController = {
                         source: 'backend',
                         paymentIntentId: paymentIntent.id,
                         orderNumber: orderNumber || undefined,
+                        bookingNumber: bookingNumber || undefined,
                         paymentMethodType: paymentType,
                         data: {
+                            metadataPaymentType: metadataPaymentType,
                             metadataOrderNumberRaw: paymentIntent.metadata?.orderNumber,
+                            metadataBookingNumberRaw: paymentIntent.metadata?.bookingNumber,
                             metadataKeys: Object.keys(paymentIntent.metadata || {}),
                             amount: paymentIntent.amount / 100,
                             currency: paymentIntent.currency,
@@ -1310,7 +1318,38 @@ const paymentsController = {
                         },
                     });
 
-                    if (orderNumber) {
+                    // Handle BOOKING payment
+                    if (metadataPaymentType === 'booking' && bookingNumber) {
+                        console.log('📅 Processing booking payment for:', bookingNumber);
+                        const bookingResult = await confirmBookingPayment(bookingNumber, paymentIntent, {
+                            paymentType,
+                            cardDetails,
+                        });
+
+                        if (bookingResult.success) {
+                            console.log('✅ Booking confirmed:', bookingNumber);
+                            writeLog({
+                                event: 'backend.webhook.booking_confirmed',
+                                source: 'backend',
+                                paymentIntentId: paymentIntent.id,
+                                bookingNumber,
+                                paymentMethodType: paymentType,
+                                data: { alreadyConfirmed: bookingResult.alreadyConfirmed || false },
+                            });
+                        } else {
+                            console.log('⚠️ Booking confirmation failed:', bookingNumber, bookingResult.error);
+                            writeLog({
+                                event: 'backend.webhook.booking_confirmation_failed',
+                                source: 'backend',
+                                paymentIntentId: paymentIntent.id,
+                                bookingNumber,
+                                paymentMethodType: paymentType,
+                                data: { error: bookingResult.error, needsRefund: bookingResult.needsRefund },
+                            });
+                        }
+                    }
+                    // Handle ORDER payment
+                    else if (orderNumber) {
                         const updatedOrder = await Order.findOneAndUpdate(
                             { orderNumber: orderNumber },
                             {
@@ -1382,11 +1421,20 @@ const paymentsController = {
                 console.log('❌ PaymentIntent failed:', failedPayment.id);
 
                 try {
-                    const orderNumber = failedPayment.metadata?.orderNumber;
+                    const failedMetadataPaymentType = failedPayment.metadata?.paymentType;
+                    const failedBookingNumber = failedPayment.metadata?.bookingNumber;
+                    const failedOrderNumber = failedPayment.metadata?.orderNumber;
 
-                    if (orderNumber) {
+                    // Handle BOOKING payment failure
+                    if (failedMetadataPaymentType === 'booking' && failedBookingNumber) {
+                        console.log('📅 Processing booking payment failure for:', failedBookingNumber);
+                        await handleBookingPaymentFailed(failedBookingNumber, failedPayment);
+                        console.log('✅ Booking marked as payment failed:', failedBookingNumber);
+                    }
+                    // Handle ORDER payment failure
+                    else if (failedOrderNumber) {
                         await Order.findOneAndUpdate(
-                            { orderNumber: orderNumber },
+                            { orderNumber: failedOrderNumber },
                             {
                                 status: 'Failed',
                                 paymentDetails: {
@@ -1398,7 +1446,7 @@ const paymentsController = {
                                 updatedAt: new Date(),
                             }
                         );
-                        console.log('✅ Order marked as failed:', orderNumber);
+                        console.log('✅ Order marked as failed:', failedOrderNumber);
                     }
                 } catch (error) {
                     console.error('❌ Error processing payment_intent.payment_failed:', error);
@@ -1411,6 +1459,7 @@ const paymentsController = {
                         metadata: {
                             paymentIntentId: failedPayment && failedPayment.id,
                             orderNumber: failedPayment && failedPayment.metadata && failedPayment.metadata.orderNumber,
+                            bookingNumber: failedPayment && failedPayment.metadata && failedPayment.metadata.bookingNumber,
                         },
                     }).catch(() => {});
                 }

@@ -1,0 +1,477 @@
+const mongoose = require('mongoose');
+const Booking = require('../models/booking');
+const BookingPackage = require('../models/bookingPackage');
+const bookingService = require('../services/bookingService');
+
+const bookingController = {
+  getAvailableSlots: async (req, res) => {
+    try {
+      const { packageId, date } = req.query;
+
+      if (!packageId || !date) {
+        return res.status(400).json({ error: 'packageId and date are required', status: 400 });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(packageId)) {
+        return res.status(400).json({ error: 'Invalid packageId', status: 400 });
+      }
+
+      const result = await bookingService.getAvailableSlots(packageId, date);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error, status: 400 });
+      }
+
+      return res.json({
+        message: 'Available slots fetched successfully',
+        status: 200,
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error fetching available slots:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  createSlotHold: async (req, res) => {
+    try {
+      const { packageId, date, startTime, sessionId, userId } = req.body;
+
+      if (!packageId || !date || !startTime) {
+        return res.status(400).json({
+          error: 'packageId, date, and startTime are required',
+          status: 400,
+        });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(packageId)) {
+        return res.status(400).json({ error: 'Invalid packageId', status: 400 });
+      }
+
+      const result = await bookingService.createSlotHold({
+        packageId,
+        date,
+        startTime,
+        sessionId,
+        userId,
+      });
+
+      if (!result.success) {
+        const statusCode = result.error.includes('no longer available') ? 409 : 400;
+        return res.status(statusCode).json({ error: result.error, status: statusCode, conflict: result.conflict });
+      }
+
+      return res.json({
+        message: 'Slot hold created successfully',
+        status: 201,
+        hold: result.hold,
+      });
+    } catch (error) {
+      console.error('Error creating slot hold:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  releaseSlotHold: async (req, res) => {
+    try {
+      const { holdId } = req.body;
+
+      if (!holdId || !mongoose.Types.ObjectId.isValid(holdId)) {
+        return res.status(400).json({ error: 'Valid holdId is required', status: 400 });
+      }
+
+      const result = await bookingService.releaseHold(holdId);
+
+      if (!result.success) {
+        return res.status(404).json({ error: result.error, status: 404 });
+      }
+
+      return res.json({ message: 'Hold released successfully', status: 200 });
+    } catch (error) {
+      console.error('Error releasing slot hold:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  createBooking: async (req, res) => {
+    try {
+      const { holdId, customer, userId, notes } = req.body;
+
+      if (!holdId) {
+        return res.status(400).json({ error: 'holdId is required', status: 400 });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(holdId)) {
+        return res.status(400).json({ error: 'Invalid holdId', status: 400 });
+      }
+
+      const result = await bookingService.createBookingFromHold({
+        holdId,
+        customer,
+        userId,
+        notes,
+        source: 'online',
+      });
+
+      if (!result.success) {
+        const statusCode = result.error.includes('conflict') ? 409 : 400;
+        return res.status(statusCode).json({ error: result.error, status: statusCode });
+      }
+
+      return res.json({
+        message: 'Booking created successfully',
+        status: 201,
+        booking: result.booking,
+      });
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  getBookingByNumber: async (req, res) => {
+    try {
+      const { bookingNumber } = req.params;
+      const { normalizeBookingNumber, syncBookingPaymentIfNeeded } = require('../services/bookingService/confirmBooking');
+      const normalizedNumber = normalizeBookingNumber(bookingNumber);
+
+      let booking = await Booking.findOne({
+        bookingNumber: normalizedNumber,
+        isdeleted: false,
+      })
+        .populate('packageId', 'name price durationMinutes type')
+        .lean();
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      const syncedBooking = await syncBookingPaymentIfNeeded(booking);
+      if (syncedBooking && syncedBooking._id) {
+        booking = await Booking.findOne({ _id: syncedBooking._id })
+          .populate('packageId', 'name price durationMinutes type')
+          .lean();
+      }
+
+      return res.json({
+        message: 'Booking fetched successfully',
+        status: 200,
+        booking,
+      });
+    } catch (error) {
+      console.error('Error fetching booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  getUserBookings: async (req, res) => {
+    try {
+      const { userId, email } = req.body;
+
+      if (!userId && !email) {
+        return res.status(400).json({ error: 'userId or email is required', status: 400 });
+      }
+
+      const filter = { isdeleted: false };
+
+      if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+        filter.userId = userId;
+      } else if (email) {
+        filter['customer.email'] = String(email).trim().toLowerCase();
+      }
+
+      const bookings = await Booking.find(filter)
+        .populate('packageId', 'name price durationMinutes type')
+        .sort({ date: -1, startTime: -1 })
+        .lean();
+
+      return res.json({
+        message: 'User bookings fetched successfully',
+        status: 200,
+        bookings,
+      });
+    } catch (error) {
+      console.error('Error fetching user bookings:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  getAdminBookings: async (req, res) => {
+    try {
+      const { type, date, status, page = 1, limit = 20 } = req.query;
+
+      const filter = { isdeleted: false };
+
+      if (type) filter.type = type;
+      if (date) filter.date = date;
+      if (status) filter.status = status;
+
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const [bookings, total] = await Promise.all([
+        Booking.find(filter)
+          .populate('packageId', 'name price durationMinutes type')
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(Number(limit))
+          .lean(),
+        Booking.countDocuments(filter),
+      ]);
+
+      return res.json({
+        message: 'Bookings fetched successfully',
+        status: 200,
+        bookings,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          pages: Math.ceil(total / Number(limit)),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching admin bookings:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  getAdminBookingById: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const booking = await Booking.findOne({ _id: id })
+        .populate('packageId', 'name price durationMinutes type description image')
+        .lean();
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      return res.json({
+        message: 'Booking fetched successfully',
+        status: 200,
+        booking,
+      });
+    } catch (error) {
+      console.error('Error fetching admin booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  createAdminBooking: async (req, res) => {
+    try {
+      const { packageId, date, startTime, customer, userId, notes, paymentStatus, status } = req.body;
+
+      const result = await bookingService.createAdminBooking({
+        packageId,
+        date,
+        startTime,
+        customer,
+        userId,
+        notes,
+        paymentStatus,
+        status,
+      });
+
+      if (!result.success) {
+        const statusCode = result.error.includes('already booked') ? 409 : 400;
+        return res.status(statusCode).json({ error: result.error, status: statusCode, conflict: result.conflict });
+      }
+
+      return res.json({
+        message: 'Booking created successfully',
+        status: 201,
+        booking: result.booking,
+      });
+    } catch (error) {
+      console.error('Error creating admin booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  updateBookingStatus: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, cancelReason } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed', 'no_show'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status', status: 400 });
+      }
+
+      const update = { status };
+
+      if (status === 'cancelled') {
+        update.cancelledAt = new Date();
+        if (cancelReason) update.cancelReason = cancelReason;
+      }
+
+      const booking = await Booking.findOneAndUpdate(
+        { _id: id },
+        update,
+        { new: true }
+      ).populate('packageId', 'name price durationMinutes type');
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      return res.json({
+        message: 'Booking status updated successfully',
+        status: 200,
+        booking,
+      });
+    } catch (error) {
+      console.error('Error updating booking status:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  updatePaymentStatus: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { paymentStatus, paymentDetails } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const validPaymentStatuses = ['unpaid', 'paid', 'failed', 'refunded'];
+      if (!validPaymentStatuses.includes(paymentStatus)) {
+        return res.status(400).json({ error: 'Invalid paymentStatus', status: 400 });
+      }
+
+      const update = { paymentStatus };
+      if (paymentDetails) update.paymentDetails = paymentDetails;
+
+      const booking = await Booking.findOneAndUpdate(
+        { _id: id },
+        update,
+        { new: true }
+      ).populate('packageId', 'name price durationMinutes type');
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      return res.json({
+        message: 'Payment status updated successfully',
+        status: 200,
+        booking,
+      });
+    } catch (error) {
+      console.error('Error updating payment status:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  cancelBooking: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { cancelReason, processRefund, refundAmount } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const result = await bookingService.cancelBooking({
+        bookingId: id,
+        cancelReason,
+        initiatedBy: 'admin',
+        processRefund: processRefund || false,
+        refundAmount: refundAmount || null,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error, status: 400 });
+      }
+
+      return res.json({
+        message: 'Booking cancelled successfully',
+        status: 200,
+        booking: result.booking,
+        refund: result.refund,
+      });
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  rescheduleBooking: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { newDate, newStartTime, rescheduleReason } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      if (!newDate || !newStartTime) {
+        return res.status(400).json({ error: 'newDate and newStartTime are required', status: 400 });
+      }
+
+      const result = await bookingService.rescheduleBooking({
+        bookingId: id,
+        newDate,
+        newStartTime,
+        rescheduleReason,
+        initiatedBy: 'admin',
+      });
+
+      if (!result.success) {
+        const statusCode = result.error.includes('not available') ? 409 : 400;
+        return res.status(statusCode).json({ error: result.error, status: statusCode, conflict: result.conflict });
+      }
+
+      return res.json({
+        message: 'Booking rescheduled successfully',
+        status: 200,
+        originalBooking: result.originalBooking,
+        newBooking: result.newBooking,
+      });
+    } catch (error) {
+      console.error('Error rescheduling booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  getAdminSlotsForDate: async (req, res) => {
+    try {
+      const { packageId, date } = req.query;
+
+      if (!packageId || !date) {
+        return res.status(400).json({ error: 'packageId and date are required', status: 400 });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(packageId)) {
+        return res.status(400).json({ error: 'Invalid packageId', status: 400 });
+      }
+
+      const result = await bookingService.getAvailableSlots(packageId, date);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error, status: 400 });
+      }
+
+      return res.json({
+        message: 'Available slots fetched successfully',
+        status: 200,
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error fetching admin slots:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+};
+
+module.exports = bookingController;

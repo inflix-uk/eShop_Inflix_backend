@@ -180,6 +180,11 @@ class Server {
       express.raw({ type: 'application/json' }),
       paymentsController.stripeWebhook
     );
+    // Alias route for /webhooks/stripe (with 's') - for backward compatibility
+    this.app.post('/webhooks/stripe',
+      express.raw({ type: 'application/json' }),
+      paymentsController.stripeWebhook
+    );
 
     // Body parsing with increased limits
     this.app.use(express.json({ limit: serverConfig.payloadLimit }));
