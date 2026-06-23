@@ -5,21 +5,21 @@
  */
 
 const ORDER_CONFIRMATION_DEFAULTS = {
-  emailSubject: 'Order Confirmation - Zextons Tech Store',
+  emailSubject: 'Order Confirmation',
   htmlPageTitle: 'Order confirmation',
   heroLineBefore: 'Hooray! Your order has been ',
   heroLineHighlight: 'confirmed.',
   heroSubtext:
-    'Expressing gratitude for your order, and our sincere appreciation for your trust in our services and products!',
+    'Thank you for your order. We appreciate your trust in our store.',
   sectionOrderDetails: 'Order details',
   sectionItemsOrdered: 'Items Ordered',
   helpHeading: 'Any queries or concerns?',
-  helpBeforeEmail: 'For any assistance or a casual chat, feel free to email us at',
-  supportEmail: 'order@zextons.co.uk',
+  helpBeforeEmail: 'For any assistance, feel free to email us at',
+  supportEmail: '',
   helpAfterEmail: 'anytime.',
   linkTermsText: 'Terms and Conditions',
   linkPrivacyText: 'Privacy Policy',
-  footerAddressLine: '© Zextons Tech Store | 27 Church Street | St Helens | WA10 1AX',
+  footerAddressLine: '',
   unsubscribeLead: 'Prefer not to receive these emails anymore ',
   unsubscribeLinkText: 'Unsubscribe here.',
 };
@@ -63,7 +63,7 @@ const ORDER_STATUS_CUSTOMER_DEFAULTS = {
   labelPrice: 'Price:',
   labelImei: 'IMEI:',
   labelTotalOrderValue: 'Total Order Value:',
-  footerLine1: 'Thank you for choosing Zextons!',
+  footerLine1: 'Thank you for your order!',
   footerLine2: 'If you have any questions, please contact our support team.',
 };
 

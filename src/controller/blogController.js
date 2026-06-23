@@ -282,8 +282,10 @@ const blogController = {
             // Add a flag to distinguish new blogs if needed
             const newBlogsWithFlag = newBlogs.map(blog => ({ ...blog, isNewBlog: true }));
 
-            // Merge and sort by createdAt descending
-            const combinedBlogs = [...blogs, ...newBlogsWithFlag].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            // Merge and sort by last update (most recently edited first)
+            const combinedBlogs = [...blogs, ...newBlogsWithFlag].sort(
+                (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+            );
 
             // Return all blogs, not just latest 10
             return res.json({
@@ -318,8 +320,10 @@ const blogController = {
             // Add a flag to distinguish new blogs if needed
             const newBlogsWithFlag = newBlogs.map(blog => ({ ...blog, isNewBlog: true }));
 
-            // Merge and sort by createdAt descending
-            const combinedBlogs = [...blogs, ...newBlogsWithFlag].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            // Merge and sort by last update (most recently edited first)
+            const combinedBlogs = [...blogs, ...newBlogsWithFlag].sort(
+                (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+            );
 
             // Take only the latest 10 blogs
             const latestBlogs = combinedBlogs.slice(0, 10);

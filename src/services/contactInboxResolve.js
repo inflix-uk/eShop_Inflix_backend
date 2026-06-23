@@ -2,7 +2,7 @@ const SmtpSettings = require('../models/smtpSettings');
 
 /**
  * Inbox for contact-style notifications.
- * Priority: CONTACT_FORM_TO_EMAIL → Admin SMTP From email → EMAIL_FROM_EMAIL → hello@zextons.co.uk
+ * Priority: CONTACT_FORM_TO_EMAIL → Admin SMTP From email → EMAIL_FROM_EMAIL
  */
 async function resolveContactInboxTo() {
   const envTo = (process.env.CONTACT_FORM_TO_EMAIL || '').trim();
@@ -15,7 +15,7 @@ async function resolveContactInboxTo() {
   const fromEnv = (process.env.EMAIL_FROM_EMAIL || '').trim();
   if (fromEnv) return fromEnv;
 
-  return 'hello@zextons.co.uk';
+  return '';
 }
 
 module.exports = { resolveContactInboxTo };

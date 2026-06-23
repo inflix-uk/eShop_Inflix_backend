@@ -1,5 +1,5 @@
 /**
- * One-off migration: copy all collections from the Zextons Atlas cluster
+ * One-off migration: copy all collections from the our store Atlas cluster
  * (source DB `zextonsnew`) into the local Inflix master MongoDB.
  *
  * Usage:
@@ -13,7 +13,7 @@ const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
 const SOURCE_URI =
-  'mongodb+srv://zextonsAdmin:12345@zextons.y1to4og.mongodb.net/zextonsnew';
+  'mongodb+srv://zextonsAdmin:12345@store.y1to4og.mongodb.net/zextonsnew';
 const SOURCE_DB = 'zextonsnew';
 
 const DEST_URI =

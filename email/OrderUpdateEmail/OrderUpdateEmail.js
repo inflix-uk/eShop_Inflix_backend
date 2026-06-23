@@ -95,7 +95,7 @@ const sendOrderUpdateEmail = async (orderData) => {
         });
 
         const mailOptions = {
-            to: 'order@zextons.co.uk',
+            to: 'order@',
             subject,
             html: htmlContent,
         };

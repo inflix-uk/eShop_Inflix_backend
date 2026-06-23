@@ -9,7 +9,7 @@ const DEFAULT_DISABLED_MARKETING_ROUTES = [
   "sustainability",
   "18-months-warranty",
   "faqs",
-  "about-zextons",
+  "about-us",
   "deals-and-discounts",
 ];
 

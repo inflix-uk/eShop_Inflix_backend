@@ -3,7 +3,7 @@ const bcrypt = require('bcrypt');
 const User = require('../src/models/user');
 
 (async () => {
-    const email = process.argv[2] || 'admin@zextons.co.uk';
+    const email = process.argv[2] || 'admin@';
     const newPassword = process.argv[3] || 'Admin@123456';
 
     await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 15000 });

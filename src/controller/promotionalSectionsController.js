@@ -142,7 +142,7 @@ function sanitizeButtonLink(url) {
     if (!value) return '';
 
     // Remove legacy admin panel deployment links from payloads/storage.
-    if (/https?:\/\/vercel\.com\/arsams-projects\/zextonsadminpanel-new/i.test(value)) {
+    if (/https?:\/\/vercel\.com\/[^/]+\/[^/]+-adminpanel/i.test(value)) {
         return '';
     }
 

@@ -5,7 +5,11 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://zextonsAdmin:12345@zextons.y1to4og.mongodb.net/zextonsnew';
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error('MONGO_URI is required');
+  process.exit(1);
+}
 
 // User schema
 const userSchema = new mongoose.Schema({
@@ -37,7 +41,7 @@ async function changePassword() {
         await mongoose.connect(MONGO_URI);
         console.log('Connected to MongoDB');
 
-        const userEmail = 'ali@zextons.co.uk';
+        const userEmail = 'ali@';
         const newPassword = 'admin123';
 
         // Find user

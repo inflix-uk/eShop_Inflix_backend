@@ -1,6 +1,6 @@
 // Seed or update a dedicated superadmin account.
 // Default credentials:
-//   email: ali@zextons.co.uk
+//   email: ali@
 //   password: superAdmin@123
 //
 // You can override with env vars:

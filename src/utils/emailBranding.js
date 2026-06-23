@@ -236,7 +236,7 @@ async function getEmailBranding() {
 
   if (!logoUrl) {
     const fb = String(process.env.EMAIL_FALLBACK_LOGO_URL || '').trim();
-    logoUrl = fb || `${backendPublicBase()}/uploads/web/Zextons.webp`;
+    logoUrl = fb || '';
   }
 
   return {
@@ -269,7 +269,7 @@ async function getEmailBranding() {
 function storefrontOriginForEmail() {
   const raw = process.env.FRONTEND_URL || process.env.STORE_URL || '';
   const t = String(raw).trim().replace(/\/+$/, '');
-  return t || 'https://www.zextons.co.uk';
+  return t || '';
 }
 
 /**

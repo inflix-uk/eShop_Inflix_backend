@@ -22,7 +22,7 @@ function sanitizeReplyName(name) {
 
 /**
  * Public contact form — sends one email using the same SMTP as the rest of the app.
- * Delivered to: CONTACT_FORM_TO_EMAIL, or the From email saved in Admin → SMTP, or hello@zextons.co.uk.
+ * Delivered to: CONTACT_FORM_TO_EMAIL, or the From email saved in Admin → SMTP, or hello@.
  */
 exports.submitContactForm = async (req, res) => {
   try {

@@ -22,7 +22,7 @@ const sendMessageNotification = async (userData) => {
         });
 
         const mailOptions = {
-            to: "order@zextons.co.uk",
+            to: "order@",
             subject: 'New Message from Zexton Support',
             html: htmlContent
         };

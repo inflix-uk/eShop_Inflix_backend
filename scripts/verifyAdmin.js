@@ -4,7 +4,7 @@ require('../src/models/roleAndPermissons');
 
 (async () => {
     await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 15000 });
-    const email = process.argv[2] || 'admin@zextons.co.uk';
+    const email = process.argv[2] || 'admin@';
     const u = await User.findOne({ email }).populate('roleId');
     if (!u) { console.log('Not found:', email); process.exit(1); }
     console.log('email:      ', u.email);

@@ -11,7 +11,7 @@ const MONGO_URI = 'mongodb://admin_inflix_root:kqcFAj9aVV6GsjtOkPH9icOlqIkWw16e@
 const TARGET_EMAIL = 'admin@regenerategloballimited.com';
 const TARGET_PASSWORD = 'Admin@123456';
 
-const ZEXTONS_IDS = [
+const STORE_PERMISSION_IDS = [
     'view_dashboard', 'export_dashboard',
     'view_blogs', 'manage_blogs',
     'view_media', 'manage_media',
@@ -35,7 +35,7 @@ const STATIC_META_IDS = ['view_static_meta', 'manage_static_meta'];
 const allTrue = (ids) => ids.reduce((acc, id) => (acc[id] = true, acc), {});
 
 const FULL_PERMISSIONS = {
-    zextons: allTrue(ZEXTONS_IDS),
+    store: allTrue(STORE_PERMISSION_IDS),
     rolesandPermissions: allTrue(ROLES_IDS),
     rolesandpermissions: allTrue(ROLES_IDS),
     staticMeta: allTrue(STATIC_META_IDS)
@@ -89,11 +89,11 @@ const FULL_PERMISSIONS = {
     console.log('email:', verify.email, '| role:', verify.role);
     console.log('roleId.name:', verify.roleId && verify.roleId.name);
     const p = (verify.roleId && verify.roleId.permissions) || {};
-    console.log('zextons keys:', Object.keys(p.zextons || {}).length, '/', ZEXTONS_IDS.length);
+    console.log('store keys:', Object.keys(p.store || {}).length, '/', STORE_PERMISSION_IDS.length);
     console.log('rolesandPermissions keys:', Object.keys(p.rolesandPermissions || {}).length, '/', ROLES_IDS.length);
     console.log('rolesandpermissions keys:', Object.keys(p.rolesandpermissions || {}).length, '/', ROLES_IDS.length);
     console.log('staticMeta keys:', Object.keys(p.staticMeta || {}).length, '/', STATIC_META_IDS.length);
-    console.log('sample manage_products:', p.zextons && p.zextons.manage_products);
+    console.log('sample manage_products:', p.store && p.store.manage_products);
     console.log('sample manage_roles:    ', p.rolesandPermissions && p.rolesandPermissions.manage_roles);
     console.log('sample manage_static_meta:', p.staticMeta && p.staticMeta.manage_static_meta);
 

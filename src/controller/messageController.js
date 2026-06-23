@@ -1213,7 +1213,7 @@ const messageController = {
                     lastname: userDetails.lastname || '',
                     email: userDetails.email
                 },
-                portalUrl: 'https://zextons.co.uk/login'
+                portalUrl: 'https:///login'
             };
 
             await sendMessageNotification(emailData);

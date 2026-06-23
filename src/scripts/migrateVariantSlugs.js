@@ -21,7 +21,7 @@ const Product = require('../models/product');
 const { generateVariantId, variantNameToSeoSlug, generateVariantSlug } = require('../utils/slugUtils');
 
 // Default MongoDB URI (same as connections/mongo.js)
-const DEFAULT_MONGO_URI = 'mongodb+srv://zextonsAdmin:12345@zextons.y1to4og.mongodb.net/zextonsnew';
+const DEFAULT_MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || '';
 
 // Configuration
 const BATCH_SIZE = 100;

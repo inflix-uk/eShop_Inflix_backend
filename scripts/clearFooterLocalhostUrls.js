@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 // Connect to MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/zextons';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/store';
 
 async function clearFooterLocalhostUrls() {
   try {

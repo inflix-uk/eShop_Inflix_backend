@@ -16,7 +16,7 @@ const CategoryBrand = require('../models/categoryBrand');
 async function createIndexes() {
     try {
         console.log('🔄 Connecting to MongoDB...');
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/zextons');
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/store');
         console.log('✅ Connected to MongoDB\n');
 
         console.log('📊 Creating indexes for Device model...');

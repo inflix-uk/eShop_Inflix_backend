@@ -713,7 +713,7 @@ const generateCustomerEmailHTML = async ({
     emailTemplate = applyOrderConfirmationCopyToHtml(emailTemplate, confirmationCopy.fields);
 
     // Filter out trade-in products - customers don't need to see trade-in items in their order confirmation
-    // Trade-in details are handled separately via SellZextons checkout
+    // Trade-in details are handled separately via external trade-in checkout
     const regularProductsOnly = cart.filter(item => !item.isTradeIn && item.productId !== 'trade-in');
 
     // Generate cart items HTML (excluding trade-ins)

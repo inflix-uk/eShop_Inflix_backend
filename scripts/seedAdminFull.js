@@ -8,7 +8,7 @@
 // Falls back to .env MONGO_URI if no --uri / env var supplied.
 //
 // Writes the FULL permission shape consumed by the admin panel UI:
-//   permissions.zextons.*               (Side.jsx, utils/permissions.js)
+//   permissions.store.*               (Side.jsx, utils/permissions.js)
 //   permissions.rolesandPermissions.*   (capital P — same consumers)
 //   permissions.rolesandpermissions.*   (lowercase — PermissionsManagement.jsx)
 //   permissions.staticMeta.*
@@ -21,7 +21,7 @@ const bcrypt = require('bcrypt');
 const User = require('../src/models/user');
 const RoleAndPermissons = require('../src/models/roleAndPermissons');
 
-const ZEXTONS_IDS = [
+const STORE_PERMISSION_IDS = [
     'view_dashboard', 'export_dashboard',
     'view_blogs', 'manage_blogs',
     'view_media', 'manage_media',
@@ -44,7 +44,7 @@ const STATIC_META_IDS = ['view_static_meta', 'manage_static_meta'];
 const allTrue = (ids) => ids.reduce((acc, id) => (acc[id] = true, acc), {});
 
 const FULL_PERMISSIONS = {
-    zextons: allTrue(ZEXTONS_IDS),
+    store: allTrue(STORE_PERMISSION_IDS),
     rolesandPermissions: allTrue(ROLES_IDS),
     rolesandpermissions: allTrue(ROLES_IDS),
     staticMeta: allTrue(STATIC_META_IDS)
@@ -120,7 +120,7 @@ function parseArgs(argv) {
     console.log('email:', verify.email, '| role:', verify.role);
     console.log('roleId.name:', verify.roleId && verify.roleId.name);
     console.log('password verify:', pwOk);
-    console.log('zextons keys:', Object.keys(p.zextons || {}).length, '/', ZEXTONS_IDS.length);
+    console.log('store keys:', Object.keys(p.store || {}).length, '/', ZEXTONS_IDS.length);
     console.log('rolesandPermissions keys:', Object.keys(p.rolesandPermissions || {}).length, '/', ROLES_IDS.length);
     console.log('rolesandpermissions keys:', Object.keys(p.rolesandpermissions || {}).length, '/', ROLES_IDS.length);
     console.log('staticMeta keys:', Object.keys(p.staticMeta || {}).length, '/', STATIC_META_IDS.length);

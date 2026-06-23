@@ -643,6 +643,8 @@ const updateBlogPost = async (req, res) => {
 
     $set.updatedAt = new Date();
 
+    const existingSlugDoc = await Blog.findById(id).select('slug').lean();
+
     const updatedBlog = await Blog.findByIdAndUpdate(
       id,
       { $set },
@@ -654,6 +656,13 @@ const updateBlogPost = async (req, res) => {
         success: false,
         message: 'Blog post not found'
       });
+    }
+
+    if (existingSlugDoc?.slug) {
+      invalidateBlogPostBySlugCache(`blog:${existingSlugDoc.slug}`);
+    }
+    if (updatedBlog.slug && updatedBlog.slug !== existingSlugDoc?.slug) {
+      invalidateBlogPostBySlugCache(`blog:${updatedBlog.slug}`);
     }
     
     res.status(200).json({
@@ -827,7 +836,7 @@ const deleteBlogPost = async (req, res) => {
   }
 };
 
-const { getBlogPostBySlugCache } = require('../../../cache/newBlogCache');
+const { getBlogPostBySlugCache, invalidateBlogPostBySlugCache } = require('../../../cache/newBlogCache');
 
 const getBlogPostBySlug = async (req, res) => {
   try {
@@ -837,8 +846,8 @@ const getBlogPostBySlug = async (req, res) => {
       async () => await Blog.findOne({ slug })
         .populate({
           path: 'categories',
-          select: 'name shortDescription metaTitle metaDescription isFeatured isPublish',
-          model: 'NewBlogCategory'
+          select: 'name shortDescription metaTitle metaDescription isFeatured isPublish slug',
+          model: 'BlogCategory'
         })
         .lean()
     );
@@ -872,7 +881,7 @@ const getBlogPostBySlugWithoutCache = async (req, res) => {
     const post = await Blog.findOne({ slug })
       .populate({
         path: 'categories',
-        select: 'name shortDescription metaTitle metaDescription isFeatured isPublish',
+        select: 'name shortDescription metaTitle metaDescription isFeatured isPublish slug',
         model: 'BlogCategory'
       })
       .lean();

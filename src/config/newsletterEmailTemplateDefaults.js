@@ -3,39 +3,39 @@
  */
 
 const WELCOME_DEFAULTS = {
-  subject: "Welcome to Zextons Tech Store! Enjoy 5% Off Your First Order 🎉!",
+  subject: "Welcome! Enjoy 5% Off Your First Order",
   pageTitle: "Coupon Code Email",
-  heading: "Welcome to Zextons Tech Store!",
+  heading: "Welcome to our store!",
   bodyParagraph1:
     "As a special welcome, we're offering you 5% off your first order up to £20. Use the coupon code below at checkout!",
   couponCode: "FIRSTFIVE",
   bodyParagraph2Intro: "Hurry, this offer is valid for a limited time only. Shop now at",
-  shopLinkText: "Zexton Tech Store",
+  shopLinkText: "our store",
   bodyParagraph2Outro: "!",
   footerTeamLine1: "Thank you for shopping with us.",
-  footerTeamLine2: "Zexton Tech Store Team",
+  footerTeamLine2: "The team",
   footerVisit: "Visit our website",
 };
 
 const HOT_UK_DEFAULTS = {
-  subject: "Hot UK Deals on Top Tech!",
-  pageTitle: "Hot UK Deals",
-  headerTitle: "Hot UK Deals on Top Tech!",
-  headerSubtitle: "Zextons Tech Store Brings You Amazing Discounts on Top Tech!",
-  sectionHeading: "Hurry—our Hot UK Deals are live for a limited time only!",
+  subject: "Hot deals on top products",
+  pageTitle: "Hot Deals",
+  headerTitle: "Hot deals",
+  headerSubtitle: "Exclusive discounts on our latest products",
+  sectionHeading: "Our hot deals are live for a limited time only!",
   bodyLine1:
-    "Save up to 70% on brand new and refurbished phones, tablets, laptops and more…",
+    "Save on selected products across our store.",
   bodyLine2: "plus a bonus extra 5% OFF your order (up to £20).",
   couponLabel: "Use Discount Code:",
   couponCode: "HOTDEALS",
   bodyLine4:
-    "Upgrade your tech, tick off your wish list, and pocket serious savings with:",
+    "Upgrade your wish list and pocket serious savings with:",
   bodyLine5:
-    "unbeatable deals, limited-time offers, and proper UK value — only at Zextons Tech Store.",
-  urgencyLine: "Don't wait — once these hot deals are gone, they're gone.",
-  ctaLabel: "Browse Hot UK Tech Deals",
+    "unbeatable deals and limited-time offers.",
+  urgencyLine: "Don't wait — once these deals are gone, they're gone.",
+  ctaLabel: "Browse deals",
   footerTeamLine1: "Thank you for shopping with us.",
-  footerTeamLine2: "Zextons Tech Store Team",
+  footerTeamLine2: "The team",
   footerVisit: "Visit our website",
 };
 

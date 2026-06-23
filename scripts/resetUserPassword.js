@@ -5,7 +5,7 @@ const mongoose = require('../connections/mongo');
 const User = require('../src/models/user');
 const bcrypt = require('bcrypt');
 
-const USER_EMAIL = 'ali@zextons.co.uk';
+const USER_EMAIL = 'ali@';
 const NEW_PASSWORD = 'Admin@123';
 
 async function resetPassword() {
