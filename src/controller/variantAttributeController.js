@@ -1,5 +1,6 @@
 const VariantAttribute = require('../models/VariantAttribute');
 const Product = require('../models/product');
+const { countUnassignedProducts } = require('../utils/productBrandFilters');
 
 function escapeRegex(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -900,15 +901,17 @@ const getBrandsWithProductCount = async (req, res) => {
             return a.name.localeCompare(b.name);
         });
 
-        // 7. Calculate total products
+        // 7. Calculate total products and unassigned count
         const totalProducts = brandsWithCounts.reduce((sum, brand) => sum + brand.productCount, 0);
+        const unassignedProductCount = await countUnassignedProducts(Product);
 
         res.status(200).json({
             status: 200,
             message: 'Brands with product counts fetched successfully',
             brands: brandsWithCounts,
             totalBrands: brandsWithCounts.length,
-            totalProducts: totalProducts
+            totalProducts: totalProducts,
+            unassignedProductCount,
         });
     } catch (error) {
         console.error('Error fetching brands with product counts:', error);

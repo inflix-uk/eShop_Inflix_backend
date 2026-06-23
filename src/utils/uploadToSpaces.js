@@ -6,6 +6,60 @@ const {
     CopyObjectCommand,
 } = require("@aws-sdk/client-s3");
 const s3Client = require("./s3");
+const {
+    isGarageStorage,
+    resolvePublicEndpointUrl,
+    resolveS3ApiEndpointUrl,
+    resolveGarageApiMediaBaseUrl,
+    resolveGarageFlatPublicBaseUrl,
+    resolveGarageWebRootDomain,
+    buildGarageWebPublicUrl,
+    formatS3ConnectionError,
+    preloadGarageServerIp,
+} = require("./s3Config");
+
+async function ensureS3Ready() {
+    await preloadGarageServerIp();
+}
+
+const DEFAULT_MAIN_FOLDER = "uploads";
+
+/** Trimmed MAIN_FOLDER, or empty when unset/invalid (never the literal "undefined"). */
+function getMainFolderPrefix() {
+    const main = String(process.env.MAIN_FOLDER ?? "")
+        .trim()
+        .replace(/^\/+|\/+$/g, "");
+    if (!main || main === "undefined") return "";
+    return main;
+}
+
+/** Prefix used in S3 object keys (defaults to uploads when MAIN_FOLDER is unset). */
+function getStorageKeyPrefix() {
+    return getMainFolderPrefix() || DEFAULT_MAIN_FOLDER;
+}
+
+/** Remove legacy `undefined/` keys and leading slashes. */
+function normalizeStorageKey(key) {
+    return String(key || "")
+        .replace(/^\/+/, "")
+        .replace(/^undefined\//, "");
+}
+
+function buildObjectKey(normalizedFolder, fileName) {
+    const prefix = getStorageKeyPrefix();
+    return `${prefix}/${normalizedFolder}/${fileName}`;
+}
+
+function getBackendPublicBase() {
+    const base = (
+        process.env.DO_SPACES_PUBLIC_BASE_URL ||
+        process.env.BACKEND_URL ||
+        ""
+    )
+        .trim()
+        .replace(/\/+$/, "");
+    return base;
+}
 
 function sanitizeFilename(fileName = "") {
     return fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
@@ -31,35 +85,162 @@ function buildCompactFilename(originalName = "") {
 }
 
 function getPublicBaseUrl() {
-    const endpoint = process.env.DO_SPACES_ENDPOINT || "";
+    const endpoint =
+        resolvePublicEndpointUrl() || process.env.DO_SPACES_ENDPOINT || "";
     return endpoint.replace(/^https?:\/\//, "");
+}
+
+function normalizeEndpointUrl(endpoint) {
+    const trimmed = String(endpoint || resolvePublicEndpointUrl() || "")
+        .trim()
+        .replace(/\/+$/, "");
+    if (!trimmed) return "";
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+/** S3 object keys use literal `/` separators — never `%2F` in the key string sent to PutObject/List/Delete. */
+function normalizeS3ObjectKey(key) {
+    return normalizeStorageKey(String(key || ""))
+        .replace(/\\/g, "/")
+        .replace(/%2F/gi, "/");
+}
+
+/** Encode each path segment for browser URLs; keep `/` as real path separators. */
+function encodePublicUrlKeyPath(key) {
+    const trimmed = normalizeS3ObjectKey(key);
+    if (!trimmed) return "";
+    return trimmed
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+}
+
+function decodeUrlPathSegments(path) {
+    return String(path || "")
+        .split("/")
+        .map((segment) => {
+            if (!segment) return segment;
+            try {
+                return decodeURIComponent(segment);
+            } catch {
+                return segment;
+            }
+        })
+        .join("/");
 }
 
 /**
  * Public URL for an object key. Prefer `DO_SPACES_PUBLIC_BASE_URL` (e.g. short CDN / custom domain)
  * so returned URLs are shorter than `https://{bucket}.{region}.digitaloceanspaces.com/...`.
  * Example: DO_SPACES_PUBLIC_BASE_URL=https://cdn.example.com  →  https://cdn.example.com/aroma/banners/...
+ *
+ * Garage (s3_web website): `https://{bucket}{webRootDomain}/{key}` — S3 API URLs are not public.
+ * DigitalOcean (virtual-host): `https://{bucket}.{host}/{key}`
  */
 function buildPublicUrlForKey(key) {
-    const trimmedKey = String(key || "").replace(/^\/+/, "");
+    const urlKey = encodePublicUrlKeyPath(key);
+    if (!urlKey) return "";
+
     const custom = (process.env.DO_SPACES_PUBLIC_BASE_URL || "")
         .trim()
         .replace(/\/+$/, "");
     if (custom) {
-        return `${custom}/${trimmedKey}`;
+        return `${custom}/${urlKey}`;
     }
+
+    if (isGarageStorage()) {
+        const apiBase =
+            resolveGarageApiMediaBaseUrl() || getBackendPublicBase();
+        if (apiBase) return `${apiBase}/${urlKey}`;
+        const flatBase = resolveGarageFlatPublicBaseUrl();
+        if (flatBase) return `${flatBase}/${urlKey}`;
+        const bucket = process.env.DO_SPACES_BUCKET;
+        const webUrl = buildGarageWebPublicUrl(bucket, urlKey);
+        if (webUrl) return webUrl;
+        const base = normalizeEndpointUrl(resolvePublicEndpointUrl());
+        return `${base}/${bucket}/${urlKey}`;
+    }
+
     const bucket = process.env.DO_SPACES_BUCKET;
     const host = getPublicBaseUrl();
-    return `https://${bucket}.${host}/${trimmedKey}`;
+    return `https://${bucket}.${host}/${urlKey}`;
+}
+
+/**
+ * Extract object key from a public URL (custom base, path-style, or virtual-host).
+ */
+function extractKeyFromGaragePublicBase(url, base) {
+    if (!base) return null;
+    try {
+        const baseUrl = new URL(`${base.replace(/\/+$/, "")}/`);
+        const parsed = new URL(url);
+        if (parsed.origin !== baseUrl.origin) return null;
+        return normalizeS3ObjectKey(
+            decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""))
+        );
+    } catch {
+        return null;
+    }
+}
+
+function extractKeyFromGarageWebHost(parsed, bucket) {
+    const rootDomain = resolveGarageWebRootDomain();
+    if (!rootDomain || !bucket) return null;
+    const suffix = rootDomain.startsWith(".")
+        ? rootDomain.slice(1)
+        : rootDomain;
+    const host = parsed.hostname || "";
+    if (!host.endsWith(suffix) || host.length <= suffix.length + 1) {
+        return null;
+    }
+    const hostBucket = host.slice(0, -(suffix.length + 1));
+    if (hostBucket !== bucket) return null;
+    return normalizeS3ObjectKey(
+        decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""))
+    );
+}
+
+function extractKeyFromPublicUrl(url) {
+    try {
+        const parsed = new URL(url);
+        const bucket = process.env.DO_SPACES_BUCKET;
+
+        if (isGarageStorage() && bucket) {
+            const apiKey = extractKeyFromGaragePublicBase(
+                url,
+                resolveGarageApiMediaBaseUrl()
+            );
+            if (apiKey) return apiKey;
+            const flatKey = extractKeyFromGaragePublicBase(
+                url,
+                resolveGarageFlatPublicBaseUrl()
+            );
+            if (flatKey) return flatKey;
+            const webKey = extractKeyFromGarageWebHost(parsed, bucket);
+            if (webKey) return webKey;
+        }
+
+        let path = decodeUrlPathSegments(parsed.pathname.replace(/^\/+/, ""));
+        if (isGarageStorage() && bucket && path.startsWith(`${bucket}/`)) {
+            path = path.slice(bucket.length + 1);
+        }
+        return normalizeS3ObjectKey(path);
+    } catch {
+        return null;
+    }
 }
 
 function buildSpacesErrorContext(error) {
+    const dnsHint = formatS3ConnectionError(error);
     return {
         message: error?.message || "Unknown Spaces error",
         code: error?.Code || error?.code || null,
         statusCode: error?.$metadata?.httpStatusCode || null,
         requestId: error?.RequestId || error?.$metadata?.requestId || null,
         hostId: error?.HostId || null,
+        endpoint: resolveS3ApiEndpointUrl() || null,
+        storageProvider: process.env.STORAGE_PROVIDER || null,
+        ...(dnsHint ? { hint: dnsHint } : {}),
     };
 }
 
@@ -90,10 +271,13 @@ function isSpacesUploadPathAllowed(folder) {
 
 async function uploadFile(file, folder) {
     if (!file) return null;
+    await ensureS3Ready();
 
     const normalizedFolder = validateFolder(folder);
     const fileName = buildCompactFilename(file.originalname);
-    const key = `${process.env.MAIN_FOLDER}/${normalizedFolder}/${fileName}`;
+    const key = normalizeS3ObjectKey(
+        buildObjectKey(normalizedFolder, fileName)
+    );
     const bucket = process.env.DO_SPACES_BUCKET;
 
     try {
@@ -114,7 +298,7 @@ async function uploadFile(file, folder) {
         console.error("[Spaces Upload Error]", {
             ...buildSpacesErrorContext(error),
             bucket,
-            endpoint: process.env.DO_SPACES_ENDPOINT || null,
+            endpoint: resolveS3ApiEndpointUrl() || null,
             folder: normalizedFolder,
             key,
             originalName: file.originalname,
@@ -126,21 +310,23 @@ async function uploadFile(file, folder) {
 
 async function deleteFile(key) {
     if (!key) return;
+    await ensureS3Ready();
 
     const bucket = process.env.DO_SPACES_BUCKET;
+    const objectKey = normalizeS3ObjectKey(key);
 
     try {
         await s3Client.send(
             new DeleteObjectCommand({
                 Bucket: bucket,
-                Key: key,
+                Key: objectKey,
             })
         );
     } catch (error) {
         console.error("[Spaces Delete Error]", {
             ...buildSpacesErrorContext(error),
             bucket,
-            endpoint: process.env.DO_SPACES_ENDPOINT || null,
+            endpoint: resolveS3ApiEndpointUrl() || null,
             key,
         });
         throw error;
@@ -151,8 +337,11 @@ async function deleteFile(key) {
  * Server-side copy (e.g. rename) within the same bucket.
  */
 async function copyObject(sourceKey, destinationKey) {
+    await ensureS3Ready();
     const bucket = process.env.DO_SPACES_BUCKET;
-    const encodedSource = sourceKey
+    const normalizedSource = normalizeS3ObjectKey(sourceKey);
+    const normalizedDestination = normalizeS3ObjectKey(destinationKey);
+    const encodedSource = normalizedSource
         .split("/")
         .map((segment) => encodeURIComponent(segment))
         .join("/");
@@ -163,7 +352,7 @@ async function copyObject(sourceKey, destinationKey) {
         await s3Client.send(
             new CopyObjectCommand({
                 Bucket: bucket,
-                Key: destinationKey,
+                Key: normalizedDestination,
                 CopySource: copySource,
                 ACL: "public-read",
                 MetadataDirective: "REPLACE",
@@ -191,8 +380,7 @@ function isSpacesListConfigured() {
 }
 
 function getListPrefix() {
-    const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
-    return main ? `${main.replace(/\/$/, "")}/` : "";
+    return `${getStorageKeyPrefix()}/`;
 }
 
 /**
@@ -201,6 +389,7 @@ function getListPrefix() {
  */
 async function listAllObjects() {
     if (!isSpacesListConfigured()) return [];
+    await ensureS3Ready();
     const bucket = process.env.DO_SPACES_BUCKET;
     const prefix = getListPrefix();
     const out = [];
@@ -218,7 +407,10 @@ async function listAllObjects() {
             if (resp.Contents && resp.Contents.length > 0) {
                 for (const obj of resp.Contents) {
                     if (!obj.Key || obj.Key.endsWith("/")) continue;
-                    out.push({ Key: obj.Key, Size: obj.Size || 0 });
+                    out.push({
+                        Key: normalizeS3ObjectKey(obj.Key),
+                        Size: obj.Size || 0,
+                    });
                 }
             }
             ContinuationToken = resp.IsTruncated
@@ -233,10 +425,13 @@ async function listAllObjects() {
 }
 
 function stripMainFolderFromKey(key) {
-    const main = (process.env.MAIN_FOLDER || "").replace(/^\/+|\/+$/g, "");
-    if (!main) return key;
-    const p = `${main}/`;
-    return key.startsWith(p) ? key.slice(p.length) : key;
+    const normalized = normalizeStorageKey(key);
+    const prefix = getStorageKeyPrefix();
+    const p = `${prefix}/`;
+    if (normalized.startsWith(p)) {
+        return normalized.slice(p.length);
+    }
+    return normalized;
 }
 
 module.exports = {
@@ -248,4 +443,10 @@ module.exports = {
     isSpacesUploadPathAllowed,
     stripMainFolderFromKey,
     buildPublicUrlForKey,
+    buildObjectKey,
+    getStorageKeyPrefix,
+    getMainFolderPrefix,
+    normalizeStorageKey,
+    extractKeyFromPublicUrl,
+    normalizeS3ObjectKey,
 };

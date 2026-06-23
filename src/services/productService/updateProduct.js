@@ -24,6 +24,38 @@ class UpdateProductService {
             .replace(/^-|-$/g, '');    // Remove leading/trailing hyphens
     }
 
+    /** Normalize attribute option slug for varImgGroup keys (excellent, black, 64gb). */
+    normalizeVariantSlug(slug) {
+        if (!slug) return '';
+        return toSeoSlug(String(slug).trim().replace(/^variant\s+/i, ''));
+    }
+
+    /** Merge duplicate varImgGroup rows and normalize group names. */
+    normalizeVarImgGroup(varImgGroup) {
+        if (!Array.isArray(varImgGroup)) return [];
+
+        const merged = {};
+        for (const group of varImgGroup) {
+            const key = this.normalizeVariantSlug(group?.name);
+            if (!key) continue;
+
+            if (!merged[key]) {
+                merged[key] = { name: key, varImg: [] };
+            }
+
+            for (const img of group.varImg || []) {
+                const exists = merged[key].varImg.some(
+                    (existing) =>
+                        (existing?.url && img?.url && existing.url === img.url) ||
+                        (existing?.path && img?.path && existing.path === img.path)
+                );
+                if (!exists) merged[key].varImg.push(img);
+            }
+        }
+
+        return Object.values(merged);
+    }
+
     /**
      * Parse field - convert string to JSON if needed
      */
@@ -457,7 +489,7 @@ class UpdateProductService {
                 else if (field.startsWith('varImg[') && field.endsWith(']')) {
                     const startIdx = field.indexOf('[') + 1;
                     const endIdx = field.indexOf(']');
-                    const variantKey = field.slice(startIdx, endIdx);
+                    const variantKey = this.normalizeVariantSlug(field.slice(startIdx, endIdx));
 
                     if (!varImgGroup[variantKey]) {
                         varImgGroup[variantKey] = [];
@@ -477,39 +509,20 @@ class UpdateProductService {
                 }
             }
 
-            // Merge with existing images from req.body.variantImages
-            // Dynamically extract attribute values from variant key
-            // Format: "attribute1_value-attribute2_value-attribute3_value" (e.g., "brand_new-red-32gb")
-            // Use the FIRST variant attribute (from variantNames) for image grouping
-            if (req.body.variantImages) {
-                const variantImagesBody = req.body.variantImages;
-
-                // Get variantNames to determine the order of attributes
-                let variantNamesData = [];
-                try {
-                    variantNamesData = req.body.variantNames ? JSON.parse(req.body.variantNames) : [];
-                } catch (e) {
-                    console.error('Error parsing variantNames:', e);
-                }
-
-                // Find which position corresponds to the first variant attribute
-                const firstAttributeIndex = 0; // First attribute is at position 0 in split result
-
-                for (const key in variantImagesBody) {
-                    // Split variant key into individual attribute values
-                    const attributeValues = key.split('-');
-
-                    // Use the first attribute value (index 0) for image grouping
-                    // This corresponds to the first selected Product Variant
-                    const groupKey = attributeValues[firstAttributeIndex] || key;
+            // Merge with existing images from req.body.varImg (canonical source from admin UI)
+            if (req.body.varImg) {
+                const varImgBody = req.body.varImg;
+                for (const variantKey in varImgBody) {
+                    const groupKey = this.normalizeVariantSlug(variantKey);
+                    if (!groupKey) continue;
 
                     if (!varImgGroup[groupKey]) {
                         varImgGroup[groupKey] = [];
                     }
 
-                    const imagesArray = Array.isArray(variantImagesBody[key])
-                        ? variantImagesBody[key]
-                        : [variantImagesBody[key]];
+                    const imagesArray = Array.isArray(varImgBody[variantKey])
+                        ? varImgBody[variantKey]
+                        : [varImgBody[variantKey]];
 
                     imagesArray.forEach(imageStr => {
                         try {
@@ -518,71 +531,56 @@ class UpdateProductService {
                                 varImgGroup[groupKey].push(image);
                             }
                         } catch (e) {
-                            console.error(`Error parsing JSON for key ${key}:`, e);
-                        }
-                    });
-                }
-            }
-
-            // Merge with existing images from req.body.varImg (this is what frontend sends)
-            if (req.body.varImg) {
-                const varImgBody = req.body.varImg;
-                for (const variantKey in varImgBody) {
-                    if (!varImgGroup[variantKey]) {
-                        varImgGroup[variantKey] = [];
-                    }
-
-                    const imagesArray = Array.isArray(varImgBody[variantKey])
-                        ? varImgBody[variantKey]
-                        : [varImgBody[variantKey]];
-
-                    imagesArray.forEach(imageStr => {
-                        try {
-                            const image = typeof imageStr === 'string' ? JSON.parse(imageStr) : imageStr;
-                            if (image && !varImgGroup[variantKey].some(img => (img.path === image.path) || (img.url && img.url === image.url))) {
-                                varImgGroup[variantKey].push(image);
-                            }
-                        } catch (e) {
                             console.error(`Error parsing JSON for varImg key ${variantKey}:`, e);
                         }
                     });
                 }
             }
 
-            result.varImgGroupArray = Object.keys(varImgGroup).map(variantKey => ({
-                name: variantKey,
-                varImg: varImgGroup[variantKey]
-            }));
+            result.varImgGroupArray = this.normalizeVarImgGroup(
+                Object.keys(varImgGroup).map((variantKey) => ({
+                    name: variantKey,
+                    varImg: varImgGroup[variantKey],
+                }))
+            );
         }
 
         // Also process varImg from body even if no files were uploaded (to preserve existing images)
         if (!req.files || req.files.length === 0) {
             if (req.body.varImg) {
                 const varImgBody = req.body.varImg;
+                const noFileGroups = {};
+
                 for (const variantKey in varImgBody) {
+                    const groupKey = this.normalizeVariantSlug(variantKey);
+                    if (!groupKey) continue;
+
                     const imagesArray = Array.isArray(varImgBody[variantKey])
                         ? varImgBody[variantKey]
                         : [varImgBody[variantKey]];
 
-                    const parsedImages = [];
+                    if (!noFileGroups[groupKey]) {
+                        noFileGroups[groupKey] = [];
+                    }
+
                     imagesArray.forEach(imageStr => {
                         try {
                             const image = typeof imageStr === 'string' ? JSON.parse(imageStr) : imageStr;
                             if (image) {
-                                parsedImages.push(image);
+                                noFileGroups[groupKey].push(image);
                             }
                         } catch (e) {
                             console.error(`Error parsing JSON for varImg key ${variantKey}:`, e);
                         }
                     });
-
-                    if (parsedImages.length > 0) {
-                        result.varImgGroupArray.push({
-                            name: variantKey,
-                            varImg: parsedImages
-                        });
-                    }
                 }
+
+                result.varImgGroupArray = this.normalizeVarImgGroup(
+                    Object.keys(noFileGroups).map((groupKey) => ({
+                        name: groupKey,
+                        varImg: noFileGroups[groupKey],
+                    }))
+                );
             }
         }
 
@@ -688,18 +686,21 @@ class UpdateProductService {
         // Sync variantImages from varImgGroupArray
         // This handles both single variants ("red") and multi-variants ("brand_new-red-32gb")
         if (result.varImgGroupArray.length > 0) {
+            const normalizedGroups = this.normalizeVarImgGroup(result.varImgGroupArray);
+
             result.variantValuesArray = result.variantValuesArray.map(variant => {
                 const variantAttributes = variant.name.split('-');
 
-                // Find a matching group by checking ALL parts of the variant name
                 let matchedGroup = null;
                 for (const attr of variantAttributes) {
-                    matchedGroup = result.varImgGroupArray.find(group => group.name === attr);
+                    const key = this.normalizeVariantSlug(attr);
+                    matchedGroup = normalizedGroups.find(
+                        (group) => this.normalizeVariantSlug(group.name) === key && group.varImg?.length
+                    );
                     if (matchedGroup) break;
                 }
 
-                // If we found a matching group, use its images
-                if (matchedGroup && matchedGroup.varImg && matchedGroup.varImg.length > 0) {
+                if (matchedGroup?.varImg?.length) {
                     return {
                         ...variant,
                         variantImages: matchedGroup.varImg
@@ -708,6 +709,8 @@ class UpdateProductService {
 
                 return variant;
             });
+
+            result.varImgGroupArray = normalizedGroups;
         }
 
         // Process variant names - store full dynamic attribute information
@@ -979,7 +982,7 @@ class UpdateProductService {
 
             product.variantValues = uniqueVariantValues;
             product.variantDescription = variantDesc_values || null;
-            product.varImgGroup = finalVarImgGroupArray || null;
+            product.varImgGroup = this.normalizeVarImgGroup(finalVarImgGroupArray || []) || null;
 
             product.sim_options = sim_options || null;
             product.product_Specifications = specifications_values;
