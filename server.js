@@ -51,6 +51,7 @@ const { serverConfig } = require('./config/server.config');
 const { errorHandler } = require('./middleware/errorHandler');
 const { reviewsMiddleware } = require('./middleware/reviewsMiddleware');
 const { requestLogger } = require('./middleware/requestLogger');
+const { auditTimer } = require('./middleware/auditTimer');
 const { securityHeaders } = require('./middleware/securityHeaders');
 const { healthCheck, livenessCheck, readinessCheck } = require('./middleware/healthCheck');
 const { initializeCronJobs } = require('./cronjob/cronScheduler');
@@ -168,6 +169,9 @@ class Server {
 
     // Request logging
     this.app.use(requestLogger);
+
+    // Audit timing — persists slow / errored requests to the AuditLog collection
+    this.app.use(auditTimer);
 
     // Morgan logging
     this.app.use(logger(serverConfig.logLevel));
