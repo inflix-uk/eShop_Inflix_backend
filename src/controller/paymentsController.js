@@ -5,6 +5,7 @@ const User = require("../models/user");
 const Order = require("../models/order");
 const StripeSettings = require("../models/stripeSettings");
 const CheckoutLog = require("../models/checkoutLog");
+const auditLogService = require("../services/auditLogService");
 
 // Booking payment confirmation service
 const { confirmBookingPayment, handleBookingPaymentFailed } = require('../services/bookingService/confirmBooking');

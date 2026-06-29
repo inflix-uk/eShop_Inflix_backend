@@ -77,6 +77,7 @@ const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
 const cronRoutes = require('./cronRoutes');
 const order = require('../models/order');
 const healthController = require('../controller/healthController');
+const auditLogController = require('../controller/auditLogController');
 const superadminControlsController = require('../controller/superadminControlsController');
 const requireSuperadmin = require('../../middleware/requireSuperadmin');
 
@@ -1028,6 +1029,12 @@ router.post('/create/booking', bookingController.createBooking);
 router.post('/get/booking/user', bookingController.getUserBookings);
 router.post('/create/booking/payment-intent', bookingPaymentController.createBookingPaymentIntent);
 router.get('/get/booking/:bookingNumber', bookingController.getBookingByNumber);
+
+// ========================================================================
+// AUDIT LOGS (admin — performance timing + error/event trail)
+// ========================================================================
+router.get('/audit-logs/slowest', requireAdmin, auditLogController.getSlowestRoutes);
+router.get('/audit-logs', requireAdmin, auditLogController.getAuditLogs);
 
 // ========================================================================
 // CRON JOB ROUTES
