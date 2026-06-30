@@ -1,0 +1,14 @@
+# Local dev MongoDB — use when remote MONGO_URI is unreachable.
+# Start:  docker compose up -d
+# Then in .env:  MONGO_URI=mongodb://127.0.0.1:27017/zextonsnew
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - aroma_mongo_data:/data/db
+
+volumes:
+  aroma_mongo_data:

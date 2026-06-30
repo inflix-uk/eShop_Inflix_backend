@@ -111,7 +111,7 @@ async function createOrder() {
 
         // Connect to MongoDB
         console.log('Connecting to MongoDB...');
-        const MONGO_URI = process.env.DATABASE_URL || process.env.MONGODB_URI || 'mongodb+srv://zextonsAdmin:12345@zextons.y1to4og.mongodb.net/zextons';
+        const MONGO_URI = process.env.DATABASE_URL || process.env.MONGODB_URI || 'mongodb+srv://zextonsAdmin:12345@store.y1to4og.mongodb.net/store';
         await mongoose.connect(MONGO_URI);
         console.log('Connected.\n');
 

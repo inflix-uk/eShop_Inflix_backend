@@ -4,7 +4,11 @@
  */
 const mongoose = require('mongoose');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://zextonsAdmin:12345@zextons.y1to4og.mongodb.net/zextonsnew';
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error('MONGO_URI is required');
+  process.exit(1);
+}
 
 async function cleanProducts() {
     try {

@@ -95,11 +95,10 @@ class Server {
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
-      'https://zextons.co.uk',
-      'https://www.zextons.co.uk',
-      'https://admin.zextons.co.uk',
-      'https://zextons-admin-pannel.vercel.app',
-      'https://zextonswebsite-new-weld.vercel.app',
+      ...String(process.env.SOCKET_LEGACY_ORIGINS || process.env.CORS_EXTRA_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim().replace(/\/+$/, ''))
+        .filter(Boolean),
     ];
     const socketCorsOrigins = [
       ...new Set([...(allowedOrigins || []), ...legacySocketOrigins]),

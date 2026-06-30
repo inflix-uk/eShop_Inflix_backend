@@ -31,6 +31,13 @@ const {
   buildCartItemVariantDetailsHtml,
   buildAdminNewOrderCartItemHtml,
 } = require('../../utils/orderStatusEmailDynamicHtml');
+const {
+  normalizeMarketingAttribution,
+  buildCustomerKey,
+  shouldApplyMarketingAttribution,
+  logMarketingAttributionTrace,
+  logMarketingAttributionMissing,
+} = require('../../utils/marketingAttribution');
 
 // ============================================================================
 // HELPER FUNCTIONS - Coupon Management
@@ -713,7 +720,7 @@ const generateCustomerEmailHTML = async ({
     emailTemplate = applyOrderConfirmationCopyToHtml(emailTemplate, confirmationCopy.fields);
 
     // Filter out trade-in products - customers don't need to see trade-in items in their order confirmation
-    // Trade-in details are handled separately via SellZextons checkout
+    // Trade-in details are handled separately via external trade-in checkout
     const regularProductsOnly = cart.filter(item => !item.isTradeIn && item.productId !== 'trade-in');
 
     // Generate cart items HTML (excluding trade-ins)
@@ -860,6 +867,62 @@ const generateCustomerEmailHTML = async ({
     return { html: emailTemplate, subject: confirmationCopy.subject };
 };
 
+/**
+ * Apply optional marketing attribution and customerKey to an order document.
+ * @param {import('mongoose').Document} orderDoc
+ * @param {{ marketingAttributionRaw?: object, contactInformation?: object, isCreate: boolean }} options
+ */
+function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInformation, isCreate, orderNumber }) {
+    const normalizedAttribution = normalizeMarketingAttribution(marketingAttributionRaw);
+    const customerKey = buildCustomerKey({
+        userId: contactInformation?.userId,
+        email: contactInformation?.email,
+    });
+
+    if (isCreate) {
+        const rawPresent =
+            marketingAttributionRaw != null &&
+            typeof marketingAttributionRaw === 'object' &&
+            !Array.isArray(marketingAttributionRaw) &&
+            Object.keys(marketingAttributionRaw).length > 0;
+        if (!rawPresent) {
+            logMarketingAttributionMissing({
+                orderNumber: orderNumber || orderDoc.orderNumber,
+            });
+        }
+        orderDoc.marketingAttribution = normalizedAttribution;
+        if (customerKey) orderDoc.customerKey = customerKey;
+        logMarketingAttributionTrace({
+            orderNumber: orderNumber || orderDoc.orderNumber,
+            raw: marketingAttributionRaw,
+            normalized: normalizedAttribution,
+            isCreate: true,
+        });
+        return;
+    }
+
+    if (shouldApplyMarketingAttribution(orderDoc)) {
+        orderDoc.marketingAttribution = normalizedAttribution;
+        logMarketingAttributionTrace({
+            orderNumber: orderNumber || orderDoc.orderNumber,
+            raw: marketingAttributionRaw,
+            normalized: normalizedAttribution,
+            isCreate: false,
+        });
+    } else if (marketingAttributionRaw) {
+        logMarketingAttributionTrace({
+            orderNumber: orderNumber || orderDoc.orderNumber,
+            raw: marketingAttributionRaw,
+            normalized: normalizedAttribution,
+            isCreate: false,
+            skippedUpdate: true,
+        });
+    }
+    if (!orderDoc.customerKey && customerKey) {
+        orderDoc.customerKey = customerKey;
+    }
+}
+
 // ============================================================================
 // MAIN SERVICE - Create Order
 // ============================================================================
@@ -871,7 +934,7 @@ const generateCustomerEmailHTML = async ({
  */
 const createOrderService = async (orderData) => {
     try {
-        const { cart, shippingInformation, contactInformation, coupon, paymentDetails, orderNumber, status, shippingMethod } = orderData;
+        const { cart, shippingInformation, contactInformation, coupon, paymentDetails, orderNumber, status, shippingMethod, marketingAttribution } = orderData;
 
         // ====================================================================
         // STEP 1: Validate Cart
@@ -964,6 +1027,13 @@ const createOrderService = async (orderData) => {
             order.coupon = coupon || order.coupon;
             order.status = status || 'Failed';
 
+            applyMarketingFields(order, {
+                marketingAttributionRaw: marketingAttribution,
+                contactInformation,
+                isCreate: false,
+                orderNumber: order.orderNumber,
+            });
+
             // Save the updated order
             const updatedOrder = await order.save();
             console.log("Order updated:", updatedOrder);
@@ -990,6 +1060,13 @@ const createOrderService = async (orderData) => {
                 coupon,
                 status: status || 'Failed',
                 shippingMethod: shippingMethod || null,
+            });
+
+            applyMarketingFields(newOrder, {
+                marketingAttributionRaw: marketingAttribution,
+                contactInformation,
+                isCreate: true,
+                orderNumber: newOrderNumber,
             });
 
             // Save the new order to the database

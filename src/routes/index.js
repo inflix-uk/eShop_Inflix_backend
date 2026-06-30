@@ -472,6 +472,14 @@ router.get('/get/stats',                               adminStatsController.getS
 router.get('/get/stats2',                              adminStatsController.getStats2);
 router.get('/get/stats3',                              adminStatsController.getStats3);
 router.get('/get/stats4',                              adminStatsController.getStats4);
+
+// ========================================================================
+// ADMIN MARKETING ANALYTICS OVERVIEW
+// ========================================================================
+const analyticsOverviewController = require('../controller/analyticsOverviewController');
+const analyticsVisitorSessionController = require('../controller/analyticsVisitorSessionController');
+router.get('/analytics/overview', requireAdmin, analyticsOverviewController.getOverview);
+router.post('/analytics/visitor-session', analyticsVisitorSessionController.record);
 router.get('/get/order/stats',                         adminStatsController.getOrderStats);  // Fast order stats for tabs
 router.get('/get/files',                               adminStatsController.getFiles);
 router.get('/get/files/spaces',                        adminStatsController.getFilesSpaces);
@@ -886,6 +894,7 @@ router.post('/site-theme', requireAdmin, siteThemeController.saveTheme);
 // CMS typography (Next.js + admin)
 router.get('/api/theme', siteThemeController.getTypographyPublic);
 router.put('/api/theme', requireAdmin, siteThemeController.updateTypography);
+router.put('/api/theme/body-background', requireAdmin, siteThemeController.updateBodyBackground);
 
 // ========================================================================
 // TRUSTPILOT SETTINGS MANAGEMENT

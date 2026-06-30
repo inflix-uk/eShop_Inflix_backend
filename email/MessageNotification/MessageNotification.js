@@ -8,7 +8,7 @@ const replaceTemplateVariables = (template, data) => {
     template = template.replace('{{user.lastname}}', data.user.lastname || '');
     
     // Replace portal URL
-    template = template.replace('{{portalUrl}}', data.portalUrl || 'https://zextons.co.uk/login');
+    template = template.replace('{{portalUrl}}', data.portalUrl || 'https:///login');
     
     return template;
 };

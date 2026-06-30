@@ -856,7 +856,8 @@ const getFooterPageById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const footerPage = await FooterPage.findById(id);
+    const footerPage = await FooterPage.findById(id)
+      .populate('parentPageId', 'slug title');
     
     if (!footerPage) {
       return res.status(404).json({
@@ -903,10 +904,16 @@ const getFooterPageBySlug = async (req, res) => {
 
     let footerPage;
     if (parentSlug) {
-      const parent = await FooterPage.findOne({
+      let parent = await FooterPage.findOne({
         slug: parentSlug,
         parentPageId: null
       }).select('_id slug');
+      if (!parent) {
+        parent = await FooterPage.findOne({
+          slug: { $regex: new RegExp(`^${escapeRegex(parentSlug)}$`, 'i') },
+          parentPageId: null
+        }).select('_id slug');
+      }
       if (parent) {
         footerPage = await FooterPage.findOne({
           slug: slugLower,

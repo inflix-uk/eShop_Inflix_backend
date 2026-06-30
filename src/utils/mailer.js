@@ -4,7 +4,7 @@ const SmtpSettings = require('../models/smtpSettings');
 function buildFromHeader(fromName, fromEmail) {
   const email = (fromEmail || '').trim();
   if (!email) return undefined;
-  const name = (fromName || 'Zextons').replace(/"/g, '').trim() || 'Zextons';
+  const name = (fromName || process.env.STORE_NAME || 'Store').replace(/"/g, '').trim() || 'Store';
   return `"${name}" <${email}>`;
 }
 
@@ -135,7 +135,7 @@ async function getOrderNotifyRecipientEmail() {
   }
   const fromEnv = String(process.env.ORDER_NOTIFY_EMAIL || '').trim();
   if (fromEnv && SIMPLE_EMAIL_RE.test(fromEnv)) return fromEnv;
-  return 'order@zextons.co.uk';
+  return '';
 }
 
 function parseCommaSeparatedEmails(raw) {

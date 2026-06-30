@@ -27,9 +27,9 @@ const diskStorage = multer.diskStorage({
         cb(null, destinationFolder);
     },
     filename: function (req, file, cb) {
-        // Use fixed filename: zextons-logo.{extension}
+        // Use fixed filename: store-logo.{extension}
         const extension = path.extname(file.originalname);
-        cb(null, `zextons-logo${extension}`);
+        cb(null, `store-logo${extension}`);
     }
 });
 

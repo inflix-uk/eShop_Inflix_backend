@@ -191,7 +191,7 @@ const updateOrderService = async (id, orderData) => {
 
             // Email options for the owner/admin
             const mailOptionsOwner = {
-                to: 'order@zextons.co.uk',
+                to: 'order@',
                 subject: `New Order Received - ${updatedOrder.orderNumber}`,
                 html: emailTemplate
             };
@@ -345,7 +345,7 @@ const updateOrderService = async (id, orderData) => {
                 <div class="footer">
                     <p>Zexton Tech Store</p>
                     <p>27 Church Street, St Helens, WA10 1AX</p>
-                    <p>Email: hello@zextons.co.uk | Phone: +44 333 344 8541</p>
+                    <p>Email: hello@ | Phone: +44 333 344 8541</p>
                 </div>
             </div>
 
@@ -362,7 +362,7 @@ const updateOrderService = async (id, orderData) => {
 
             // Email options for the owner/admin
             const mailOptionsOwner = {
-                to: 'zextons.co.uk@gmail.com',
+                to: '@gmail.com',
                 subject: `Refund Processed - Order #${updatedOrder.orderNumber}`,
                 html: `
                     <!DOCTYPE html>

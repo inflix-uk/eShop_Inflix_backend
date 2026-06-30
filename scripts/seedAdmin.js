@@ -28,7 +28,7 @@ const STATIC_META_IDS = ['view_static_meta', 'manage_static_meta'];
 const allTrue = (ids) => ids.reduce((a, id) => (a[id] = true, a), {});
 
 const FULL_PERMISSIONS = {
-    zextons: allTrue(ZEXTONS_IDS),
+    store: allTrue(ZEXTONS_IDS),
     rolesandPermissions: allTrue(ROLES_IDS),
     staticMeta: allTrue(STATIC_META_IDS)
 };
@@ -87,8 +87,8 @@ const FULL_PERMISSIONS = {
     console.log('\n--- VERIFY ---');
     console.log('email:', verify.email, '| role:', verify.role, '| roleId.name:', verify.roleId.name);
     console.log('password verify:', pwOk);
-    console.log('zextons / rolesandPermissions / staticMeta keys:',
-        Object.keys(p.zextons || {}).length, '/',
+    console.log('store / rolesandPermissions / staticMeta keys:',
+        Object.keys(p.store || {}).length, '/',
         Object.keys(p.rolesandPermissions || {}).length, '/',
         Object.keys(p.staticMeta || {}).length);
 

@@ -6,7 +6,7 @@ const User = require('../models/user');
 const RoleAndPermissons = require('../models/roleAndPermissons');
 const bcrypt = require('bcrypt');
 
-const ADMIN_EMAIL = 'admin@zextons.co.uk';
+const ADMIN_EMAIL = 'admin@';
 const ADMIN_PASSWORD = 'Admin@123456';
 
 async function checkAndCreateAdmin() {
@@ -83,7 +83,7 @@ async function checkAndCreateAdmin() {
                 password: hashedPassword,
                 role: 'admin',
                 roleId: adminRole._id,
-                companyname: 'Zextons'
+                companyname: 'our store'
             });
             
             await user.save();

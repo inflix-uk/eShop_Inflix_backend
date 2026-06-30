@@ -14,6 +14,11 @@ const siteThemeSchema = new Schema(
       default: '',
       trim: true,
     },
+    bodyBgColor: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     typography: {
       type: typographySchema,
       default: undefined,

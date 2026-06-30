@@ -175,7 +175,7 @@ const sendFailedOrderEmails = async () => {
                             <p>Complete your purchase now and get your items delivered to your doorstep!</p>
 
                             <div style="text-align: center;">
-                                <a href="https://zextons.co.uk/checkout" class="cta-button">
+                                <a href="https:///checkout" class="cta-button">
                                     Complete Your Order Now
                                 </a>
                             </div>
@@ -187,7 +187,7 @@ const sendFailedOrderEmails = async () => {
                         <div class="footer">
                             <p>Zexton Tech Store</p>
                             <p>27 Church Street, St Helens, WA10 1AX</p>
-                            <p>Email: hello@zextons.co.uk | Phone: +44 333 344 8541</p>
+                            <p>Email: hello@ | Phone: +44 333 344 8541</p>
                         </div>
                     </div>
                 </body>

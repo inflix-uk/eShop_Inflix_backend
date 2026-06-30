@@ -12,7 +12,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 
 // MongoDB connection string
-const MONGODB_URI = process.env.MONGO_URI || 'mongodb+srv://zextonsAdmin:12345@zextons.y1to4og.mongodb.net/zextonsnew';
+const MONGODB_URI = process.env.MONGO_URI || 'mongodb+srv://zextonsAdmin:12345@store.y1to4og.mongodb.net/zextonsnew';
 
 // Product model
 const productSchema = new mongoose.Schema({}, { strict: false });

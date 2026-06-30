@@ -82,16 +82,16 @@ const usersController = {
                         <head>
                         <meta charset="UTF-8">
                         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Welcome to Zextons</title>
+                        <title>Welcome to our store</title>
                         </head>
                         <body style="font-family: Arial, sans-serif;">
                         <div style="background-color: #f2f2f2; padding: 20px;">
-                            <h1 style="color: #333333;">Welcome to Zextons!</h1>
+                            <h1 style="color: #333333;">Welcome to our store!</h1>
                             <p style="color: #666666;">Dear ${firstName} ${lastName},</p>
                             <p style="color: #666666;">Thank you for registering with us. We're excited to have you on board and look forward to providing you with the best services.</p>
                             <p style="color: #666666;">If you have any questions or need any assistance, feel free to contact us.</p>
                             <p style="color: #666666;">Best regards,</p>
-                            <p style="color: #666666;">The Zextons Team</p>
+                            <p style="color: #666666;">The our store Team</p>
                         </div>
                         </body>
                         </html>
@@ -99,7 +99,7 @@ const usersController = {
 
                 return sendMail({
                     to: newUser.email,
-                    subject: 'Welcome to Zextons!',
+                    subject: 'Welcome to our store!',
                     html: emailContent
                 });
             };
@@ -183,19 +183,19 @@ const usersController = {
                 <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Welcome to Zextons</title>
+                <title>Welcome to our store</title>
                 </head>
                 <body style="font-family: Arial, sans-serif;">
 
                 <div style="background-color: #f2f2f2; padding: 20px;">
-                    <h1 style="color: #333333;">Welcome to Zextons!</h1>
+                    <h1 style="color: #333333;">Welcome to our store!</h1>
                     <p style="color: #666666;">Dear ${firstName} ${lastName},</p>
                     <p style="color: #666666;">Your email address is: ${email}</p>
                     <p style="color: #666666;">Your password is: ${password}</p>
                     <p style="color: #666666;">Thank you for registering with us. We're excited to have you on board and look forward to providing you with the best services.</p>
                     <p style="color: #666666;">If you have any questions or need any assistance, feel free to contact us.</p>
                     <p style="color: #666666;">Best regards,</p>
-                    <p style="color: #666666;">The Zextons Team</p>
+                    <p style="color: #666666;">The our store Team</p>
                 </div>
                 </body>
                 </html>
@@ -203,7 +203,7 @@ const usersController = {
 
               sendMail({
                 to: newUser.email,
-                subject: 'Welcome to Zextons!',
+                subject: 'Welcome to our store!',
                 html: emailContent
             }).catch((err) => console.log("Error sending welcome email:", err));
 
@@ -403,12 +403,12 @@ const usersController = {
                 <p style="color: #666666;">Dear User,</p>
                 <p style="color: #666666;">You have requested to reset your password. To proceed with the password reset, please click on the button below:</p>
                 <div style="text-align: center; margin-top: 20px;">
-                    <a href="http://Zextons.co.uk/resetpassword/${token}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+                    <a href="http:///resetpassword/${token}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
                 </div>
                 <p style="color: #666666;">This link will expire in 60 minutes. If you do not reset your password within this time, you will need to request another password reset.</p>
                 <p style="color: #666666;">If you did not request a password reset, please ignore this email.</p>
                 <p style="color: #666666;">Thank you,</p>
-                <p style="color: #666666;">Zextons Team </p>
+                <p style="color: #666666;">our store Team </p>
             </div>
             
             </body>

@@ -12,11 +12,11 @@ const readline = require('readline');
 const ADMIN_CONFIG = {
     firstname: 'Admin',
     lastname: 'User',
-    email: 'admin@zextons.co.uk', // Change this to your desired admin email
+    email: 'admin@', // Change this to your desired admin email
     password: 'Admin@123456', // Change this to your desired password
     phoneNumber: '+441234567890', // Optional
     role: 'admin',
-    companyname: 'Zextons'
+    companyname: 'our store'
 };
 
 async function createAdminUser() {
