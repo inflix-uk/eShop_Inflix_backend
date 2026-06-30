@@ -36,10 +36,28 @@ function typographyPayload(themeDoc) {
   return mergeStoredTypography(raw);
 }
 
+const DEFAULT_BODY_BG = '#ffffff';
+
 const EMPTY_THEME_COLORS = {
   primaryColor: 'transparent',
   secondaryColor: 'transparent',
+  bodyBgColor: '',
 };
+
+/** `''` = storefront default white; `#rrggbb` = valid hex; `null` = invalid non-empty input. */
+function parseBodyBgColor(input) {
+  if (typeof input !== 'string') return null;
+  const v = input.trim();
+  if (!v) return '';
+  const hex = normalizeHex(v);
+  return hex === null ? null : hex;
+}
+
+function publicBodyBgColor(stored) {
+  const v = typeof stored === 'string' ? stored.trim() : '';
+  if (!v) return '';
+  return normalizeHex(v) || '';
+}
 
 const siteThemeController = {
   async getThemeAdmin(req, res) {
@@ -60,6 +78,7 @@ const siteThemeController = {
         data: {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
+          bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
           typography: typographyPayload(theme),
           updatedAt: theme.updatedAt,
         },
@@ -90,6 +109,7 @@ const siteThemeController = {
         data: {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
+          bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
           typography: typographyPayload(theme),
         },
       });
@@ -126,6 +146,44 @@ const siteThemeController = {
       return res.status(200).json({
         success: true,
         data: { typography: mergeStoredTypography(null) },
+      });
+    }
+  },
+
+  /** Admin: update body background color only (validated). */
+  async updateBodyBackground(req, res) {
+    try {
+      const parsed = parseBodyBgColor(String(req.body?.bodyBgColor ?? ''));
+      if (parsed === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid body background color. Use #RRGGBB hex or leave empty for default white.',
+        });
+      }
+
+      let theme = await SiteTheme.findOne();
+      if (!theme) {
+        theme = new SiteTheme({});
+      }
+      theme.bodyBgColor = parsed === DEFAULT_BODY_BG ? '' : parsed;
+      if (!theme.typography || Object.keys(theme.typography || {}).length === 0) {
+        theme.typography = mergeStoredTypography(null);
+      }
+      await theme.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Body background saved',
+        data: {
+          bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
+          updatedAt: theme.updatedAt,
+        },
+      });
+    } catch (error) {
+      console.error('Error saving body background:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save body background',
       });
     }
   },

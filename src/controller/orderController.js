@@ -13,6 +13,9 @@ const updateOrderService = require("../services/orderService/updateOrder");
 const { bulkUpdateOrdersService } = require("../services/orderService/updateOrder");
 const createOrderService = require("../services/orderService/createOrder");
 const {
+    logMarketingAttributionInbound,
+} = require("../utils/marketingAttribution");
+const {
     resolveOrderLineImageUrlServer,
     attachLineImageUrlsToOrder,
 } = require("../utils/orderLineImageUrlServer");
@@ -93,6 +96,12 @@ const orderController = {
   
     createOrder: async (req, res, next) => {
         try {
+            if (req.body?.marketingAttribution) {
+                logMarketingAttributionInbound({
+                    orderNumber: req.body.orderNumber,
+                    raw: req.body.marketingAttribution,
+                });
+            }
             const result = await createOrderService(req.body);
 
             if (!result.success) {

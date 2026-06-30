@@ -80,6 +80,83 @@ const orderSchema = new mongoose.Schema({
         type: Date,
         default: null
     },
+    marketingAttribution: {
+        schemaVersion: { type: Number, default: 1 },
+        attributionModel: { type: String, default: 'last_non_direct_click' },
+        firstTouch: {
+            source: String,
+            medium: String,
+            campaign: String,
+            content: String,
+            term: String,
+            referrer: String,
+            referrerDomain: String,
+            landingPage: String,
+            capturedAt: Date,
+        },
+        lastTouch: {
+            source: String,
+            medium: String,
+            campaign: String,
+            content: String,
+            term: String,
+            referrer: String,
+            referrerDomain: String,
+            landingPage: String,
+            capturedAt: Date,
+        },
+        orderTouch: {
+            source: String,
+            medium: String,
+            campaign: String,
+            content: String,
+            term: String,
+            referrer: String,
+            referrerDomain: String,
+            landingPage: String,
+            capturedAt: Date,
+        },
+        clickIds: {
+            gclid: String,
+            gbraid: String,
+            wbraid: String,
+            fbclid: String,
+            msclkid: String,
+            ttclid: String,
+        },
+        campaignIds: {
+            googleCampaignId: String,
+            googleAdGroupId: String,
+            googleCreativeId: String,
+            metaCampaignId: String,
+            metaAdSetId: String,
+            metaAdId: String,
+        },
+        normalized: {
+            source: String,
+            medium: String,
+            campaign: String,
+            channel: String,
+            sourceMedium: String,
+        },
+        sessionId: String,
+        visitorId: String,
+        consent: {
+            analytics: Boolean,
+            marketing: Boolean,
+            capturedAt: Date,
+        },
+        capturedAt: { type: Date, default: Date.now },
+        attributionStatus: {
+            type: String,
+            enum: ['available', 'partial', 'direct', 'missing', 'consent_denied'],
+            default: 'missing',
+        },
+    },
+    customerKey: {
+        type: String,
+        required: false,
+    },
     createdAt: {
         type: Date,
         default: Date.now
@@ -110,5 +187,26 @@ orderSchema.index({ 'contactDetails.userId': 1 });
 
 // Index for order number lookups
 orderSchema.index({ orderNumber: 1 });
+
+// Marketing attribution analytics (sparse)
+orderSchema.index(
+    { 'marketingAttribution.normalized.source': 1, createdAt: -1 },
+    { sparse: true }
+);
+orderSchema.index(
+    { 'marketingAttribution.normalized.medium': 1, createdAt: -1 },
+    { sparse: true }
+);
+orderSchema.index(
+    { 'marketingAttribution.normalized.campaign': 1, createdAt: -1 },
+    { sparse: true }
+);
+orderSchema.index(
+    { 'marketingAttribution.normalized.channel': 1, createdAt: -1 },
+    { sparse: true }
+);
+orderSchema.index({ 'marketingAttribution.clickIds.gclid': 1 }, { sparse: true });
+orderSchema.index({ customerKey: 1, createdAt: -1 }, { sparse: true });
+
 module.exports = mongoose.model('Order', orderSchema);
 
