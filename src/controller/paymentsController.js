@@ -334,6 +334,14 @@ const paymentsController = {
 
             console.log("PaymentIntent created:", paymentIntent.id, isExpressCheckout ? "(Express Checkout)" : "(Standard)");
 
+            writeLog({
+                event: 'backend.payment_intent.created',
+                source: 'backend',
+                paymentIntentId: paymentIntent.id,
+                orderNumber: orderNumber || undefined,
+                data: { amount: totalAmount, isExpressCheckout: !!isExpressCheckout },
+            });
+
             res.json({
                 clientSecret: paymentIntent.client_secret,
                 paymentIntentId: paymentIntent.id,
@@ -1420,6 +1428,16 @@ const paymentsController = {
             case 'payment_intent.payment_failed':
                 const failedPayment = event.data.object;
                 console.log('❌ PaymentIntent failed:', failedPayment.id);
+
+                writeLog({
+                    event: 'backend.webhook.payment_intent.failed',
+                    source: 'backend',
+                    paymentIntentId: failedPayment.id,
+                    orderNumber: failedPayment.metadata?.orderNumber || undefined,
+                    data: {
+                        message: failedPayment.last_payment_error?.message || null,
+                    },
+                });
 
                 try {
                     const failedMetadataPaymentType = failedPayment.metadata?.paymentType;
