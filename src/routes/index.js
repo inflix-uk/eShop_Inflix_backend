@@ -489,9 +489,11 @@ router.get('/get/stats4',                              adminStatsController.getS
 // ========================================================================
 // ADMIN MARKETING ANALYTICS OVERVIEW
 // ========================================================================
+const analyticsAdSpendController = require('../controller/analyticsAdSpendController');
 const analyticsOverviewController = require('../controller/analyticsOverviewController');
 const analyticsVisitorSessionController = require('../controller/analyticsVisitorSessionController');
 router.get('/analytics/overview', requireAdmin, analyticsOverviewController.getOverview);
+router.post('/analytics/ad-spend', requireAdmin, analyticsAdSpendController.upsert);
 router.post('/analytics/visitor-session', analyticsVisitorSessionController.record);
 router.get('/get/order/stats',                         adminStatsController.getOrderStats);  // Fast order stats for tabs
 router.get('/get/files',                               adminStatsController.getFiles);

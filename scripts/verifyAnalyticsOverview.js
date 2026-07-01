@@ -12,6 +12,22 @@ const { getAnalyticsOverview } = require('../src/services/analytics/analyticsOve
 const { computeConversionMetrics } = require('../src/utils/analyticsConversionMetrics');
 const { computeConvertedInPopulation } = require('../src/utils/analyticsConversionPopulation');
 const {
+  getAbandonedCheckoutMetrics,
+  SUCCESS_EVENTS,
+  FAILED_EVENTS,
+} = require('../src/services/analytics/abandonedCheckoutService');
+const {
+  computeRoas,
+  computeRoiPercent,
+  buildCampaignRoasRows,
+  upsertMarketingAdSpend,
+} = require('../src/services/analytics/adSpendRoasService');
+const {
+  resolveUnitCost,
+  lineRevenue,
+} = require('../src/services/analytics/profitabilityService');
+const MarketingAdSpend = require('../src/models/marketingAdSpend');
+const {
   REVENUE_STATUSES,
   buildBaseMatch,
   buildRevenueMatch,
@@ -118,6 +134,307 @@ function verifyTimezoneBoundaries() {
     pass('January range does not use server-local midnight boundary');
   } else {
     fail('January range does not use server-local midnight boundary', PAKISTAN_WINTER_WRONG_START);
+  }
+}
+
+async function verifyAdSpendRoasSection(overview) {
+  const ap = overview.advertisingPerformance;
+  if (ap && typeof ap === 'object') {
+    pass('advertisingPerformance present in overview response');
+  } else {
+    fail('advertisingPerformance present in overview response');
+    return;
+  }
+
+  const apFields = [
+    'platform',
+    'totalSpend',
+    'spendRecordCount',
+    'campaignCount',
+    'attributedRevenue',
+    'attributedOrders',
+    'blendedRoas',
+    'blendedRoi',
+    'blendedCac',
+    'availability',
+  ];
+  const apMissing = apFields.filter((f) => ap[f] === undefined);
+  if (apMissing.length === 0) {
+    pass('advertisingPerformance has required fields');
+  } else {
+    fail('advertisingPerformance required fields', apMissing.join(', '));
+  }
+
+  if (Array.isArray(overview.campaignRoasRoi)) {
+    pass('campaignRoasRoi array present');
+  } else {
+    fail('campaignRoasRoi array present');
+  }
+
+  if (overview.meta?.dataAvailability?.adSpend === ap.availability) {
+    pass('meta.dataAvailability.adSpend matches advertisingPerformance');
+  } else {
+    fail(
+      'meta.dataAvailability.adSpend',
+      `${overview.meta?.dataAvailability?.adSpend} vs ${ap.availability}`
+    );
+  }
+
+  const sectionFlag = overview.unsupportedSections?.campaignRoasRoi;
+  const hasSpendRows = (overview.campaignRoasRoi || []).some(
+    (row) => row.spendAvailability === 'available'
+  );
+  const expectedRoasSection = hasSpendRows ? 'available' : 'unavailable';
+  if (sectionFlag === expectedRoasSection) {
+    pass('unsupportedSections.campaignRoasRoi reflects spend availability');
+  } else {
+    fail('unsupportedSections.campaignRoasRoi', `${sectionFlag} expected ${expectedRoasSection}`);
+  }
+
+  if (ap.availability === 'available' && ap.totalSpend > 0) {
+    if (ap.blendedRoas != null) {
+      pass('advertisingPerformance blendedRoas computed when spend exists');
+    } else {
+      fail('advertisingPerformance blendedRoas computed when spend exists');
+    }
+  } else {
+    pass('advertisingPerformance unavailable without spend data (expected when not imported)');
+  }
+}
+
+async function verifyProfitabilitySection(overview) {
+  const pf = overview.profitability;
+  if (pf && typeof pf === 'object') {
+    pass('profitability present in overview response');
+  } else {
+    fail('profitability present in overview response');
+    return;
+  }
+
+  const fields = [
+    'lineItemsInRange',
+    'lineItemsWithCost',
+    'lineItemsMissingCost',
+    'totalLineRevenue',
+    'revenueWithCost',
+    'cogs',
+    'grossProfit',
+    'grossMarginPercent',
+    'costCoveragePercent',
+    'availability',
+  ];
+  const missing = fields.filter((f) => pf[f] === undefined);
+  if (missing.length === 0) {
+    pass('profitability has required metric fields');
+  } else {
+    fail('profitability has required metric fields', missing.join(', '));
+  }
+
+  if (pf.lineItemsWithCost + pf.lineItemsMissingCost === pf.lineItemsInRange) {
+    pass('profitability costed + missing lines equals lineItemsInRange');
+  } else {
+    fail(
+      'profitability line item split',
+      `${pf.lineItemsWithCost}+${pf.lineItemsMissingCost} vs ${pf.lineItemsInRange}`
+    );
+  }
+
+  if (pf.availability === 'available') {
+    const expectedProfit = Math.round((pf.revenueWithCost - pf.cogs + Number.EPSILON) * 100) / 100;
+    if (pf.grossProfit === expectedProfit) {
+      pass('profitability grossProfit equals revenueWithCost - cogs');
+    } else {
+      fail('profitability grossProfit', `${pf.grossProfit} vs ${expectedProfit}`);
+    }
+
+    if (pf.revenueWithCost > 0 && pf.grossMarginPercent != null) {
+      const expectedMargin =
+        Math.round(((pf.grossProfit / pf.revenueWithCost) * 100 + Number.EPSILON) * 100) / 100;
+      if (pf.grossMarginPercent === expectedMargin) {
+        pass('profitability grossMarginPercent formula');
+      } else {
+        fail(
+          'profitability grossMarginPercent formula',
+          `${pf.grossMarginPercent} vs ${expectedMargin}`
+        );
+      }
+    }
+
+    if (overview.kpis.grossMargin === pf.grossMarginPercent) {
+      pass('kpis.grossMargin matches profitability.grossMarginPercent');
+    } else {
+      fail(
+        'kpis.grossMargin matches profitability',
+        `${overview.kpis.grossMargin} vs ${pf.grossMarginPercent}`
+      );
+    }
+
+    if (overview.kpis.grossMarginAvailability === 'available') {
+      pass('kpis.grossMarginAvailability available when cost data exists');
+    } else {
+      fail('kpis.grossMarginAvailability', overview.kpis.grossMarginAvailability);
+    }
+  } else if (overview.kpis.grossMargin === null) {
+    pass('kpis.grossMargin null when no product cost coverage');
+  } else {
+    fail('kpis.grossMargin null when unavailable', String(overview.kpis.grossMargin));
+  }
+
+  if (overview.meta?.dataAvailability?.profit === pf.availability) {
+    pass('meta.dataAvailability.profit matches section availability');
+  } else {
+    fail(
+      'meta.dataAvailability.profit',
+      `${overview.meta?.dataAvailability?.profit} vs ${pf.availability}`
+    );
+  }
+
+  const sectionFlag = overview.unsupportedSections?.profitability;
+  const expectedSection = pf.availability === 'available' ? 'available' : 'unavailable';
+  if (sectionFlag === expectedSection) {
+    pass('unsupportedSections.profitability reflects availability');
+  } else {
+    fail('unsupportedSections.profitability', `${sectionFlag} expected ${expectedSection}`);
+  }
+}
+
+async function verifyCustomerProfileSection(overview) {
+  const cp = overview.customerProfile;
+  if (cp && typeof cp === 'object') {
+    pass('customerProfile present in overview response');
+  } else {
+    fail('customerProfile present in overview response');
+    return;
+  }
+
+  const fields = [
+    'newCustomers',
+    'returningCustomers',
+    'customersInRange',
+    'ordersFromNewCustomers',
+    'ordersFromReturningCustomers',
+    'revenueFromNewCustomers',
+    'revenueFromReturningCustomers',
+    'ordersWithoutCustomerKey',
+    'availability',
+  ];
+  const missing = fields.filter((f) => cp[f] === undefined);
+  if (missing.length === 0) {
+    pass('customerProfile has required metric fields');
+  } else {
+    fail('customerProfile has required metric fields', missing.join(', '));
+  }
+
+  if (cp.customersInRange === cp.newCustomers + cp.returningCustomers) {
+    pass('customerProfile new + returning equals customersInRange');
+  } else {
+    fail(
+      'customerProfile customersInRange sum',
+      `${cp.customersInRange} vs ${cp.newCustomers}+${cp.returningCustomers}`
+    );
+  }
+
+  const ordersWithKey = cp.ordersFromNewCustomers + cp.ordersFromReturningCustomers;
+  const expectedKeyedOrders = (cp.revenueOrdersInRange || 0) - (cp.ordersWithoutCustomerKey || 0);
+  if (ordersWithKey === expectedKeyedOrders) {
+    pass('customerProfile order split matches revenue orders with customerKey');
+  } else {
+    fail(
+      'customerProfile order split',
+      `keyed=${ordersWithKey} expected=${expectedKeyedOrders}`
+    );
+  }
+
+  if (overview.meta?.dataAvailability?.customerProfile === cp.availability) {
+    pass('meta.dataAvailability.customerProfile matches section availability');
+  } else {
+    fail(
+      'meta.dataAvailability.customerProfile',
+      `${overview.meta?.dataAvailability?.customerProfile} vs ${cp.availability}`
+    );
+  }
+
+  const sectionFlag = overview.unsupportedSections?.customerProfile;
+  const expectedSection = cp.availability === 'available' ? 'available' : 'unavailable';
+  if (sectionFlag === expectedSection) {
+    pass('unsupportedSections.customerProfile reflects availability');
+  } else {
+    fail('unsupportedSections.customerProfile', `${sectionFlag} expected ${expectedSection}`);
+  }
+
+  if (Array.isArray(cp.revenueByCustomerType)) {
+    pass('customerProfile.revenueByCustomerType array present');
+  } else {
+    fail('customerProfile.revenueByCustomerType array present');
+  }
+}
+
+async function verifyAbandonedCheckoutSection(overview) {
+  const ac = overview.abandonedCheckout;
+  if (ac && typeof ac === 'object') {
+    pass('abandonedCheckout present in overview response');
+  } else {
+    fail('abandonedCheckout present in overview response');
+    return;
+  }
+
+  const fields = [
+    'paymentIntentsInRange',
+    'paymentIntentsCompleted',
+    'paymentIntentsFailed',
+    'paymentIntentsAbandoned',
+    'abandonmentRate',
+    'completionRate',
+    'availability',
+  ];
+  const missing = fields.filter((f) => ac[f] === undefined);
+  if (missing.length === 0) {
+    pass('abandonedCheckout has required metric fields');
+  } else {
+    fail('abandonedCheckout has required metric fields', missing.join(', '));
+  }
+
+  const sum =
+    (ac.paymentIntentsCompleted || 0) +
+    (ac.paymentIntentsFailed || 0) +
+    (ac.paymentIntentsAbandoned || 0);
+  if (sum === ac.paymentIntentsInRange) {
+    pass('abandonedCheckout completed + failed + abandoned equals started');
+  } else {
+    fail(
+      'abandonedCheckout counts sum',
+      `started=${ac.paymentIntentsInRange} sum=${sum}`
+    );
+  }
+
+  if (overview.meta?.dataAvailability?.abandonedCheckout === ac.availability) {
+    pass('meta.dataAvailability.abandonedCheckout matches section availability');
+  } else {
+    fail(
+      'meta.dataAvailability.abandonedCheckout',
+      `${overview.meta?.dataAvailability?.abandonedCheckout} vs ${ac.availability}`
+    );
+  }
+
+  const sectionFlag = overview.unsupportedSections?.abandonedCheckout;
+  const expectedSection =
+    ac.availability === 'available' ? 'available' : 'unavailable';
+  if (sectionFlag === expectedSection) {
+    pass('unsupportedSections.abandonedCheckout reflects availability');
+  } else {
+    fail('unsupportedSections.abandonedCheckout', `${sectionFlag} expected ${expectedSection}`);
+  }
+
+  if (SUCCESS_EVENTS.has('backend.webhook.payment_intent.succeeded')) {
+    pass('abandoned checkout SUCCESS_EVENTS includes webhook succeeded');
+  } else {
+    fail('abandoned checkout SUCCESS_EVENTS');
+  }
+
+  if (FAILED_EVENTS.has('backend.webhook.payment_intent.failed')) {
+    pass('abandoned checkout FAILED_EVENTS includes webhook failed');
+  } else {
+    fail('abandoned checkout FAILED_EVENTS');
   }
 }
 
@@ -241,6 +558,50 @@ async function verifyServiceLayer() {
     fail('conversion: no cap check', String(noCap.conversionRate));
   }
 
+  const unitCost = resolveUnitCost(
+    { variantId: 'v1', qty: 1 },
+    {
+      variantValues: [
+        { _id: 'v1', Cost: 10, SKU: 'SKU-1' },
+        { _id: 'v2', Cost: 20, SKU: 'SKU-2' },
+      ],
+    }
+  );
+  if (unitCost === 10) {
+    pass('profitability: resolveUnitCost matches variantId');
+  } else {
+    fail('profitability: resolveUnitCost matches variantId', String(unitCost));
+  }
+
+  const lineRev = lineRevenue({ qty: 2, salePrice: 12.99 });
+  if (lineRev === 25.98) {
+    pass('profitability: lineRevenue uses salePrice × qty');
+  } else {
+    fail('profitability: lineRevenue', String(lineRev));
+  }
+
+  if (computeRoas(100, 25) === 4) {
+    pass('ad spend: ROAS = revenue / spend');
+  } else {
+    fail('ad spend: ROAS formula', String(computeRoas(100, 25)));
+  }
+
+  if (computeRoiPercent(150, 100) === 50) {
+    pass('ad spend: ROI = (revenue - spend) / spend * 100');
+  } else {
+    fail('ad spend: ROI formula', String(computeRoiPercent(150, 100)));
+  }
+
+  const roasRows = buildCampaignRoasRows(
+    [{ campaign: 'test-campaign', revenue: 50, orders: 2 }],
+    new Map([['test-campaign', { spend: 25, recordCount: 1 }]])
+  );
+  if (roasRows.length === 1 && roasRows[0].roas === 2 && roasRows[0].roi === 100) {
+    pass('ad spend: buildCampaignRoasRows joins spend and revenue');
+  } else {
+    fail('ad spend: buildCampaignRoasRows', JSON.stringify(roasRows[0]));
+  }
+
   const emptyRange = computeConversionMetrics({
     convertedVisitorsInRange: 0,
     convertedSessionsInRange: 0,
@@ -322,9 +683,15 @@ async function verifyServiceLayer() {
   }
 
   if (empty.kpis.grossMargin === null) {
-    pass('unsupported grossMargin KPI remains null');
+    pass('empty range grossMargin KPI remains null');
   } else {
-    fail('unsupported grossMargin KPI remains null');
+    fail('empty range grossMargin KPI remains null', String(empty.kpis.grossMargin));
+  }
+
+  if (empty.profitability?.availability === 'unavailable') {
+    pass('empty range profitability unavailable');
+  } else {
+    fail('empty range profitability unavailable', empty.profitability?.availability);
   }
 
   const dq = empty.dataQuality;
@@ -490,6 +857,11 @@ async function verifyServiceLayer() {
     fail('revenueByChannel present in overview response');
   }
 
+  verifyAbandonedCheckoutSection(live);
+  verifyCustomerProfileSection(live);
+  verifyProfitabilitySection(live);
+  verifyAdSpendRoasSection(live);
+
   if (live.kpis.revenue === manualRev && live.kpis.orders === manualOrders) {
     pass('order/revenue KPIs unchanged after session KPI work');
   } else {
@@ -544,6 +916,79 @@ async function verifyServiceLayer() {
   } else {
     pass('sinceTracking preset test skipped (MARKETING_TRACKING_STARTED_AT unset)');
   }
+
+  const channelFiltered = await getAnalyticsOverview({
+    startDate: range.queryStartDate,
+    endDate: range.queryEndDate,
+    channel: 'google',
+  });
+
+  if (channelFiltered.meta.channel === 'google') {
+    pass('channel filter echoed in meta.channel');
+  } else {
+    fail('channel filter echoed in meta.channel', String(channelFiltered.meta.channel));
+  }
+
+  if (channelFiltered.kpis.orders <= live.kpis.orders) {
+    pass('channel filter orders KPI is subset of all-channel orders');
+  } else {
+    fail(
+      'channel filter orders KPI subset',
+      `filtered=${channelFiltered.kpis.orders} all=${live.kpis.orders}`
+    );
+  }
+
+  if (channelFiltered.dataQuality.visitorSessionsInRange === live.dataQuality.visitorSessionsInRange) {
+    pass('channel filter does not change visitor session counts');
+  } else {
+    fail(
+      'channel filter visitor sessions unchanged',
+      `${channelFiltered.dataQuality.visitorSessionsInRange} vs ${live.dataQuality.visitorSessionsInRange}`
+    );
+  }
+
+  const allChannels = await getAnalyticsOverview({
+    startDate: range.queryStartDate,
+    endDate: range.queryEndDate,
+    channel: 'all',
+  });
+  if (allChannels.meta.channel == null) {
+    pass('channel=all returns null meta.channel');
+  } else {
+    fail('channel=all returns null meta.channel', String(allChannels.meta.channel));
+  }
+
+  const verifyCampaign = '__verify_ad_spend__';
+  const upsertResult = await upsertMarketingAdSpend({
+    campaign: verifyCampaign,
+    spendDate: range.queryStartDate,
+    amount: 42.5,
+    source: 'manual',
+  });
+  if (upsertResult.ok) {
+    pass('upsertMarketingAdSpend accepts admin spend row');
+  } else {
+    fail('upsertMarketingAdSpend', upsertResult.reason);
+  }
+
+  const withSpend = await getAnalyticsOverview({
+    startDate: range.queryStartDate,
+    endDate: range.queryEndDate,
+  });
+  if (withSpend.advertisingPerformance?.availability === 'available') {
+    pass('overview advertisingPerformance available after spend upsert');
+  } else {
+    fail('overview advertisingPerformance after spend upsert');
+  }
+
+  const spendRow = (withSpend.campaignRoasRoi || []).find((row) => row.name === verifyCampaign);
+  if (spendRow && spendRow.spend === 42.5) {
+    pass('campaignRoasRoi includes upserted campaign spend');
+  } else {
+    fail('campaignRoasRoi upserted campaign', JSON.stringify(spendRow));
+  }
+
+  await MarketingAdSpend.deleteMany({ campaign: verifyCampaign });
 }
 
 async function verifyHttp() {
@@ -568,6 +1013,56 @@ async function verifyHttp() {
     pass('HTTP response meta.timezone is Europe/London');
   } else {
     fail('HTTP response meta.timezone is Europe/London', adminRes.json.meta?.timezone);
+  }
+
+  if (adminRes.json.abandonedCheckout && typeof adminRes.json.abandonedCheckout === 'object') {
+    pass('HTTP response includes abandonedCheckout');
+  } else {
+    fail('HTTP response includes abandonedCheckout');
+  }
+
+  if (adminRes.json.customerProfile && typeof adminRes.json.customerProfile === 'object') {
+    pass('HTTP response includes customerProfile');
+  } else {
+    fail('HTTP response includes customerProfile');
+  }
+
+  if (adminRes.json.profitability && typeof adminRes.json.profitability === 'object') {
+    pass('HTTP response includes profitability');
+  } else {
+    fail('HTTP response includes profitability');
+  }
+
+  if (
+    adminRes.json.advertisingPerformance &&
+    typeof adminRes.json.advertisingPerformance === 'object'
+  ) {
+    pass('HTTP response includes advertisingPerformance');
+  } else {
+    fail('HTTP response includes advertisingPerformance');
+  }
+
+  if (Array.isArray(adminRes.json.campaignRoasRoi)) {
+    pass('HTTP response includes campaignRoasRoi array');
+  } else {
+    fail('HTTP response includes campaignRoasRoi array');
+  }
+
+  let channelRes;
+  try {
+    channelRes = await httpGet(
+      `${API}?startDate=2026-01-01&endDate=2026-12-31&channel=google`,
+      { 'x-user-role': 'admin' }
+    );
+  } catch (err) {
+    fail('HTTP channel filter', err.message);
+    channelRes = null;
+  }
+
+  if (channelRes?.status === 200 && channelRes.json.meta?.channel === 'google') {
+    pass('HTTP channel=google returns meta.channel google');
+  } else if (channelRes) {
+    fail('HTTP channel=google returns meta.channel google', String(channelRes.json.meta?.channel));
   }
 
   if (

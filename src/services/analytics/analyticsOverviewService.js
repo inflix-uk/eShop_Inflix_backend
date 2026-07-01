@@ -17,6 +17,10 @@ const {
 } = require('../../utils/analyticsOrderMatch');
 const { computeConversionMetrics } = require('../../utils/analyticsConversionMetrics');
 const { computeConvertedInPopulation } = require('../../utils/analyticsConversionPopulation');
+const { getAbandonedCheckoutMetrics } = require('./abandonedCheckoutService');
+const { getCustomerProfileMetrics } = require('./customerProfileService');
+const { getProfitabilityMetrics } = require('./profitabilityService');
+const { getAdSpendRoasMetrics } = require('./adSpendRoasService');
 
 const DONUT_COLORS = [
   '#3b82f6',
@@ -565,6 +569,10 @@ async function getAnalyticsOverview(query = {}) {
     cacAvailability: UNAVAILABLE,
   }));
 
+  const adSpendMetrics = await getAdSpendRoasMetrics(startDate, endDate, revenueByCampaign);
+  const { advertisingPerformance, campaignRoasRoi } = adSpendMetrics;
+  const campaignPerformanceWithSpend = adSpendMetrics.campaignPerformance;
+
   const dailyOrdersRevenue = (facetResult.dailyOrdersRevenue || []).map((row) => ({
     date: row._id,
     orders: row.orders,
@@ -629,6 +637,23 @@ async function getAnalyticsOverview(query = {}) {
 
   const rangeIncludesPreTrackingPeriod = preTracking.rangeIncludesPreTrackingPeriod;
 
+  const abandonedCheckout = await getAbandonedCheckoutMetrics(startDate, endDate);
+
+  const customerProfileRaw = await getCustomerProfileMetrics(startDate, endDate, channel);
+  const customerProfile = {
+    ...customerProfileRaw,
+    revenueByCustomerType: toDonutSegments([
+      { label: 'New customers', value: customerProfileRaw.revenueFromNewCustomers },
+      { label: 'Returning customers', value: customerProfileRaw.revenueFromReturningCustomers },
+    ]),
+  };
+
+  const profitability = await getProfitabilityMetrics(startDate, endDate, channel);
+
+  const grossMargin = profitability.grossMarginPercent;
+  const grossMarginAvailability =
+    profitability.availability === 'available' ? 'available' : UNAVAILABLE;
+
   return {
     meta: {
       timezone,
@@ -652,10 +677,12 @@ async function getAnalyticsOverview(query = {}) {
         attribution: attributionAvailability,
         visitors: uniqueVisitorsInRange > 0 ? 'available' : UNAVAILABLE,
         sessions: 'available',
-        adSpend: UNAVAILABLE,
-        profit: UNAVAILABLE,
+        adSpend: advertisingPerformance.availability,
+        profit: profitability.availability,
         email: UNAVAILABLE,
         influencer: UNAVAILABLE,
+        abandonedCheckout: abandonedCheckout.availability,
+        customerProfile: customerProfile.availability,
       },
     },
     dataQuality: {
@@ -691,29 +718,40 @@ async function getAnalyticsOverview(query = {}) {
       visitorsAvailability: uniqueVisitorsInRange > 0 ? 'available' : UNAVAILABLE,
       conversionRate,
       conversionRateAvailability: conversionRate != null ? 'available' : UNAVAILABLE,
-      grossMargin: null,
-      grossMarginAvailability: UNAVAILABLE,
+      grossMargin,
+      grossMarginAvailability,
     },
     revenueBySource,
     revenueByMedium,
     revenueByCampaign,
     revenueByChannel,
-    campaignPerformance,
+    campaignPerformance: campaignPerformanceWithSpend,
+    advertisingPerformance,
+    campaignRoasRoi,
     dailyOrdersRevenue,
     ordersBySource: toDonutSegments(ordersBySourceRows),
     productRevenueSegments,
     topSellingProducts,
     topRevenueProducts,
     productPerformance,
+    abandonedCheckout,
+    customerProfile,
+    profitability,
     unsupportedSections: {
-      advertisingPerformance: UNAVAILABLE,
-      campaignRoasRoi: UNAVAILABLE,
-      profitability: UNAVAILABLE,
-      customerProfile: UNAVAILABLE,
+      advertisingPerformance:
+        advertisingPerformance.availability === 'available' ? 'available' : UNAVAILABLE,
+      campaignRoasRoi:
+        campaignRoasRoi.some((row) => row.spendAvailability === 'available')
+          ? 'available'
+          : UNAVAILABLE,
+      profitability: profitability.availability === 'available' ? 'available' : UNAVAILABLE,
+      customerProfile:
+        customerProfile.availability === 'available' ? 'available' : UNAVAILABLE,
       influencers: UNAVAILABLE,
       offlineOrders: UNAVAILABLE,
       emailAnalytics: UNAVAILABLE,
-      abandonedCheckout: UNAVAILABLE,
+      abandonedCheckout:
+        abandonedCheckout.availability === 'available' ? 'available' : UNAVAILABLE,
     },
   };
 }
