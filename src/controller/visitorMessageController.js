@@ -58,7 +58,8 @@ exports.getAllVisitors = async (req, res) => {
     try {
         const visitors = await VisitorMessage.find({ status: { $ne: 'archived' } })
             .select('name email phoneNumber isOrderRelated orderNumber isRead lastMessage lastMessageAt unreadCount createdAt')
-            .sort({ lastMessageAt: -1 });
+            .sort({ lastMessageAt: -1 })
+            .lean();
 
         res.status(200).json({
             success: true,
@@ -81,7 +82,7 @@ exports.getMessagesByVisitorId = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const visitor = await VisitorMessage.findById(id);
+        const visitor = await VisitorMessage.findById(id).lean();
 
         if (!visitor) {
             return res.status(404).json({
@@ -698,7 +699,7 @@ const checkAndSendAutoReply = async (visitor, io) => {
  */
 exports.getAutoReplySettings = async (req, res) => {
     try {
-        let settings = await VisitorAutoReply.findOne();
+        let settings = await VisitorAutoReply.findOne().lean();
 
         if (!settings) {
             // Return default settings if none exist
@@ -853,7 +854,7 @@ exports.checkUserByEmail = async (req, res) => {
         // Find user by email (case-insensitive)
         const user = await User.findOne({
             email: { $regex: new RegExp(`^${email}$`, 'i') }
-        }).select('_id firstname lastname email phoneNumber');
+        }).select('_id firstname lastname email phoneNumber').lean();
 
         if (user) {
             res.status(200).json({

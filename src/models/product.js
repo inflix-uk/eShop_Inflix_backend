@@ -356,6 +356,11 @@ const productSchema = new Schema({
 // Define indexes
 productSchema.index({ status: 1, createdAt: -1 });
 productSchema.index({ status: 1, brand: 1, createdAt: -1 }); // Optimized for brand filtering with sort
+// Serves the All Products admin list (getNewProductsAdminpage): filter
+// { isdeleted: { $ne: true } } + sort { createdAt: -1 } + its countDocuments
+// and countUnassignedProducts. Previously nothing indexed isdeleted, forcing an
+// in-memory sort of the whole catalog on every page load.
+productSchema.index({ isdeleted: 1, createdAt: -1 });
 productSchema.index({ name: 'text', category: 'text', subCategory: 'text' });
 productSchema.index({ category: 1, status: 1 });
 productSchema.index({ subCategory: 1, status: 1 });

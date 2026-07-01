@@ -135,7 +135,7 @@ const productReviewsController = {
     getProductsAndReviewsDetails: async (req, res) => {
         try {
             // Get all products
-            const products = await Product.find({}, 'name thumbnail_image _id producturl');
+            const products = await Product.find({}, 'name thumbnail_image _id producturl').lean();
             if (!products) {
                 return res.json({ message: 'Products not found', status: 404 });
             }
@@ -155,7 +155,8 @@ const productReviewsController = {
 
             // Get all reviews grouped by product for display
             const allReviews = await ProductReview.find({ productId: { $in: productIds } })
-                .sort({ createdAt: -1 });
+                .sort({ createdAt: -1 })
+                .lean();
 
             // Group reviews by product
             const reviewsByProduct = {};

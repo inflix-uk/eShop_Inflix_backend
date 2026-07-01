@@ -169,6 +169,17 @@ router.post('/api/users/:id/product-price',      requireAdmin, adminUsersControl
 router.post('/api/users/:id/product-inclusion',  requireAdmin, adminUsersController.setUserProductInclusion);
 
 // ========================================================================
+// CRM — CUSTOMER 360 (Customers list, profile, notes)
+// ========================================================================
+const customer360Controller = require('../controller/customer360Controller');
+router.get('/admin/crm/customers',                       customer360Controller.listCustomers);
+router.get('/admin/crm/customers/:userId/360',           customer360Controller.getCustomer360);
+router.get('/admin/crm/customers/:userId/notes',         customer360Controller.listNotes);
+router.post('/admin/crm/customers/:userId/notes',        customer360Controller.createNote);
+router.patch('/admin/crm/customers/:userId/notes/:noteId', customer360Controller.updateNote);
+router.delete('/admin/crm/customers/:userId/notes/:noteId', customer360Controller.deleteNote);
+
+// ========================================================================
 // PRICING GROUPS MANAGEMENT
 // ========================================================================
 router.post('/pricing-groups', requireAdmin, pricingGroupController.createPricingGroup);

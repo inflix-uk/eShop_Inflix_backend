@@ -26,6 +26,26 @@ const {
     buildOrderDataForStatusEmail,
 } = require('../../email/OrderUpdateEmailToCustomer/OrderUpdateEmailToCustomer');
 
+// Maps the lowercase UI status filter to the exact enum casing stored on
+// orders. Using an exact string (instead of a case-insensitive regex) lets the
+// { isdeleted, status, createdAt } index be used for status-filtered queries.
+// Any value not in this map falls back to the original case-insensitive regex,
+// so behaviour is unchanged for unexpected inputs.
+const ORDER_STATUS_CANONICAL = {
+    pending: 'Pending',
+    approved: 'Approved',
+    shipped: 'Shipped',
+    delivered: 'Delivered',
+    cancelled: 'Cancelled',
+    refunded: 'Refunded',
+    failed: 'Failed',
+};
+
+const buildStatusMatch = (filter) => {
+    const canonical = ORDER_STATUS_CANONICAL[String(filter).toLowerCase()];
+    return canonical || new RegExp(`^${filter}$`, 'i');
+};
+
 const hasUserUsedCoupon = async (userId, couponCode) => {
     try {
         console.log("userId", userId);
@@ -180,7 +200,7 @@ const orderController = {
 
             // Add status filter if not "all"
             if (filter && filter !== 'all') {
-                matchConditions.status = new RegExp(`^${filter}$`, 'i');
+                matchConditions.status = buildStatusMatch(filter);
             }
 
             // Add search conditions if search query provided
@@ -308,7 +328,7 @@ const orderController = {
             const matchConditions = { isdeleted: false };
 
             if (filter && filter !== 'all') {
-                matchConditions.status = new RegExp(`^${filter}$`, 'i');
+                matchConditions.status = buildStatusMatch(filter);
             }
 
             if (search && search.trim()) {

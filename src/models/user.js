@@ -80,5 +80,14 @@ const userSchema = new mongoose.Schema({
 
 });
 
+// Serves the CRM customers list (listCustomers): sort by createdAt desc with
+// skip/limit. Without it, filtering { role: { $ne: 'admin' } } forced an
+// in-memory sort of the whole users collection on every page load.
+userSchema.index({ createdAt: -1 });
+// Serves getUsersByRole (find by roleId) and getAllRole, which runs a
+// countDocuments({ roleId }) per role — without this each count was a full
+// collection scan of the users collection.
+userSchema.index({ roleId: 1 });
+
 module.exports = mongoose.model('User', userSchema);
 

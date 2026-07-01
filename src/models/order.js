@@ -208,5 +208,11 @@ orderSchema.index(
 orderSchema.index({ 'marketingAttribution.clickIds.gclid': 1 }, { sparse: true });
 orderSchema.index({ customerKey: 1, createdAt: -1 }, { sparse: true });
 
+// Serves status-filtered list browsing (getAllOrderv1) and the per-status
+// count queries in getStats4 — equality on isdeleted + status, range/sort on
+// createdAt. Requires status to be matched by exact enum value (see
+// buildStatusMatch in orderController).
+orderSchema.index({ isdeleted: 1, status: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Order', orderSchema);
 

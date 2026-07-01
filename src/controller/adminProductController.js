@@ -1625,10 +1625,11 @@ const adminProductController = {
             // Fetch products and count in parallel for better performance
             const [products, totalProductsCount] = await Promise.all([
               Product.find(filterQuery)
-                .select('-Seo_Meta -comes_With -Product_description -meta_Image -reviewDetails -rating -product_Specifications -variantDescription -is_refundable -has_warranty -battery -tags -seeAccessoriesWeDontNeed -is_authenticated -low_stock_quantity_alert -sim_options -variantNames -varImgGroup') 
-                .sort({ createdAt: -1 })   
+                .select('-Seo_Meta -comes_With -Product_description -meta_Image -reviewDetails -rating -product_Specifications -variantDescription -is_refundable -has_warranty -battery -tags -seeAccessoriesWeDontNeed -is_authenticated -low_stock_quantity_alert -sim_options -variantNames -varImgGroup')
+                .sort({ createdAt: -1 })
                 .skip(skipCount)
-                .limit(batchSize),
+                .limit(batchSize)
+                .lean(),
               Product.countDocuments(filterQuery)
             ]);
         

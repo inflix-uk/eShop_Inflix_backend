@@ -64,7 +64,7 @@ const createPricingGroup = async (req, res) => {
 
 const getAllPricingGroups = async (req, res) => {
   try {
-    const groups = await PricingGroup.find().sort({ createdAt: -1 });
+    const groups = await PricingGroup.find().sort({ createdAt: -1 }).lean();
     return res.status(200).json({
       success: true,
       data: groups,

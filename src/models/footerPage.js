@@ -146,6 +146,8 @@ footerPageSchema.pre('save', function(next) {
 footerPageSchema.index({ publishStatus: 1, publishDate: -1 });
 // Same page slug can exist under different parent pages; root pages use parentPageId null.
 footerPageSchema.index({ parentPageId: 1, slug: 1 }, { unique: true });
+// Serves the admin pages list (getAllFooterPages): default sort { updatedAt: -1 }.
+footerPageSchema.index({ updatedAt: -1 });
 
 const FooterPage = mongoose.model('FooterPage', footerPageSchema);
 
