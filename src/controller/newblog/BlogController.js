@@ -760,7 +760,8 @@ const getAllBlogPosts = async (req, res) => {
       .populate('categories') // Populate category data
       .sort({ updatedAt: -1 }) // Latest first by update date
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean();
     
     // Format the response with only necessary data
     const formattedPosts = blogPosts.map(post => ({

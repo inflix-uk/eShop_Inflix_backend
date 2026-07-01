@@ -49,14 +49,13 @@ const dealsController = {
 
     getAllDeals: async (req, res) => {
         try {
-            const deals = await Deal.find().sort({ createdAt: -1 });
-            const dealsWithExpiryText = deals.map(deal => {
-                const dealObj = deal.toObject();
-                dealObj.expiryText = deal.hasExpiry && deal.expiryDate 
-                    ? new Date(deal.expiryDate).toLocaleDateString() 
-                    : 'No Expiry';
-                return dealObj;
-            });
+            const deals = await Deal.find().sort({ createdAt: -1 }).lean();
+            const dealsWithExpiryText = deals.map(deal => ({
+                ...deal,
+                expiryText: deal.hasExpiry && deal.expiryDate
+                    ? new Date(deal.expiryDate).toLocaleDateString()
+                    : 'No Expiry'
+            }));
             return res.json({ message: 'Deals fetched successfully', status: 200, deals: dealsWithExpiryText });
         } catch (error) {
             console.error('Error fetching deals:', error);
@@ -68,14 +67,13 @@ const dealsController = {
         try {
             const deals = await Deal.find({
                 isPublish: true
-            }).sort({ createdAt: -1 });
-            const dealsWithExpiryText = deals.map(deal => {
-                const dealObj = deal.toObject();
-                dealObj.expiryText = deal.hasExpiry && deal.expiryDate 
-                    ? new Date(deal.expiryDate).toLocaleDateString() 
-                    : 'No Expiry';
-                return dealObj;
-            });
+            }).sort({ createdAt: -1 }).lean();
+            const dealsWithExpiryText = deals.map(deal => ({
+                ...deal,
+                expiryText: deal.hasExpiry && deal.expiryDate
+                    ? new Date(deal.expiryDate).toLocaleDateString()
+                    : 'No Expiry'
+            }));
             return res.json({ message: 'Active deals fetched successfully', status: 200, deals: dealsWithExpiryText });
         } catch (error) {
             console.error('Error fetching active deals:', error);

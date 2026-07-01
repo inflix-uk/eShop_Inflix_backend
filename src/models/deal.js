@@ -67,6 +67,9 @@ const DealSchema = new mongoose.Schema({
 
 // Indexes for common queries
 DealSchema.index({ isExpired: 1, isPublish: 1, startDate: 1, expiryDate: 1, createdAt: -1 });
+// Serves getActiveDeals: filter { isPublish: true } + sort { createdAt: -1 }.
+// The compound index above leads with isExpired, so it can't serve this query.
+DealSchema.index({ isPublish: 1, createdAt: -1 });
 
 // Keep updatedAt fresh
 DealSchema.pre('save', function(next) {

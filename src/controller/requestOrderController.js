@@ -206,13 +206,14 @@ const requestOrderController = {
             const requestOrders = await RequestOrder.find({ status: { $ne: 'Accepted' } })
                 .populate({
                     path: 'orderId',
-                    model: 'Order', 
+                    model: 'Order',
                 })
                 .populate({
-                    path: 'userId',  
-                    model: 'User', 
-                });
-    
+                    path: 'userId',
+                    model: 'User',
+                })
+                .lean();
+
             // Respond with the retrieved request orders
             return res.json({
                 message: 'Request orders found',

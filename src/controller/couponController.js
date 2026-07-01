@@ -40,7 +40,7 @@ const couponController = {
     getAllCoupon: async (req, res) => {
         try {
             // Extract user data from the request body
-               const coupon = await Coupon.find();
+               const coupon = await Coupon.find().lean();
                res.json({
                    message: 'Coupon retrieved successfully',
                    coupon,

@@ -99,7 +99,7 @@ const roleAndPermissons = {
             }
 
             // Get all users with this role
-            const users = await User.find({ roleId: roleId }).select('-password');
+            const users = await User.find({ roleId: roleId }).select('-password').lean();
 
             return res.json({
                 message: 'Users fetched successfully',

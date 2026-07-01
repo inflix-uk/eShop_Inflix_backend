@@ -118,6 +118,13 @@ visitorMessageSchema.index({ email: 1 });
 visitorMessageSchema.index({ isRead: 1, lastMessageAt: -1 });
 visitorMessageSchema.index({ createdAt: -1 });
 visitorMessageSchema.index({ status: 1 });
+// Serves getAllVisitors: filter status !== 'archived' + sort by lastMessageAt desc
+visitorMessageSchema.index({ status: 1, lastMessageAt: -1 });
+// Serves getConversationBySession + createConversation $or clause (widget hot path)
+// Previously a full collection scan on every returning-visitor message.
+visitorMessageSchema.index({ sessionId: 1, status: 1 });
+// Serves getUnreadCount: countDocuments({ isRead:false, status:'active' }) as a covered count
+visitorMessageSchema.index({ status: 1, isRead: 1 });
 
 // Update timestamps on save
 visitorMessageSchema.pre('save', function(next) {

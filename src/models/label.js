@@ -53,5 +53,14 @@ labelSchema.index({ uploadedBy: 1 }); // Index for filtering by user
 // Compound indexes for common query patterns
 labelSchema.index({ isDeleted: 1, status: 1 }); // Common filter combination
 labelSchema.index({ uploadedBy: 1, uploadDate: -1 }); // User's labels sorted by date
+// Serves getLabelOfOrder: findOne({ order, isDeleted }) — the per-order label
+// lookup on the order detail view (was an unindexed collection scan).
+labelSchema.index({ order: 1 });
+// Serves getLabelOfReturnOrder + the { returnOrder: $in } label lookup in
+// getAllReturnOrders (Returns tab).
+labelSchema.index({ returnOrder: 1 });
+// Serves getAllLabels list: filter isDeleted:false + sort by createdAt
+// (getAvailableLabels used=false). Previously an in-memory sort.
+labelSchema.index({ isDeleted: 1, createdAt: 1 });
 
 module.exports = mongoose.model('Label', labelSchema);
