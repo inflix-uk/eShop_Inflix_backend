@@ -27,6 +27,7 @@ const crypto = require("crypto");
 const adminUsersController = {
   getAllUser: (req, res) => {
     const users = User.find()
+      .lean()
       .then((users) => {
         res.json(users);
       })
@@ -38,6 +39,7 @@ const adminUsersController = {
   // New method to get all users with only name, email, and ID
   getAllUsersBasicInfo: (req, res) => {
     User.find({}, 'firstname lastname email phoneNumber _id pricingGroup')
+      .lean()
       .then((users) => {
         const formattedUsers = users.map(user => ({
           id: user._id,

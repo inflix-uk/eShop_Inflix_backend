@@ -721,7 +721,7 @@ const statsController = {
             let altTextMap = {};
             let idMap = {};
             try {
-                const allMediaFiles = await MediaFile.find({}, { filePath: 1, title: 1, altText: 1, _id: 1 });
+                const allMediaFiles = await MediaFile.find({}, { filePath: 1, title: 1, altText: 1, _id: 1 }).lean();
                 // Create maps: filePath -> title, altText, and _id for O(1) lookup
                 allMediaFiles.forEach(mediaFile => {
                     if (mediaFile.title) {
@@ -928,7 +928,7 @@ const statsController = {
                 const allMediaFiles = await MediaFile.find(
                     {},
                     { filePath: 1, title: 1, altText: 1, _id: 1 }
-                );
+                ).lean();
                 allMediaFiles.forEach((mediaFile) => {
                     if (mediaFile.title) {
                         titleMap[mediaFile.filePath] = mediaFile.title;
@@ -1388,7 +1388,7 @@ const statsController = {
     // },
     getNewsletters: async (req, res, next) => {
         try {
-            const subscribers = await Newsletter.find();
+            const subscribers = await Newsletter.find().lean();
             res.json({
                 message: 'Subscribers retrieved successfully',
                 subscribers

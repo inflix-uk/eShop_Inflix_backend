@@ -175,6 +175,10 @@ blogSchema.index({ slug: 1 });
 blogSchema.index({ publishStatus: 1, publishDate: -1 });
 blogSchema.index({ categories: 1 });
 blogSchema.index({ tags: 1 });
+// Serves the admin blog list (getAllBlogPosts): default sort { updatedAt: -1 }.
+// The publishStatus/publishDate index above sorts by publishDate, so the
+// updatedAt-ordered list was an in-memory sort.
+blogSchema.index({ updatedAt: -1 });
 
 
 

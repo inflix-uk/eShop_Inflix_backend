@@ -32,8 +32,17 @@ const returnOrderSchema = new mongoose.Schema({
         path: String,
     }],
 }, {
-    timestamps: true 
+    timestamps: true
 });
+
+// Serves getAllReturnOrders date filtering/sorting and the RMA-generation
+// findOne({ rma }).sort({ createdAt: -1 }) that runs on every new return save.
+returnOrderSchema.index({ createdAt: -1 });
+// Serves getReturnOrdersByUserId ({ userId }).
+returnOrderSchema.index({ userId: 1 });
+// Serves the buildCustomer360 lookup: $or [{ userId }, { email }] — the email
+// clause was previously an unindexed collection scan on every customer profile.
+returnOrderSchema.index({ email: 1 });
 
 // Middleware to set the RMA number before saving
 returnOrderSchema.pre('save', async function (next) {

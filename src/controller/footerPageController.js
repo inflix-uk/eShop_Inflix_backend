@@ -1034,8 +1034,9 @@ const getAllFooterPages = async (req, res) => {
       })
       .sort({ updatedAt: -1 }) // Latest first by update date
       .skip(skip)
-      .limit(parseInt(limit));
-    
+      .limit(parseInt(limit))
+      .lean();
+
     res.status(200).json({
       success: true,
       data: footerPages,

@@ -46,6 +46,12 @@ const requestOrderSchema = new mongoose.Schema({
   },
 });
 
+// Serves the requestOrderNumber-generation findOne().sort({ createdAt: -1 })
+// that runs on every new request save, plus any recent-first listing.
+requestOrderSchema.index({ createdAt: -1 });
+// Serves getAllRequestByUserId / getApproveRequestOrder ({ userId }).
+requestOrderSchema.index({ userId: 1 });
+
 // Middleware to set the requestOrderNumber before saving
 requestOrderSchema.pre('save', async function (next) {
   if (!this.isNew) {

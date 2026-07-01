@@ -56,6 +56,10 @@ messageSchema.index({ receiver: 1, createdAt: -1 });
 messageSchema.index({ participants: 1, createdAt: -1 });
 messageSchema.index({ participants: 1, orderId: 1, createdAt: -1 });
 messageSchema.index({ sender: 1, receiver: 1, orderId: 1, readStatus: 1 });
+// Serves getUnreadCountsForOrders: match receiver + readStatus + orderId $in,
+// grouped per order. Existing indexes all lead with sender or createdAt, so
+// none could serve this admin-badge aggregation that runs on every Orders load.
+messageSchema.index({ receiver: 1, readStatus: 1, orderId: 1 });
 
 module.exports = mongoose.model('Message', messageSchema);
  

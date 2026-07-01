@@ -6,7 +6,6 @@ const customerNoteSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
-      index: true,
     },
     authorId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -25,5 +24,9 @@ const customerNoteSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Serves listNotes + buildCustomer360 notes lookup: find({ userId }) sorted by
+// createdAt desc — the compound covers both the filter and the sort in one index.
+customerNoteSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('CustomerNote', customerNoteSchema);
