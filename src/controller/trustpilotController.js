@@ -56,7 +56,8 @@ const getTrustpilotSettings = async (req, res) => {
  */
 const getTrustpilotSettingsPublic = async (req, res) => {
   try {
-    let data = await TrustpilotSettings.findOne();
+    // Only plain string fields are read below — `.lean()` avoids hydration overhead.
+    let data = await TrustpilotSettings.findOne().lean();
 
     if (!data) {
       // Return default empty values if no data exists

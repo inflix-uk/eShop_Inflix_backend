@@ -246,9 +246,11 @@ const productCategoriescontroller = {
   },  
   getProductCategoryCustomized: async (req, res) => {
     try {
-      // Fetch product categories with specific fields
+      // Fetch product categories with only the fields the storefront renders.
+      // `.lean()` returns plain objects (response just forwards them, no doc methods used).
       const productCategories = await ProductCategory.find()
-        .select('bannerImage createdAt isFeatured isPublish name subCategory _id');
+        .select('bannerImage createdAt isFeatured isPublish name subCategory _id')
+        .lean();
   
       return res.json({
         message: "Categories fetched successfully",
@@ -909,13 +911,21 @@ const productCategoriescontroller = {
   },
   getCategoryForNavbar: async (req, res) => {
     try {
+      // Public navbar read on every homepage load. `.lean()` (+ lean populate)
+      // returns plain objects — the fields are re-mapped manually below, so the
+      // response shape is identical. `.sort({ order: 1 })` is index-backed via
+      // NavbarSchema.index({ order: 1 }); `.limit()` defensively caps the result
+      // at the admin-enforced max navbar size.
       const navbarItems = await Navbar.find({})
         .sort({ order: 1 })
+        .limit(MAX_NAVBAR_ITEMS)
         .populate({
           path: "categoryId",
           select:
             "_id name isPublish isFeatured subCategory Logo bannerImage",
-        });
+          options: { lean: true },
+        })
+        .lean();
 
       const data = [];
 

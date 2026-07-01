@@ -154,7 +154,12 @@ const getHomepageFeatures = async (req, res) => {
 
 const getHomepageFeaturesActive = async (req, res) => {
     try {
+        // Return only the fields the storefront renders (title/subtitle/iconImage)
+        // plus the ones its service filters/sorts on (isActive/order). iconWidth /
+        // iconHeight / timestamps are never read by the frontend, so they're dropped.
+        // Query is index-covered by { isActive: 1, order: 1 }.
         const features = await HomepageFeature.find({ isActive: true })
+            .select('title subtitle iconImage order isActive')
             .sort({ order: 1 })
             .lean();
         return res.status(200).json({

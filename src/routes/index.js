@@ -73,6 +73,8 @@ const {
 const roleAndPermissons = require('../controller/roleAndPermissons');
 const requireAdmin = require('../../middleware/requireAdmin');
 const resolvePricingScope = require('../../middleware/resolvePricingScope');
+// Shared HTTP cache headers for public storefront GETs (see middleware/publicCache.js).
+const publicCache = require('../../middleware/publicCache');
 const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
 const cronRoutes = require('./cronRoutes');
 const order = require('../models/order');
@@ -244,7 +246,7 @@ router.patch('/publish/product/tag/:id',              productTagsController.publ
 router.post('/create/product/category',               productCategoriesController.createProductCategory);
 router.get('/get/product/category',                   productCategoriesController.getAllProductCategory);
 router.get('/get/category/ssr',                       productCategoriesController.getCategoryServersideRendering);
-router.get('/get/product/category/customized',        productCategoriesController.getProductCategoryCustomized);
+router.get('/get/product/category/customized',        publicCache.medium, productCategoriesController.getProductCategoryCustomized);
 router.delete('/delete/product/category/:id',         productCategoriesController.deleteProductCategory);
 router.patch('/feature/product/category/:id',         productCategoriesController.featureProductCategory);
 router.patch('/status/product/category/:id',          productCategoriesController.statusProductCategory);
@@ -254,12 +256,12 @@ router.get('/get/category/byid/:id',                  productCategoriesControlle
 router.post('/product/subcategory',                   productCategoriesController.createProductSubCategory);
 router.get('/get/category/Details/:id',               productCategoriesController.getCategoryDetailsById);
 router.post('/create/category/for/navbar',            productCategoriesController.createCategoryForNavbar);
-router.get('/get/category/for/navbar',                productCategoriesController.getCategoryForNavbar);
+router.get('/get/category/for/navbar',                publicCache.long, productCategoriesController.getCategoryForNavbar);
 router.get('/get/categorydetails/:slug',              productCategoriesController.getCategoryDetails);
 router.get('/get/categorydetailsFull/:id',            productCategoriesController.getCategoryDetailsfull);
 router.get('/get/subcategorydetails/:name',           productCategoriesController.getSubCategoryDetails);
 router.get('/get/subcategory/somedetails/:name',      productCategoriesController.getSubCategoryDetailsSome);
-router.get('/get/categories/counts',                  productCategoriesController.getCategoryCounts);
+router.get('/get/categories/counts',                  publicCache.medium, productCategoriesController.getCategoryCounts);
 
 // ========================================================================
 // GOOGLE CATEGORIES MANAGEMENT
@@ -338,8 +340,8 @@ router.get('/get/productmetadata/url/:producturl',       adminProductController.
 // Homepage Product Collections
 router.get('/get/products/homepage',                   adminProductController.getProductsHomepage);
 router.get('/get/products/customized',                 adminProductController.getProductsHomepageCustomized);
-router.get('/get/latest/products/homepage',             adminProductController.getLatestProductsHomepage);
-router.get('/get/products/by-ids/public',                adminProductController.getProductsByIdsPublic);
+router.get('/get/latest/products/homepage',             publicCache.medium, adminProductController.getLatestProductsHomepage);
+router.get('/get/products/by-ids/public',                publicCache.medium, adminProductController.getProductsByIdsPublic);
 router.get('/get/Featureproducts/Homepage',             adminProductController.getFeatureProductsHomepage);
 router.get('/get/refurbishedProduct/Homepage',          adminProductController.getRefurbishedProductsHomepage);
 router.get('/get/tabletsAndIpads/Homepage',             adminProductController.getTabletsAndIpadsHomepage);
@@ -670,7 +672,7 @@ router.delete('/page-categories/:id', requireAdmin, deletePageCategory);
 // ========================================================================
 router.post('/create/deal', requireAdmin, dealsController.createDeal);
 router.get('/get/all/deals', dealsController.getAllDeals);
-router.get('/get/active/deals', dealsController.getActiveDeals);
+router.get('/get/active/deals', publicCache.medium, dealsController.getActiveDeals);
 router.get('/get/deal/:id', dealsController.getDealById);
 router.put('/update/deal/:id', requireAdmin, dealsController.updateDeal);
 router.patch('/expire/deal/:id', requireAdmin, dealsController.markExpired);
@@ -688,15 +690,15 @@ router.post('/footer/upload-image', requireAdmin, footerSettingsController.handl
 // HOMEPAGE DATA MANAGEMENT
 // ========================================================================
 // SEO-only (same fields as new blog: metaTitle, metaDescription, metaTags = keywords, metaSchema)
-router.get('/homepage-data/public/seo', homepageDataController.getHomepagePublicSeo);
+router.get('/homepage-data/public/seo', publicCache.long, homepageDataController.getHomepagePublicSeo);
 router.get('/homepage-data/seo', requireAdmin, homepageDataController.getHomepageSeo);
 router.patch('/homepage-data/seo', requireAdmin, homepageDataController.patchHomepageSeo);
 router.get('/homepage-data', requireAdmin, homepageDataController.getHomepageData);
-router.get('/homepage-data/public', homepageDataController.getHomepageData);
+router.get('/homepage-data/public', publicCache.long, homepageDataController.getHomepageData);
 router.post('/homepage-data', requireAdmin, homepageDataController.handleHomepageDataSave, homepageDataController.saveHomepageData);
 router.post('/homepage-data/upload-image', requireAdmin, homepageDataController.handleHomepageImageUpload, homepageDataController.uploadHomepageImage);
 
-router.get('/homepage-nav-links/public', homepageNavLinksController.getHomepageNavLinksPublic);
+router.get('/homepage-nav-links/public', publicCache.long, homepageNavLinksController.getHomepageNavLinksPublic);
 router.put('/homepage-nav-links', requireAdmin, homepageNavLinksController.putHomepageNavLinks);
 
 // ========================================================================
@@ -727,7 +729,7 @@ router.delete('/delete/google-search-console-verification', requireAdmin, google
 const homepageFeatureController = require('../controller/homepageFeatureController');
 const { handleHomepageFeatureUpload } = require('../controller/homepageFeatureController');
 // Public: active features only (must be before /get/homepage-features)
-router.get('/get/homepage-features/active', homepageFeatureController.getHomepageFeaturesActive);
+router.get('/get/homepage-features/active', publicCache.long, homepageFeatureController.getHomepageFeaturesActive);
 // Admin
 router.get('/get/homepage-features', requireAdmin, homepageFeatureController.getHomepageFeatures);
 router.post('/create/homepage-feature', requireAdmin, handleHomepageFeatureUpload, homepageFeatureController.createHomepageFeature);
@@ -765,6 +767,7 @@ const homepageNewsletterWidgetController = require('../controller/homepageNewsle
 const { handleHomepageNewsletterWidgetUpload } = homepageNewsletterWidgetController;
 router.get(
   '/homepage-newsletter-widget/public',
+  publicCache.long,
   homepageNewsletterWidgetController.getHomepageNewsletterWidgetPublic
 );
 router.get(
@@ -783,7 +786,7 @@ router.post(
 // SITE WIDGET VISIBILITY (global enable/disable per widget type)
 // ========================================================================
 const siteWidgetSettingsController = require('../controller/siteWidgetSettingsController');
-router.get('/site-widget-settings/public', siteWidgetSettingsController.getSiteWidgetSettingsPublic);
+router.get('/site-widget-settings/public', publicCache.long, siteWidgetSettingsController.getSiteWidgetSettingsPublic);
 router.get(
   '/site-widget-settings',
   requireAdmin,
@@ -833,10 +836,10 @@ router.put(
 // ========================================================================
 const navbarHeaderController = require('../controller/navbarHeaderController');
 const navbarVariantTestController = require('../controller/navbarVariantTestController');
-router.get('/navbar-header/public', navbarHeaderController.getNavbarHeaderPublic);
+router.get('/navbar-header/public', publicCache.long, navbarHeaderController.getNavbarHeaderPublic);
 router.get('/navbar-header', requireAdmin, navbarHeaderController.getNavbarHeaderAdmin);
 router.post('/navbar-header', requireAdmin, navbarHeaderController.saveNavbarHeader);
-router.get('/navbar-variant-test/public', navbarVariantTestController.getNavbarVariantTestPublic);
+router.get('/navbar-variant-test/public', publicCache.long, navbarVariantTestController.getNavbarVariantTestPublic);
 router.get('/navbar-variant-test', requireAdmin, navbarVariantTestController.getNavbarVariantTestAdmin);
 router.put('/navbar-variant-test', requireAdmin, navbarVariantTestController.putNavbarVariantTest);
 
@@ -845,8 +848,8 @@ router.put('/navbar-variant-test', requireAdmin, navbarVariantTestController.put
 // ========================================================================
 const categoryCardController = require('../controller/categoryCardController');
 const { handleCategoryCardUpload } = require('../controller/categoryCardController');
-router.get('/get/category-cards/active', categoryCardController.getCategoryCardsActive);
-router.get('/get/category-cards/section-settings', categoryCardController.getCategoryCardsSectionSettings);
+router.get('/get/category-cards/active', publicCache.long, categoryCardController.getCategoryCardsActive);
+router.get('/get/category-cards/section-settings', publicCache.long, categoryCardController.getCategoryCardsSectionSettings);
 router.put('/category-cards/section-settings', requireAdmin, categoryCardController.updateCategoryCardsSectionSettings);
 router.get('/get/category-cards', requireAdmin, categoryCardController.getCategoryCards);
 router.post('/create/category-card', requireAdmin, handleCategoryCardUpload, categoryCardController.createCategoryCard);
@@ -866,9 +869,9 @@ const {
     handleTinyPhoneBannerUpload
 } = require('../controller/promotionalSectionsController');
 // Public /active endpoints (must be before admin GET so path matches correctly)
-router.get('/get/buy-now-pay-later/active', promotionalSectionsController.getBuyNowPayLaterActive);
-router.get('/get/sell-buy-cards/active', promotionalSectionsController.getSellBuyCardsActive);
-router.get('/get/tiny-phone-banner/active', promotionalSectionsController.getTinyPhoneBannerActive);
+router.get('/get/buy-now-pay-later/active', publicCache.long, promotionalSectionsController.getBuyNowPayLaterActive);
+router.get('/get/sell-buy-cards/active', publicCache.long, promotionalSectionsController.getSellBuyCardsActive);
+router.get('/get/tiny-phone-banner/active', publicCache.long, promotionalSectionsController.getTinyPhoneBannerActive);
 // Admin GET
 router.get('/get/buy-now-pay-later', requireAdmin, promotionalSectionsController.getBuyNowPayLater);
 router.get('/get/sell-buy-cards', requireAdmin, promotionalSectionsController.getSellBuyCards);
@@ -886,10 +889,10 @@ router.delete('/delete/promotional-image', requireAdmin, promotionalSectionsCont
 const logoController = require('../controller/logoController');
 const { handleLogoUpload, handleFaviconUpload } = require('../controller/logoController');
 router.get('/get/logo', requireAdmin, logoController.getLogo);
-router.get('/get/logo/public', logoController.getLogoPublic);
+router.get('/get/logo/public', publicCache.long, logoController.getLogoPublic);
 /** Alias for storefront / admin tools expecting this path (same JSON as get/logo/public). */
-router.get('/admin/logo', logoController.getLogoPublic);
-router.get('/api/admin/logo', logoController.getLogoPublic);
+router.get('/admin/logo', publicCache.long, logoController.getLogoPublic);
+router.get('/api/admin/logo', publicCache.long, logoController.getLogoPublic);
 router.post('/update/logo', requireAdmin, handleLogoUpload, logoController.updateLogo);
 router.delete('/delete/logo', requireAdmin, logoController.deleteLogo);
 router.post('/update/favicon', requireAdmin, handleFaviconUpload, logoController.updateFavicon);
@@ -912,7 +915,7 @@ router.put('/api/theme/body-background', requireAdmin, siteThemeController.updat
 // ========================================================================
 const trustpilotController = require('../controller/trustpilotController');
 router.get('/trustpilot', requireAdmin, trustpilotController.getTrustpilotSettings);
-router.get('/trustpilot/public', trustpilotController.getTrustpilotSettingsPublic);
+router.get('/trustpilot/public', publicCache.long, trustpilotController.getTrustpilotSettingsPublic);
 router.post('/trustpilot', requireAdmin, trustpilotController.saveTrustpilotSettings);
 
 // ========================================================================

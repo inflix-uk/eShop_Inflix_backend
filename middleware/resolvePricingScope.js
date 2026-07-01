@@ -44,16 +44,5 @@ module.exports = (req, _res, next) => {
   }
 
   req.pricingScope = { groupId: resolvedGroupId, userId: resolvedUserId, isAdmin };
-  console.log('[resolvePricingScope]', {
-    path: req.path,
-    queryGroupId,
-    queryUserId,
-    hasUser: Boolean(user),
-    userRole: user?.role || null,
-    headerRole: headerRole || null,
-    resolvedGroupId,
-    resolvedUserId,
-    isAdmin,
-  });
   next();
 };

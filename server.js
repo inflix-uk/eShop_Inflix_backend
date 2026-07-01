@@ -13,6 +13,13 @@ require('dotenv').config();
 const environmentValidator = require('./config/environment');
 environmentValidator.init();
 
+// Register the global Mongoose audit plugin BEFORE any model is compiled
+// (the routes require below pulls in every model). This gives every schema
+// automatic before/after change tracking into the AuditLog collection.
+const mongoose = require('mongoose');
+const auditPlugin = require('./src/audit/mongooseAuditPlugin');
+mongoose.plugin(auditPlugin);
+
 // Verify Stripe keys match on startup
 const verifyStripeKeys = () => {
   const pk = process.env.STRIPE_PUBLISHABLE_KEY;
@@ -52,6 +59,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 const { reviewsMiddleware } = require('./middleware/reviewsMiddleware');
 const { requestLogger } = require('./middleware/requestLogger');
 const { auditTimer } = require('./middleware/auditTimer');
+const { auditContext } = require('./middleware/auditContext');
 const { securityHeaders } = require('./middleware/securityHeaders');
 const { healthCheck, livenessCheck, readinessCheck } = require('./middleware/healthCheck');
 const { initializeCronJobs } = require('./cronjob/cronScheduler');
@@ -166,6 +174,11 @@ class Server {
     // CORS configuration
     this.app.use(cors(corsConfig));
     this.app.options('*', cors(corsConfig));
+
+    // Audit context — makes "who is doing this" (userId/role/ip/route) available
+    // to the Mongoose audit plugin for every DB write during this request.
+    // Must run before any route handler that writes to the database.
+    this.app.use(auditContext);
 
     // Request logging
     this.app.use(requestLogger);
