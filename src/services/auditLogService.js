@@ -62,14 +62,18 @@ async function write({
   userRole,
   ip,
   userAgent,
+  // When true, the entry is stored even without a route (used by data-change
+  // auditing, which is valuable even for cron / startup writes).
+  allowNoRoute = false,
 } = {}) {
   try {
     const ctx = req ? extractRequestContext(req) : {};
     const resolvedRoute = route ?? ctx.route;
 
     // Only route-based entries are stored. Anything without a route
-    // (e.g. database.reconnect_failed, cron errors) is intentionally dropped.
-    if (!resolvedRoute) return;
+    // (e.g. database.reconnect_failed, cron errors) is intentionally dropped,
+    // unless the caller explicitly opts in (allowNoRoute).
+    if (!resolvedRoute && !allowNoRoute) return;
 
     const doc = {
       level,
@@ -109,6 +113,10 @@ module.exports = {
   // Building block for a future per-entity CRUD trail.
   // e.g. logEvent({ action: 'order.update', category: 'order', req, metadata: { id, before, after } })
   logEvent: (opts) => write({ level: 'info', ...opts }),
+
+  // Per-entity data change (create/update/delete) written by the Mongoose audit
+  // plugin. Stored even without a route so cron/startup writes are captured.
+  logDataChange: (opts) => write({ level: 'info', category: 'data', allowNoRoute: true, ...opts }),
 
   // Exposed for callers that want to attach request context manually.
   extractRequestContext,

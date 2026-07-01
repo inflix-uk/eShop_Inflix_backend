@@ -428,7 +428,10 @@ const patchHomepageSeo = async (req, res) => {
  */
 const getHomepageData = async (req, res) => {
   try {
-    let data = await HomepageData.findOne();
+    // Public homepage read on every storefront load — `.lean()` skips Mongoose
+    // hydration of the large nested `blocks` (Mixed) tree. Response is built from
+    // plain fields only (blocks + seoPayloadFromDoc), so this is transparent.
+    let data = await HomepageData.findOne().lean();
 
     if (!data) {
       return res.status(200).json({

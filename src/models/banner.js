@@ -199,6 +199,9 @@ const bannerSchema = new Schema({
 bannerSchema.index({ type: 1, isActive: 1, order: 1 });
 bannerSchema.index({ isActive: 1, order: 1 });
 bannerSchema.index({ isDeleted: 1, isActive: 1 });
+// Public hero query is find({ isActive: true, isDeleted: false }).sort({ order: 1 }).
+// This compound fully covers both equality filters + the sort (no in-memory sort).
+bannerSchema.index({ isActive: 1, isDeleted: 1, order: 1 });
 
 // Pre-save middleware to auto-increment order if not provided
 bannerSchema.pre('save', async function(next) {

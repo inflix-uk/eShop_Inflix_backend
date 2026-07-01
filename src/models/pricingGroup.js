@@ -17,6 +17,7 @@ const pricingGroupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-pricingGroupSchema.index({ name: 1 });
+// `name` is already indexed by its `unique: true` field option above — no
+// separate schema.index({ name: 1 }) needed (that caused a duplicate-index warning).
 
 module.exports = mongoose.model('PricingGroup', pricingGroupSchema);
