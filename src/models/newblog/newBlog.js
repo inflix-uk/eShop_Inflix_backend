@@ -171,7 +171,8 @@ blogSchema.virtual('url').get(function() {
 });
 
 // Create index for efficient querying
-blogSchema.index({ slug: 1 });
+// `slug` is already indexed by its `unique: true` field option above — a separate
+// blogSchema.index({ slug: 1 }) here duplicated it and triggered a Mongoose warning.
 blogSchema.index({ publishStatus: 1, publishDate: -1 });
 blogSchema.index({ categories: 1 });
 blogSchema.index({ tags: 1 });

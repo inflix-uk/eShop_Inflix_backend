@@ -104,8 +104,21 @@ const adminProductController = {
                 return 0;
             };
 
-            const products = await Product.find({ status: 'true' }).lean();
-            
+            // Storefront listing/slider payload. Exclusion projection drops the
+            // heavy fields that ONLY the product-detail page / navbar-search read
+            // (verified: none are read off the products Redux slice). variantValues
+            // and all pricing fields are kept — the pricing logic below needs them.
+            // Exclusion (not inclusion) keeps every other field, so no card can break
+            // from a missed field. Filter is index-covered by { status: 1, createdAt: -1 }.
+            const LISTING_EXCLUDED_FIELDS =
+                '-Product_description -Product_description_blocks -Gallery_Images ' +
+                '-varImgGroup -Seo_Meta -product_Specifications -variantDescription ' +
+                '-relatedProducts -topsection -topSectionItems -comesWithItems ' +
+                '-battery -perks_and_benefits -Product_summary';
+            const products = await Product.find({ status: 'true' })
+                .select(LISTING_EXCLUDED_FIELDS)
+                .lean();
+
             if (!products) {
                 return res.json({ message: 'Products not found', status: 404 });
             }
@@ -168,14 +181,6 @@ const adminProductController = {
                 const mapKey = vk ? `${pid}::${vk}` : pid;
                 userOverrideMap.set(mapKey, numericPrice);
             }
-
-            console.log('[getAllActiveProduct] pricing mode', {
-                scopedGroupId,
-                scopedUserId,
-                groupOverridesCount: groupOverrideMap.size,
-                userOverridesCount: userOverrideMap.size,
-                productsCount: products.length,
-            });
 
             const variantOriginalUnit = (v) => {
                 const sale = Number(v?.salePrice);

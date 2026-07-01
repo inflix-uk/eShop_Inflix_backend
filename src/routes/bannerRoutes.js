@@ -3,10 +3,11 @@ const express = require('express');
 const router = express.Router();
 const bannerController = require('../controller/bannerController');
 const requireAdmin = require('../../middleware/requireAdmin');
+const publicCache = require('../../middleware/publicCache');
 const { handleBannerUpload } = require('../controller/bannerController');
 
-// Public route - Get active banners
-router.get('/get/banners/active', bannerController.getActiveBanners);
+// Public route - Get active banners (identical for every visitor → cacheable)
+router.get('/get/banners/active', publicCache.long, bannerController.getActiveBanners);
 
 // Admin routes - All require authentication
 router.get('/get/admin/banners/hero-social', requireAdmin, bannerController.getHeroSocialAdmin);

@@ -32,6 +32,10 @@ const NavbarSchema = new Schema({
     timestamps: true
 });
 
+// Public navbar is always read as `find({}).sort({ order: 1 })`. Without this the
+// sort is an in-memory sort over a collection scan on every homepage load.
+NavbarSchema.index({ order: 1 });
+
 const Navbar = mongoose.model('Navbar', NavbarSchema);
 
 module.exports = Navbar;
