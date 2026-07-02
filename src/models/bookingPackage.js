@@ -43,6 +43,17 @@ const bookingPackageSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    extras: {
+      type: [
+        {
+          image: { type: String, default: '' },
+          title: { type: String, default: '', trim: true },
+          price: { type: Number, default: 0, min: 0 },
+          description: { type: String, default: '', trim: true },
+        },
+      ],
+      default: [],
+    },
     image: {
       type: String,
       default: null,

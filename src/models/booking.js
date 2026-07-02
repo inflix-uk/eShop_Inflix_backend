@@ -75,6 +75,17 @@ const bookingSchema = new mongoose.Schema(
       ref: 'BookingSlotHold',
       default: null,
     },
+    bookingGroupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    groupBookingNumber: {
+      type: String,
+      default: null,
+      trim: true,
+      index: true,
+    },
     source: {
       type: String,
       enum: BOOKING_SOURCES,
@@ -93,6 +104,32 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true,
+    },
+    extras: {
+      type: [
+        {
+          image: { type: String, default: '' },
+          title: { type: String, default: '', trim: true },
+          price: { type: Number, default: 0, min: 0 },
+          description: { type: String, default: '', trim: true },
+        },
+      ],
+      default: [],
+    },
+    extrasSubtotal: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    slotsSubtotal: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     rescheduledFrom: {
       type: mongoose.Schema.Types.ObjectId,

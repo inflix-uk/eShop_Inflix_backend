@@ -7,6 +7,7 @@ const {
   timeToMinutes,
   minutesToTime,
   getDayOfWeekInTimezone,
+  getCurrentDateInTimezone,
   isTimeInPast,
   isValidDateYYYYMMDD,
 } = require('./timeUtils');
@@ -33,6 +34,16 @@ async function getAvailableSlots(packageId, date) {
 
   const timezone = settings.timezone || 'Europe/London';
   const dayOfWeek = getDayOfWeekInTimezone(date, timezone);
+  const maxAdvanceDays = settings.maxAdvanceBookingDays || 60;
+  const currentDate = getCurrentDateInTimezone(timezone);
+  const [curY, curM, curD] = currentDate.split('-').map(Number);
+  const maxDt = new Date(Date.UTC(curY, curM - 1, curD));
+  maxDt.setUTCDate(maxDt.getUTCDate() + maxAdvanceDays);
+  const maxDateStr = maxDt.toISOString().split('T')[0];
+
+  if (date < currentDate || date > maxDateStr) {
+    return { success: false, error: 'Date is outside the allowed booking window', slots: [] };
+  }
 
   const isBlocked = await BookingBlockedDate.findOne({
     type: pkg.type,

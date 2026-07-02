@@ -93,6 +93,21 @@ function normalizeFeatures(features) {
     .filter((item) => item.length > 0);
 }
 
+function normalizeExtras(extras) {
+  if (!Array.isArray(extras)) return [];
+  return extras
+    .map((item) => ({
+      image: item?.image ? String(item.image).trim() : '',
+      title: item?.title ? String(item.title).trim() : '',
+      price:
+        item?.price !== undefined && item?.price !== null && !Number.isNaN(Number(item.price))
+          ? Math.max(0, Number(item.price))
+          : 0,
+      description: item?.description ? String(item.description).trim() : '',
+    }))
+    .filter((item) => item.title.length > 0);
+}
+
 const bookingPackageController = {
   getPublicPackages: async (req, res) => {
     try {
@@ -194,6 +209,7 @@ const bookingPackageController = {
         description,
         detailPage,
         features,
+        extras,
         image,
         sortOrder,
         isActive,
@@ -219,6 +235,7 @@ const bookingPackageController = {
         description: description || '',
         detailPage: detailPage || '',
         features: normalizeFeatures(features),
+        extras: normalizeExtras(extras),
         image: image || null,
         sortOrder: sortOrder !== undefined ? Number(sortOrder) : 0,
         isActive: isActive !== undefined ? Boolean(isActive) : true,
@@ -261,6 +278,7 @@ const bookingPackageController = {
         description,
         detailPage,
         features,
+        extras,
         image,
         sortOrder,
         isActive,
@@ -278,6 +296,7 @@ const bookingPackageController = {
       if (description !== undefined) existing.description = description;
       if (detailPage !== undefined) existing.detailPage = detailPage;
       if (features !== undefined) existing.features = normalizeFeatures(features);
+      if (extras !== undefined) existing.extras = normalizeExtras(extras);
       if (image !== undefined) existing.image = image;
       if (sortOrder !== undefined) existing.sortOrder = Number(sortOrder);
       if (isActive !== undefined) existing.isActive = Boolean(isActive);
