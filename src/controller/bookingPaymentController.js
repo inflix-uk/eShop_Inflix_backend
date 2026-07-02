@@ -31,6 +31,7 @@ const bookingPaymentController = {
       let hold = null;
       let pkg = null;
       let bookingNumber = null;
+      let groupBookingIds = [];
 
       if (bookingId) {
         if (!mongoose.Types.ObjectId.isValid(bookingId)) {
@@ -46,7 +47,15 @@ const bookingPaymentController = {
           return res.status(400).json({ error: 'Booking already paid', status: 400 });
         }
 
-        bookingNumber = booking.bookingNumber;
+        bookingNumber = booking.groupBookingNumber || booking.bookingNumber;
+
+        if (booking.bookingGroupId) {
+          const groupBookings = await Booking.find({
+            bookingGroupId: booking.bookingGroupId,
+            isdeleted: false,
+          }).select('_id');
+          groupBookingIds = groupBookings.map((b) => b._id.toString());
+        }
 
         pkg = await BookingPackage.findById(booking.packageId).lean();
       } else if (holdId) {
@@ -92,6 +101,9 @@ const bookingPaymentController = {
       if (bookingNumber) {
         paymentIntentParams.metadata.bookingNumber = bookingNumber;
         paymentIntentParams.metadata.bookingId = bookingId;
+        if (groupBookingIds.length > 0) {
+          paymentIntentParams.metadata.slotCount = String(groupBookingIds.length);
+        }
       }
 
       if (holdId) {
@@ -105,8 +117,15 @@ const bookingPaymentController = {
       const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
       if (booking) {
-        booking.stripePaymentIntentId = paymentIntent.id;
-        await booking.save();
+        if (booking.bookingGroupId) {
+          await Booking.updateMany(
+            { bookingGroupId: booking.bookingGroupId, isdeleted: false },
+            { stripePaymentIntentId: paymentIntent.id }
+          );
+        } else {
+          booking.stripePaymentIntentId = paymentIntent.id;
+          await booking.save();
+        }
       }
 
       return res.json({

@@ -11,7 +11,12 @@ function intervalsOverlap(startA, endA, startB, endB) {
   return startAMin < endBMin && endAMin > startBMin;
 }
 
-async function getBlockingBookings(type, date, excludeBookingId = null) {
+function normalizeExcludeIds(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+async function getBlockingBookings(type, date, excludeBookingIds = []) {
   const filter = {
     type,
     date,
@@ -19,14 +24,17 @@ async function getBlockingBookings(type, date, excludeBookingId = null) {
     isdeleted: false,
   };
 
-  if (excludeBookingId) {
-    filter._id = { $ne: excludeBookingId };
+  const excluded = normalizeExcludeIds(excludeBookingIds);
+  if (excluded.length === 1) {
+    filter._id = { $ne: excluded[0] };
+  } else if (excluded.length > 1) {
+    filter._id = { $nin: excluded };
   }
 
   return Booking.find(filter).select('startTime endTime').lean();
 }
 
-async function getActiveHolds(type, date, excludeHoldId = null) {
+async function getActiveHolds(type, date, excludeHoldIds = []) {
   const filter = {
     type,
     date,
@@ -34,19 +42,24 @@ async function getActiveHolds(type, date, excludeHoldId = null) {
     expiresAt: { $gt: new Date() },
   };
 
-  if (excludeHoldId) {
-    filter._id = { $ne: excludeHoldId };
+  const excluded = normalizeExcludeIds(excludeHoldIds);
+  if (excluded.length === 1) {
+    filter._id = { $ne: excluded[0] };
+  } else if (excluded.length > 1) {
+    filter._id = { $nin: excluded };
   }
 
   return BookingSlotHold.find(filter).select('startTime endTime').lean();
 }
 
 async function getBlockingIntervals(type, date, options = {}) {
-  const { excludeBookingId, excludeHoldId } = options;
+  const { excludeBookingId, excludeBookingIds, excludeHoldId, excludeHoldIds } = options;
+  const bookingExclusions = excludeBookingIds || excludeBookingId;
+  const holdExclusions = excludeHoldIds || excludeHoldId;
 
   const [bookings, holds] = await Promise.all([
-    getBlockingBookings(type, date, excludeBookingId),
-    getActiveHolds(type, date, excludeHoldId),
+    getBlockingBookings(type, date, bookingExclusions),
+    getActiveHolds(type, date, holdExclusions),
   ]);
 
   const intervals = [];

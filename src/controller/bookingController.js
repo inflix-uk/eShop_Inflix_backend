@@ -35,7 +35,33 @@ const bookingController = {
 
   createSlotHold: async (req, res) => {
     try {
-      const { packageId, date, startTime, sessionId, userId } = req.body;
+      const { packageId, date, startTime, slots, sessionId, userId } = req.body;
+
+      if (Array.isArray(slots) && slots.length > 0) {
+        if (!packageId || !mongoose.Types.ObjectId.isValid(packageId)) {
+          return res.status(400).json({ error: 'Valid packageId is required', status: 400 });
+        }
+
+        const result = await bookingService.createMultiSlotHold({
+          packageId,
+          slots,
+          sessionId,
+          userId,
+        });
+
+        if (!result.success) {
+          const statusCode = result.error.includes('no longer available') ? 409 : 400;
+          return res.status(statusCode).json({ error: result.error, status: statusCode, conflict: result.conflict });
+        }
+
+        return res.json({
+          message: 'Slot holds created successfully',
+          status: 201,
+          holds: result.holds,
+          hold: result.holds[0],
+          expiresAt: result.expiresAt,
+        });
+      }
 
       if (!packageId || !date || !startTime) {
         return res.status(400).json({
@@ -74,7 +100,21 @@ const bookingController = {
 
   releaseSlotHold: async (req, res) => {
     try {
-      const { holdId } = req.body;
+      const { holdId, holdIds } = req.body;
+
+      if (Array.isArray(holdIds) && holdIds.length > 0) {
+        const invalid = holdIds.some((id) => !mongoose.Types.ObjectId.isValid(id));
+        if (invalid) {
+          return res.status(400).json({ error: 'All holdIds must be valid', status: 400 });
+        }
+
+        const result = await bookingService.releaseHolds(holdIds);
+        if (!result.success) {
+          return res.status(400).json({ error: result.error, status: 400 });
+        }
+
+        return res.json({ message: 'Holds released successfully', status: 200, releasedCount: result.releasedCount });
+      }
 
       if (!holdId || !mongoose.Types.ObjectId.isValid(holdId)) {
         return res.status(400).json({ error: 'Valid holdId is required', status: 400 });
@@ -95,10 +135,40 @@ const bookingController = {
 
   createBooking: async (req, res) => {
     try {
-      const { holdId, customer, userId, notes } = req.body;
+      const { holdId, holdIds, customer, userId, notes, extras } = req.body;
+
+      if (Array.isArray(holdIds) && holdIds.length > 0) {
+        const invalid = holdIds.some((id) => !mongoose.Types.ObjectId.isValid(id));
+        if (invalid) {
+          return res.status(400).json({ error: 'All holdIds must be valid', status: 400 });
+        }
+
+        const result = await bookingService.createBookingsFromHolds({
+          holdIds,
+          customer,
+          userId,
+          notes,
+          extras,
+          source: 'online',
+        });
+
+        if (!result.success) {
+          const statusCode = result.error.includes('conflict') ? 409 : 400;
+          return res.status(statusCode).json({ error: result.error, status: statusCode });
+        }
+
+        return res.json({
+          message: 'Bookings created successfully',
+          status: 201,
+          booking: result.booking,
+          bookings: result.bookings,
+          groupBookingNumber: result.groupBookingNumber,
+          totalAmount: result.totalAmount,
+        });
+      }
 
       if (!holdId) {
-        return res.status(400).json({ error: 'holdId is required', status: 400 });
+        return res.status(400).json({ error: 'holdId or holdIds is required', status: 400 });
       }
 
       if (!mongoose.Types.ObjectId.isValid(holdId)) {
@@ -110,6 +180,7 @@ const bookingController = {
         customer,
         userId,
         notes,
+        extras,
         source: 'online',
       });
 
@@ -122,6 +193,7 @@ const bookingController = {
         message: 'Booking created successfully',
         status: 201,
         booking: result.booking,
+        totalAmount: result.booking?.totalAmount,
       });
     } catch (error) {
       console.error('Error creating booking:', error);
@@ -143,6 +215,15 @@ const bookingController = {
         .lean();
 
       if (!booking) {
+        booking = await Booking.findOne({
+          groupBookingNumber: normalizedNumber,
+          isdeleted: false,
+        })
+          .populate('packageId', 'name price durationMinutes type')
+          .lean();
+      }
+
+      if (!booking) {
         return res.status(404).json({ error: 'Booking not found', status: 404 });
       }
 
@@ -153,10 +234,32 @@ const bookingController = {
           .lean();
       }
 
+      let groupSlots = null;
+      if (booking.bookingGroupId) {
+        const groupBookings = await Booking.find({
+          bookingGroupId: booking.bookingGroupId,
+          isdeleted: false,
+        })
+          .select('date startTime endTime bookingNumber status paymentStatus')
+          .sort({ date: 1, startTime: 1 })
+          .lean();
+
+        groupSlots = groupBookings.map((b) => ({
+          bookingNumber: b.bookingNumber,
+          date: b.date,
+          startTime: b.startTime,
+          endTime: b.endTime,
+          status: b.status,
+          paymentStatus: b.paymentStatus,
+        }));
+      }
+
       return res.json({
         message: 'Booking fetched successfully',
         status: 200,
         booking,
+        groupSlots,
+        slotCount: groupSlots ? groupSlots.length : 1,
       });
     } catch (error) {
       console.error('Error fetching booking:', error);
