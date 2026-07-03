@@ -3,6 +3,12 @@ const {
   sanitizeTypography,
   mergeStoredTypography,
 } = require('../utils/typographyConstants');
+const {
+  sanitizeTagColors,
+  tagColorsAdminPayload,
+  tagColorsPublicPayload,
+  DEFAULT_TAG_COLORS,
+} = require('../utils/tagColorsConstants');
 
 const HEX6 = /^#[0-9A-Fa-f]{6}$/;
 
@@ -44,6 +50,36 @@ const EMPTY_THEME_COLORS = {
   bodyBgColor: '',
 };
 
+const EMPTY_UI_CUSTOM = {
+  booking: {
+    serviceCardBgColor: '',
+  },
+};
+
+const EMPTY_TAG_COLORS_ADMIN = {
+  h1: '',
+  h2: '',
+  h3: '',
+  h4: '',
+  h5: '',
+  h6: '',
+  p: '',
+  span: '',
+};
+
+function publicBookingServiceCardBg(themeDoc) {
+  const stored = themeDoc?.uiCustom?.booking?.serviceCardBgColor;
+  return publicBodyBgColor(stored);
+}
+
+function themeUiCustomPayload(themeDoc) {
+  return {
+    booking: {
+      serviceCardBgColor: publicBookingServiceCardBg(themeDoc),
+    },
+  };
+}
+
 /** `''` = storefront default white; `#rrggbb` = valid hex; `null` = invalid non-empty input. */
 function parseBodyBgColor(input) {
   if (typeof input !== 'string') return null;
@@ -68,6 +104,8 @@ const siteThemeController = {
           success: true,
           data: {
             ...EMPTY_THEME_COLORS,
+            uiCustom: EMPTY_UI_CUSTOM,
+            tagColors: EMPTY_TAG_COLORS_ADMIN,
             typography: mergeStoredTypography(null),
             updatedAt: null,
           },
@@ -79,6 +117,8 @@ const siteThemeController = {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
           bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
+          uiCustom: themeUiCustomPayload(theme),
+          tagColors: tagColorsAdminPayload(theme),
           typography: typographyPayload(theme),
           updatedAt: theme.updatedAt,
         },
@@ -100,6 +140,8 @@ const siteThemeController = {
           success: true,
           data: {
             ...EMPTY_THEME_COLORS,
+            uiCustom: EMPTY_UI_CUSTOM,
+            tagColors: mergeStoredTagColors(null),
             typography: mergeStoredTypography(null),
           },
         });
@@ -110,6 +152,8 @@ const siteThemeController = {
           primaryColor: theme.primaryColor,
           secondaryColor: theme.secondaryColor,
           bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
+          uiCustom: themeUiCustomPayload(theme),
+          tagColors: tagColorsPublicPayload(theme),
           typography: typographyPayload(theme),
         },
       });
@@ -119,6 +163,8 @@ const siteThemeController = {
         success: true,
         data: {
           ...EMPTY_THEME_COLORS,
+          uiCustom: EMPTY_UI_CUSTOM,
+          tagColors: mergeStoredTagColors(null),
           typography: mergeStoredTypography(null),
         },
       });
@@ -188,6 +234,47 @@ const siteThemeController = {
     }
   },
 
+  /** Admin: update booking module UI colors. */
+  async updateBookingUi(req, res) {
+    try {
+      const parsed = parseBodyBgColor(String(req.body?.serviceCardBgColor ?? ''));
+      if (parsed === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid service card color. Use #RRGGBB hex or leave empty for default white.',
+        });
+      }
+
+      let theme = await SiteTheme.findOne();
+      if (!theme) {
+        theme = new SiteTheme({});
+      }
+      if (!theme.uiCustom) theme.uiCustom = {};
+      if (!theme.uiCustom.booking) theme.uiCustom.booking = {};
+      theme.uiCustom.booking.serviceCardBgColor = parsed === DEFAULT_BODY_BG ? '' : parsed;
+      if (!theme.typography || Object.keys(theme.typography || {}).length === 0) {
+        theme.typography = mergeStoredTypography(null);
+      }
+      theme.markModified('uiCustom');
+      await theme.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Booking UI colors saved',
+        data: {
+          uiCustom: themeUiCustomPayload(theme),
+          updatedAt: theme.updatedAt,
+        },
+      });
+    } catch (error) {
+      console.error('Error saving booking UI colors:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save booking UI colors',
+      });
+    }
+  },
+
   /** Admin: update typography only (validated). */
   async updateTypography(req, res) {
     try {
@@ -209,6 +296,45 @@ const siteThemeController = {
       return res.status(500).json({
         success: false,
         message: 'Failed to save typography',
+      });
+    }
+  },
+
+  /** Admin: global h1–h6, p text colors. */
+  async updateTagColors(req, res) {
+    try {
+      const nextTagColors = sanitizeTagColors(req.body);
+      let theme = await SiteTheme.findOne();
+      if (!theme) {
+        theme = new SiteTheme({});
+      }
+
+      if (!theme.tagColors) theme.tagColors = {};
+      for (const key of Object.keys(DEFAULT_TAG_COLORS)) {
+        const incoming = nextTagColors[key];
+        const storedDefault = DEFAULT_TAG_COLORS[key];
+        theme.tagColors[key] =
+          incoming === storedDefault ? '' : incoming;
+      }
+      if (!theme.typography || Object.keys(theme.typography || {}).length === 0) {
+        theme.typography = mergeStoredTypography(null);
+      }
+      theme.markModified('tagColors');
+      await theme.save();
+
+      return res.status(200).json({
+        success: true,
+        message: 'Tag colors saved',
+        data: {
+          tagColors: tagColorsAdminPayload(theme),
+          updatedAt: theme.updatedAt,
+        },
+      });
+    } catch (error) {
+      console.error('Error saving tag colors:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save tag colors',
       });
     }
   },

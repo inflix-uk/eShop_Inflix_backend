@@ -91,6 +91,19 @@ async function cancelBooking({
       await BookingSlotHold.findByIdAndUpdate(booking.holdId, { status: 'released' });
     }
 
+    const populated = await Booking.findById(booking._id)
+      .populate('packageId', 'name price durationMinutes type')
+      .lean();
+
+    const { notifyBookingStatusEmail } = require('../email/bookingStatusEmailService');
+    notifyBookingStatusEmail({
+      eventType: 'cancelled',
+      booking: populated || booking.toObject?.() || booking,
+      pkg: populated?.packageId,
+      cancelReason: booking.cancelReason,
+      refund: refundResult,
+    });
+
     return {
       success: true,
       booking: {

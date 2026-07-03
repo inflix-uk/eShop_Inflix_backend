@@ -600,6 +600,12 @@ router.get('/visitor-messages/away/settings',                    visitorMessageC
 router.post('/visitor-messages/away/settings',                   visitorMessageController.saveAwayStatus);
 router.patch('/visitor-messages/away/toggle',                    visitorMessageController.toggleAwayStatus);
 
+// Live chat enable / disable routes
+router.get('/visitor-messages/chat-enabled/public',              visitorMessageController.getChatEnabledPublic);
+router.get('/visitor-messages/chat-enabled/settings',            visitorMessageController.getChatEnabledSettings);
+router.post('/visitor-messages/chat-enabled/settings',           visitorMessageController.saveChatEnabledSettings);
+router.patch('/visitor-messages/chat-enabled/toggle',            visitorMessageController.toggleChatEnabled);
+
 // Transfer to messages routes
 router.get('/visitor-messages/check-user/:email',                visitorMessageController.checkUserByEmail);
 router.post('/visitor-messages/:id/transfer',                    visitorMessageController.transferToMessages);
@@ -911,6 +917,8 @@ router.post('/site-theme', requireAdmin, siteThemeController.saveTheme);
 router.get('/api/theme', siteThemeController.getTypographyPublic);
 router.put('/api/theme', requireAdmin, siteThemeController.updateTypography);
 router.put('/api/theme/body-background', requireAdmin, siteThemeController.updateBodyBackground);
+router.put('/api/theme/tag-colors', requireAdmin, siteThemeController.updateTagColors);
+router.put('/api/theme/booking-ui', requireAdmin, siteThemeController.updateBookingUi);
 
 // ========================================================================
 // TRUSTPILOT SETTINGS MANAGEMENT
@@ -984,11 +992,17 @@ const bookingAvailabilityController = require('../controller/bookingAvailability
 const bookingBlockedDateController = require('../controller/bookingBlockedDateController');
 
 router.get('/booking/settings/public', bookingSettingsController.getPublicSettings);
+router.get('/booking/settings/public/seo', publicCache.long, bookingSettingsController.getPublicSeo);
+router.get('/booking/settings/public/content', publicCache.long, bookingSettingsController.getPublicContent);
 router.get('/get/booking/packages', bookingPackageController.getPublicPackages);
 router.get('/get/booking/package/:id', bookingPackageController.getPackageById);
 
 router.get('/booking/settings', requireAdmin, bookingSettingsController.getAdminSettings);
+router.get('/booking/settings/seo', requireAdmin, bookingSettingsController.getAdminSeo);
+router.get('/booking/settings/content', requireAdmin, bookingSettingsController.getAdminContent);
 router.patch('/booking/settings', requireAdmin, bookingSettingsController.updateSettings);
+router.patch('/booking/settings/seo', requireAdmin, bookingSettingsController.patchSeo);
+router.patch('/booking/settings/content', requireAdmin, bookingSettingsController.patchPageContent);
 
 router.post('/create/booking/package', requireAdmin, bookingPackageController.createPackage);
 router.post(
