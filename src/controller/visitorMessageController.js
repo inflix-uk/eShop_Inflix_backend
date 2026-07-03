@@ -2,6 +2,7 @@
 const VisitorMessage = require('../models/visitorMessage');
 const VisitorAutoReply = require('../models/visitorAutoReply');
 const VisitorAwayStatus = require('../models/visitorAwayStatus');
+const VisitorChatSettings = require('../models/visitorChatSettings');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -1160,3 +1161,126 @@ const checkAndSendAwayMessage = async (visitor, io) => {
 
 // Export the helper function
 exports.checkAndSendAwayMessage = checkAndSendAwayMessage;
+
+// ============================================================================
+// LIVE CHAT ENABLE / DISABLE
+// ============================================================================
+
+/**
+ * GET /visitor-messages/chat-enabled/settings — admin
+ */
+exports.getChatEnabledSettings = async (req, res) => {
+    try {
+        const settings = await VisitorChatSettings.getSettings();
+        res.status(200).json({
+            success: true,
+            settings: { isEnabled: settings.isEnabled, updatedAt: settings.updatedAt },
+        });
+    } catch (error) {
+        console.error('Error fetching chat enabled settings:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch chat settings',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * GET /visitor-messages/chat-enabled/public — storefront
+ */
+exports.getChatEnabledPublic = async (req, res) => {
+    try {
+        const settings = await VisitorChatSettings.getSettings();
+        res.status(200).json({
+            success: true,
+            data: { isEnabled: settings.isEnabled },
+        });
+    } catch (error) {
+        console.error('Error fetching public chat enabled:', error);
+        res.status(200).json({
+            success: true,
+            data: { isEnabled: true },
+        });
+    }
+};
+
+/**
+ * POST /visitor-messages/chat-enabled/settings — admin
+ */
+exports.saveChatEnabledSettings = async (req, res) => {
+    try {
+        const { isEnabled } = req.body;
+        if (typeof isEnabled !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'isEnabled must be a boolean',
+            });
+        }
+
+        let settings = await VisitorChatSettings.findOne();
+        if (!settings) {
+            settings = new VisitorChatSettings({});
+        }
+        settings.isEnabled = isEnabled;
+        settings.updatedAt = new Date();
+        await settings.save();
+
+        const io = req.app.get('io');
+        if (io) {
+            const visitorNamespace = io.of('/visitor-chat');
+            if (visitorNamespace) {
+                visitorNamespace.emit('chat-enabled-changed', { isEnabled: settings.isEnabled });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Live chat ${settings.isEnabled ? 'enabled' : 'disabled'}`,
+            settings: { isEnabled: settings.isEnabled, updatedAt: settings.updatedAt },
+        });
+    } catch (error) {
+        console.error('Error saving chat enabled settings:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to save chat settings',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * PATCH /visitor-messages/chat-enabled/toggle — admin
+ */
+exports.toggleChatEnabled = async (req, res) => {
+    try {
+        let settings = await VisitorChatSettings.findOne();
+        if (!settings) {
+            settings = new VisitorChatSettings({});
+        }
+        settings.isEnabled = !settings.isEnabled;
+        settings.updatedAt = new Date();
+        await settings.save();
+
+        const io = req.app.get('io');
+        if (io) {
+            const visitorNamespace = io.of('/visitor-chat');
+            if (visitorNamespace) {
+                visitorNamespace.emit('chat-enabled-changed', { isEnabled: settings.isEnabled });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Live chat ${settings.isEnabled ? 'enabled' : 'disabled'}`,
+            isEnabled: settings.isEnabled,
+        });
+    } catch (error) {
+        console.error('Error toggling chat enabled:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to toggle chat',
+            error: error.message,
+        });
+    }
+};

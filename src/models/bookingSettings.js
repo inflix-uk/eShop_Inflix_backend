@@ -31,6 +31,55 @@ const bookingSettingsSchema = new mongoose.Schema(
       default: 60,
       min: 1,
     },
+    metaTitle: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    metaDescription: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    metaSchema: {
+      type: [String],
+      default: [],
+    },
+    seoUpdatedAt: {
+      type: Date,
+      default: null,
+    },
+    pageContent: {
+      hero: {
+        badgeText: { type: String, default: '', trim: true },
+        title: { type: String, default: '', trim: true },
+        subtitle: { type: String, default: '', trim: true },
+        statsEnabled: { type: Boolean, default: true },
+        stat1Label: { type: String, default: '', trim: true },
+        stat2Value: { type: String, default: '', trim: true },
+        stat2Label: { type: String, default: '', trim: true },
+        stat3Value: { type: String, default: '', trim: true },
+        stat3Label: { type: String, default: '', trim: true },
+      },
+      services: {
+        heading: { type: String, default: '', trim: true },
+        subheading: { type: String, default: '', trim: true },
+      },
+      trust: {
+        type: [
+          {
+            _id: false,
+            title: { type: String, default: '', trim: true },
+            description: { type: String, default: '', trim: true },
+          },
+        ],
+        default: [],
+      },
+    },
+    pageContentUpdatedAt: {
+      type: Date,
+      default: null,
+    },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

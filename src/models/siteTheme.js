@@ -19,6 +19,25 @@ const siteThemeSchema = new Schema(
       default: '',
       trim: true,
     },
+    uiCustom: {
+      booking: {
+        serviceCardBgColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
+      },
+    },
+    tagColors: {
+      h1: { type: String, default: '', trim: true },
+      h2: { type: String, default: '', trim: true },
+      h3: { type: String, default: '', trim: true },
+      h4: { type: String, default: '', trim: true },
+      h5: { type: String, default: '', trim: true },
+      h6: { type: String, default: '', trim: true },
+      p: { type: String, default: '', trim: true },
+      span: { type: String, default: '', trim: true },
+    },
     typography: {
       type: typographySchema,
       default: undefined,

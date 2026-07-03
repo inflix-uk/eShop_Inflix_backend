@@ -99,6 +99,24 @@ async function rescheduleBooking({
       await BookingSlotHold.findByIdAndUpdate(originalBooking.holdId, { status: 'released' });
     }
 
+    const originalPopulated = await Booking.findById(originalBooking._id)
+      .populate('packageId', 'name price durationMinutes type')
+      .lean();
+
+    const { notifyBookingStatusEmail } = require('../email/bookingStatusEmailService');
+    notifyBookingStatusEmail({
+      eventType: 'rescheduled',
+      booking: originalPopulated || originalBooking.toObject?.() || originalBooking,
+      pkg,
+      newBooking: {
+        bookingNumber: newBooking.bookingNumber,
+        date: newBooking.date,
+        startTime: newBooking.startTime,
+        endTime: newBooking.endTime,
+      },
+      cancelReason: rescheduleReason || originalBooking.cancelReason,
+    });
+
     return {
       success: true,
       originalBooking: {

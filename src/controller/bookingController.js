@@ -427,6 +427,17 @@ const bookingController = {
         return res.status(404).json({ error: 'Booking not found', status: 404 });
       }
 
+      if (status === 'no_show' || status === 'cancelled') {
+        const { notifyBookingStatusEmail } = require('../services/email/bookingStatusEmailService');
+        const bookingObj = booking.toObject ? booking.toObject() : booking;
+        notifyBookingStatusEmail({
+          eventType: status === 'no_show' ? 'no_show' : 'cancelled',
+          booking: bookingObj,
+          pkg: bookingObj.packageId,
+          cancelReason: cancelReason || bookingObj.cancelReason,
+        });
+      }
+
       return res.json({
         message: 'Booking status updated successfully',
         status: 200,

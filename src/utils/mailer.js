@@ -8,6 +8,20 @@ function buildFromHeader(fromName, fromEmail) {
   return `"${name}" <${email}>`;
 }
 
+/** Gmail app passwords are 16 chars; users often paste with spaces (e.g. "abcd efgh ijkl mnop"). */
+function normalizeSmtpPassword(pass) {
+  if (pass == null) return '';
+  const raw = String(pass).trim();
+  if (!raw) return '';
+  const compact = raw.replace(/\s+/g, '');
+  if (raw.includes(' ') && compact.length === 16) return compact;
+  return raw;
+}
+
+function smtpDocIsConfigured(doc) {
+  return Boolean(doc?.host && String(doc.host).trim() && doc?.username && String(doc.username).trim());
+}
+
 /**
  * Merge DB document with optional overrides (e.g. unsaved form values for test).
  * Falls back to env vars when DB fields are empty.
@@ -31,20 +45,22 @@ async function resolveEffectiveConfig(overrides = {}) {
   };
 
   const host = pick('host', ['EMAIL_HOST', 'NEWSLETTER_EMAIL_HOST']);
-  const portRaw = o.port !== undefined && o.port !== '' ? o.port : doc.port;
+  const portFromDoc = smtpDocIsConfigured(doc) ? doc.port : null;
+  const portRaw = o.port !== undefined && o.port !== '' ? o.port : portFromDoc;
   const port =
     Number(portRaw) || Number(process.env.EMAIL_PORT || process.env.NEWSLETTER_EMAIL_PORT) || 465;
   const user = pick('username', ['EMAIL_USER', 'NEWSLETTER_EMAIL_USER']);
 
   let pass = '';
   if (o.password !== undefined && o.password !== null && String(o.password).trim() !== '') {
-    pass = String(o.password).trim();
+    pass = normalizeSmtpPassword(o.password);
   } else {
-    pass =
+    pass = normalizeSmtpPassword(
       (doc.password && String(doc.password).trim()) ||
-      process.env.EMAIL_PASS ||
-      process.env.NEWSLETTER_EMAIL_PASS ||
-      '';
+        process.env.EMAIL_PASS ||
+        process.env.NEWSLETTER_EMAIL_PASS ||
+        ''
+    );
   }
 
   const fromEmail = pick('fromEmail', ['EMAIL_FROM', 'NEWSLETTER_FROM_EMAIL']);
