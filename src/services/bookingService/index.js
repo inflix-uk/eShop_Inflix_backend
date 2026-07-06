@@ -5,6 +5,8 @@ const { confirmBookingPayment, handleBookingPaymentFailed } = require('./confirm
 const { cancelBooking } = require('./cancelBooking');
 const { rescheduleBooking } = require('./rescheduleBooking');
 const { generateBookingNumber } = require('./generateBookingNumber');
+const { expireStalePendingBookings } = require('./expireStalePendingBookings');
+const { verifyActiveHolds } = require('./verifySlotHolds');
 
 module.exports = {
   getAvailableSlots,
@@ -20,4 +22,6 @@ module.exports = {
   cancelBooking,
   rescheduleBooking,
   generateBookingNumber,
+  expireStalePendingBookings,
+  verifyActiveHolds,
 };

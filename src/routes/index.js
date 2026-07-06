@@ -1063,6 +1063,7 @@ router.post('/reschedule/booking/:id', requireAdmin, bookingController.reschedul
 // Public routes
 router.get('/get/booking/slots', bookingController.getAvailableSlots);
 router.post('/create/booking/hold', bookingController.createSlotHold);
+router.post('/verify/booking/holds', bookingController.verifySlotHolds);
 router.post('/release/booking/hold', bookingController.releaseSlotHold);
 router.post('/create/booking', bookingController.createBooking);
 router.post('/get/booking/user', bookingController.getUserBookings);

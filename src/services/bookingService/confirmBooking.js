@@ -140,7 +140,10 @@ async function handleBookingPaymentFailed(bookingNumber, paymentIntent) {
   }
 
   for (const booking of bookings) {
+    booking.status = 'cancelled';
     booking.paymentStatus = 'failed';
+    booking.cancelReason = paymentIntent.last_payment_error?.message || 'Payment failed';
+    booking.cancelledAt = new Date();
     booking.paymentDetails = {
       paymentIntentId: paymentIntent.id,
       status: 'failed',

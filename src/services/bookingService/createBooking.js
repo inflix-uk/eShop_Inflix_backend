@@ -1,28 +1,33 @@
 const mongoose = require('mongoose');
 const Booking = require('../../models/booking');
-const BookingSlotHold = require('../../models/bookingSlotHold');
 const BookingPackage = require('../../models/bookingPackage');
+const BookingSettings = require('../../models/bookingSettings');
 const { generateBookingNumber } = require('./generateBookingNumber');
 const { checkOverlap } = require('./overlapValidator');
 const { addMinutesToTime, isValidTimeHHmm, isValidDateYYYYMMDD } = require('./timeUtils');
+const {
+  validateExtrasAgainstPackage,
+  computeBookingTotals,
+} = require('../../utils/bookingPricingUtils');
+const {
+  claimActiveHold,
+  releaseClaimedHold,
+  finalizeClaimedHold,
+  isDuplicateKeyError,
+} = require('./slotReservation');
+const { expireStalePendingBookings } = require('./expireStalePendingBookings');
+const { validateSlotEligibility } = require('./slotEligibility');
 
-function normalizeBookingExtras(extras) {
-  if (!Array.isArray(extras)) return [];
-  return extras
-    .map((item) => ({
-      image: item?.image ? String(item.image).trim() : '',
-      title: item?.title ? String(item.title).trim() : '',
-      price:
-        item?.price !== undefined && item?.price !== null && !Number.isNaN(Number(item.price))
-          ? Math.max(0, Number(item.price))
-          : 0,
-      description: item?.description ? String(item.description).trim() : '',
-    }))
-    .filter((item) => item.title.length > 0);
-}
-
-function computeExtrasSubtotal(extras) {
-  return extras.reduce((sum, extra) => sum + (extra.price || 0), 0);
+async function rollbackPartialGroupBooking(createdBookings, claimedHolds) {
+  if (createdBookings.length > 0) {
+    await Booking.updateMany(
+      { _id: { $in: createdBookings.map((b) => b._id) } },
+      { status: 'cancelled', paymentStatus: 'unpaid' }
+    );
+  }
+  for (const hold of claimedHolds) {
+    await releaseClaimedHold(hold._id);
+  }
 }
 
 async function createBookingFromHold({ holdId, customer, userId, notes, source, extras }) {
@@ -34,11 +39,9 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
     return { success: false, error: 'customer.name and customer.email are required' };
   }
 
-  const hold = await BookingSlotHold.findOne({
-    _id: holdId,
-    status: 'active',
-    expiresAt: { $gt: new Date() },
-  });
+  await expireStalePendingBookings();
+
+  const hold = await claimActiveHold(holdId);
 
   if (!hold) {
     return { success: false, error: 'Hold not found, expired, or already used' };
@@ -51,7 +54,28 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
   }).lean();
 
   if (!pkg) {
+    await releaseClaimedHold(holdId);
     return { success: false, error: 'Package not found or inactive' };
+  }
+
+  const extraResult = validateExtrasAgainstPackage(extras, pkg.extras);
+  if (extraResult.error) {
+    await releaseClaimedHold(holdId);
+    return { success: false, error: extraResult.error };
+  }
+
+  const eligibility = await validateSlotEligibility({
+    packageId: hold.packageId,
+    date: hold.date,
+    startTime: hold.startTime,
+    endTime: hold.endTime,
+    type: hold.type,
+    pkg,
+  });
+
+  if (!eligibility.valid) {
+    await releaseClaimedHold(holdId);
+    return { success: false, error: eligibility.error };
   }
 
   try {
@@ -60,14 +84,16 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
     });
 
     if (conflict.hasConflict) {
+      await releaseClaimedHold(holdId);
       return { success: false, error: 'Slot conflict detected', conflict: conflict.conflictWith };
     }
 
     const bookingNumber = await generateBookingNumber();
-    const normalizedExtras = normalizeBookingExtras(extras);
-    const extrasSubtotal = computeExtrasSubtotal(normalizedExtras);
-    const slotsSubtotal = pkg.price;
-    const totalAmount = slotsSubtotal + extrasSubtotal;
+    const { slotsSubtotal, extrasSubtotal, totalAmount } = computeBookingTotals(
+      pkg.price,
+      1,
+      extraResult.extrasSubtotal
+    );
 
     const booking = new Booking({
       bookingNumber,
@@ -87,17 +113,14 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
       holdId: hold._id,
       source: source || 'online',
       notes: notes || '',
-      extras: normalizedExtras,
+      extras: extraResult.extras,
       extrasSubtotal,
       slotsSubtotal,
       totalAmount,
     });
 
     await booking.save();
-
-    hold.status = 'converted';
-    hold.bookingId = booking._id;
-    await hold.save();
+    await finalizeClaimedHold(hold._id, booking._id);
 
     return {
       success: true,
@@ -125,6 +148,10 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
     };
   } catch (error) {
     console.error('Error creating booking from hold:', error);
+    await releaseClaimedHold(holdId);
+    if (isDuplicateKeyError(error)) {
+      return { success: false, error: 'Slot is no longer available' };
+    }
     return { success: false, error: 'Failed to create booking' };
   }
 }
@@ -157,6 +184,21 @@ async function createAdminBooking({ packageId, date, startTime, customer, userId
 
   const endTime = addMinutesToTime(startTime, pkg.durationMinutes);
 
+  const settings = await BookingSettings.getSettings();
+  const eligibility = await validateSlotEligibility({
+    packageId,
+    date,
+    startTime,
+    endTime,
+    type: pkg.type,
+    settings,
+    pkg,
+  });
+
+  if (!eligibility.valid) {
+    return { success: false, error: eligibility.error };
+  }
+
   const conflict = await checkOverlap(pkg.type, date, startTime, endTime);
   if (conflict.hasConflict) {
     return { success: false, error: 'Slot is already booked', conflict: conflict.conflictWith };
@@ -183,7 +225,14 @@ async function createAdminBooking({ packageId, date, startTime, customer, userId
     notes: notes || '',
   });
 
-  await booking.save();
+  try {
+    await booking.save();
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { success: false, error: 'Slot is already booked' };
+    }
+    throw error;
+  }
 
   return {
     success: true,
@@ -216,49 +265,78 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
     return { success: false, error: 'customer.name and customer.email are required' };
   }
 
-  const holds = await BookingSlotHold.find({
-    _id: { $in: holdIds },
-    status: 'active',
-    expiresAt: { $gt: new Date() },
-  }).sort({ date: 1, startTime: 1 });
+  await expireStalePendingBookings();
 
-  if (holds.length !== holdIds.length) {
-    return { success: false, error: 'One or more holds not found, expired, or already used' };
-  }
-
-  const packageId = holds[0].packageId;
-  const pkg = await BookingPackage.findOne({
-    _id: packageId,
-    isdeleted: false,
-    isActive: true,
-  }).lean();
-
-  if (!pkg) {
-    return { success: false, error: 'Package not found or inactive' };
-  }
-
-  const bookingGroupId = new mongoose.Types.ObjectId();
+  const claimedHolds = [];
   const createdBookings = [];
-  const normalizedExtras = normalizeBookingExtras(extras);
-  const extrasSubtotal = computeExtrasSubtotal(normalizedExtras);
-  const slotsSubtotal = pkg.price * holds.length;
-  const totalAmount = slotsSubtotal + extrasSubtotal;
 
   try {
-    for (const hold of holds) {
+    for (const holdId of holdIds) {
+      const hold = await claimActiveHold(holdId);
+      if (!hold) {
+        throw new Error('HOLD_CLAIM_FAILED');
+      }
+      claimedHolds.push(hold);
+    }
+
+    claimedHolds.sort((a, b) => {
+      const dateCmp = a.date.localeCompare(b.date);
+      return dateCmp !== 0 ? dateCmp : a.startTime.localeCompare(b.startTime);
+    });
+
+    const packageId = claimedHolds[0].packageId;
+    const pkg = await BookingPackage.findOne({
+      _id: packageId,
+      isdeleted: false,
+      isActive: true,
+    }).lean();
+
+    if (!pkg) {
+      throw new Error('PACKAGE_NOT_FOUND');
+    }
+
+    const extraResult = validateExtrasAgainstPackage(extras, pkg.extras);
+    if (extraResult.error) {
+      await rollbackPartialGroupBooking(createdBookings, claimedHolds);
+      return { success: false, error: extraResult.error };
+    }
+
+    const bookingGroupId = new mongoose.Types.ObjectId();
+    const groupSettings = await BookingSettings.getSettings();
+    const { slotsSubtotal, extrasSubtotal, totalAmount } = computeBookingTotals(
+      pkg.price,
+      claimedHolds.length,
+      extraResult.extrasSubtotal
+    );
+
+    for (const hold of claimedHolds) {
       if (String(hold.packageId) !== String(packageId)) {
+        await rollbackPartialGroupBooking(createdBookings, claimedHolds);
         return { success: false, error: 'All holds must belong to the same package' };
       }
 
+      const eligibility = await validateSlotEligibility({
+        packageId: hold.packageId,
+        date: hold.date,
+        startTime: hold.startTime,
+        endTime: hold.endTime,
+        type: hold.type,
+        settings: groupSettings,
+        pkg,
+      });
+
+      if (!eligibility.valid) {
+        await rollbackPartialGroupBooking(createdBookings, claimedHolds);
+        return { success: false, error: eligibility.error };
+      }
+
       const conflict = await checkOverlap(hold.type, hold.date, hold.startTime, hold.endTime, {
-        excludeHoldIds: holds.map((h) => h._id),
+        excludeHoldIds: claimedHolds.map((h) => h._id),
         excludeBookingIds: createdBookings.map((b) => b._id),
       });
 
       if (conflict.hasConflict) {
-        for (const booking of createdBookings) {
-          await Booking.findByIdAndDelete(booking._id);
-        }
+        await rollbackPartialGroupBooking(createdBookings, claimedHolds);
         return { success: false, error: 'Slot conflict detected', conflict: conflict.conflictWith };
       }
 
@@ -280,19 +358,18 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
         paymentStatus: 'unpaid',
         holdId: hold._id,
         bookingGroupId,
-        groupBookingNumber: createdBookings.length === 0 ? bookingNumber : createdBookings[0].bookingNumber,
+        groupBookingNumber:
+          createdBookings.length === 0 ? bookingNumber : createdBookings[0].bookingNumber,
         source: source || 'online',
         notes: notes || '',
-        extras: normalizedExtras,
+        extras: extraResult.extras,
         extrasSubtotal,
         slotsSubtotal: pkg.price,
         totalAmount,
       });
 
       await booking.save();
-      hold.status = 'converted';
-      hold.bookingId = booking._id;
-      await hold.save();
+      await finalizeClaimedHold(hold._id, booking._id);
       createdBookings.push(booking);
     }
 
@@ -342,8 +419,15 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
     };
   } catch (error) {
     console.error('Error creating bookings from holds:', error);
-    for (const booking of createdBookings) {
-      await Booking.findByIdAndDelete(booking._id);
+    await rollbackPartialGroupBooking(createdBookings, claimedHolds);
+    if (error.message === 'HOLD_CLAIM_FAILED') {
+      return { success: false, error: 'One or more holds not found, expired, or already used' };
+    }
+    if (error.message === 'PACKAGE_NOT_FOUND') {
+      return { success: false, error: 'Package not found or inactive' };
+    }
+    if (isDuplicateKeyError(error)) {
+      return { success: false, error: 'Slot is no longer available' };
     }
     return { success: false, error: 'Failed to create bookings' };
   }

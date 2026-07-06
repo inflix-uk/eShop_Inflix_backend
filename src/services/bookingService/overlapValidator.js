@@ -16,7 +16,7 @@ function normalizeExcludeIds(value) {
   return Array.isArray(value) ? value : [value];
 }
 
-async function getBlockingBookings(type, date, excludeBookingIds = []) {
+async function getBlockingBookings(type, date, excludeBookingIds = [], session = null) {
   const filter = {
     type,
     date,
@@ -31,14 +31,16 @@ async function getBlockingBookings(type, date, excludeBookingIds = []) {
     filter._id = { $nin: excluded };
   }
 
-  return Booking.find(filter).select('startTime endTime').lean();
+  let query = Booking.find(filter).select('startTime endTime').lean();
+  if (session) query = query.session(session);
+  return query;
 }
 
-async function getActiveHolds(type, date, excludeHoldIds = []) {
+async function getActiveHolds(type, date, excludeHoldIds = [], session = null) {
   const filter = {
     type,
     date,
-    status: 'active',
+    status: { $in: ['active', 'converting'] },
     expiresAt: { $gt: new Date() },
   };
 
@@ -49,17 +51,19 @@ async function getActiveHolds(type, date, excludeHoldIds = []) {
     filter._id = { $nin: excluded };
   }
 
-  return BookingSlotHold.find(filter).select('startTime endTime').lean();
+  let query = BookingSlotHold.find(filter).select('startTime endTime').lean();
+  if (session) query = query.session(session);
+  return query;
 }
 
 async function getBlockingIntervals(type, date, options = {}) {
-  const { excludeBookingId, excludeBookingIds, excludeHoldId, excludeHoldIds } = options;
+  const { excludeBookingId, excludeBookingIds, excludeHoldId, excludeHoldIds, session } = options;
   const bookingExclusions = excludeBookingIds || excludeBookingId;
   const holdExclusions = excludeHoldIds || excludeHoldId;
 
   const [bookings, holds] = await Promise.all([
-    getBlockingBookings(type, date, bookingExclusions),
-    getActiveHolds(type, date, holdExclusions),
+    getBlockingBookings(type, date, bookingExclusions, session),
+    getActiveHolds(type, date, holdExclusions, session),
   ]);
 
   const intervals = [];

@@ -41,7 +41,7 @@ const bookingSlotHoldSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'converted', 'expired', 'released'],
+      enum: ['active', 'converted', 'expired', 'released', 'converting'],
       default: 'active',
       index: true,
     },
@@ -59,6 +59,14 @@ const bookingSlotHoldSchema = new mongoose.Schema(
 );
 
 bookingSlotHoldSchema.index({ type: 1, date: 1, startTime: 1 });
+bookingSlotHoldSchema.index(
+  { type: 1, date: 1, startTime: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['active', 'converting'] } },
+    name: 'unique_active_hold_slot',
+  }
+);
 bookingSlotHoldSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 module.exports = mongoose.model('BookingSlotHold', bookingSlotHoldSchema);
