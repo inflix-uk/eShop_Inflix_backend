@@ -3,6 +3,7 @@ const BookingPackage = require('../../models/bookingPackage');
 const BookingAvailability = require('../../models/bookingAvailability');
 const BookingBlockedDate = require('../../models/bookingBlockedDate');
 const { getBlockingIntervals, intervalsOverlap } = require('./overlapValidator');
+const { expireStalePendingBookings } = require('./expireStalePendingBookings');
 const {
   timeToMinutes,
   minutesToTime,
@@ -16,6 +17,8 @@ async function getAvailableSlots(packageId, date) {
   if (!isValidDateYYYYMMDD(date)) {
     return { success: false, error: 'Invalid date format. Use YYYY-MM-DD', slots: [] };
   }
+
+  await expireStalePendingBookings();
 
   const settings = await BookingSettings.getSettings();
   if (!settings.isEnabled) {

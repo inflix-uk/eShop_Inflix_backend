@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Booking = require('../models/booking');
 const BookingPackage = require('../models/bookingPackage');
 const bookingService = require('../services/bookingService');
+const { normalizeEmail } = require('../utils/bookingPricingUtils');
 
 const bookingController = {
   getAvailableSlots: async (req, res) => {
@@ -98,9 +99,53 @@ const bookingController = {
     }
   },
 
+  verifySlotHolds: async (req, res) => {
+    try {
+      const { holdIds, sessionId } = req.body;
+
+      if (!Array.isArray(holdIds) || holdIds.length === 0) {
+        return res.status(400).json({ error: 'holdIds array is required', status: 400 });
+      }
+
+      const invalid = holdIds.some((id) => !mongoose.Types.ObjectId.isValid(id));
+      if (invalid) {
+        return res.status(400).json({ error: 'All holdIds must be valid', status: 400 });
+      }
+
+      if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+        return res.status(400).json({ error: 'sessionId is required', status: 400 });
+      }
+
+      const result = await bookingService.verifyActiveHolds({
+        holdIds,
+        sessionId: sessionId.trim(),
+      });
+
+      if (!result.valid) {
+        const statusCode = result.expired ? 410 : 400;
+        return res.status(statusCode).json({ error: result.error, status: statusCode, valid: false });
+      }
+
+      return res.json({
+        message: 'Holds are valid',
+        status: 200,
+        valid: true,
+        expiresAt: result.expiresAt,
+        holdCount: result.holdCount,
+      });
+    } catch (error) {
+      console.error('Error verifying slot holds:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
   releaseSlotHold: async (req, res) => {
     try {
-      const { holdId, holdIds } = req.body;
+      const { holdId, holdIds, sessionId } = req.body;
+
+      if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
+        return res.status(400).json({ error: 'sessionId is required', status: 400 });
+      }
 
       if (Array.isArray(holdIds) && holdIds.length > 0) {
         const invalid = holdIds.some((id) => !mongoose.Types.ObjectId.isValid(id));
@@ -108,9 +153,9 @@ const bookingController = {
           return res.status(400).json({ error: 'All holdIds must be valid', status: 400 });
         }
 
-        const result = await bookingService.releaseHolds(holdIds);
+        const result = await bookingService.releaseHolds(holdIds, sessionId.trim());
         if (!result.success) {
-          return res.status(400).json({ error: result.error, status: 400 });
+          return res.status(403).json({ error: result.error, status: 403 });
         }
 
         return res.json({ message: 'Holds released successfully', status: 200, releasedCount: result.releasedCount });
@@ -120,10 +165,10 @@ const bookingController = {
         return res.status(400).json({ error: 'Valid holdId is required', status: 400 });
       }
 
-      const result = await bookingService.releaseHold(holdId);
+      const result = await bookingService.releaseHold(holdId, sessionId.trim());
 
       if (!result.success) {
-        return res.status(404).json({ error: result.error, status: 404 });
+        return res.status(403).json({ error: result.error, status: 403 });
       }
 
       return res.json({ message: 'Hold released successfully', status: 200 });
@@ -204,8 +249,18 @@ const bookingController = {
   getBookingByNumber: async (req, res) => {
     try {
       const { bookingNumber } = req.params;
+      const emailParam = req.query.email;
       const { normalizeBookingNumber, syncBookingPaymentIfNeeded } = require('../services/bookingService/confirmBooking');
       const normalizedNumber = normalizeBookingNumber(bookingNumber);
+
+      if (!emailParam || !String(emailParam).trim()) {
+        return res.status(400).json({
+          error: 'email query parameter is required to view booking details',
+          status: 400,
+        });
+      }
+
+      const requestEmail = normalizeEmail(emailParam);
 
       let booking = await Booking.findOne({
         bookingNumber: normalizedNumber,
@@ -225,6 +280,10 @@ const bookingController = {
 
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      if (normalizeEmail(booking.customer?.email) !== requestEmail) {
+        return res.status(403).json({ error: 'Email does not match this booking', status: 403 });
       }
 
       const syncedBooking = await syncBookingPaymentIfNeeded(booking);
@@ -275,12 +334,19 @@ const bookingController = {
         return res.status(400).json({ error: 'userId or email is required', status: 400 });
       }
 
+      if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(400).json({ error: 'Invalid userId', status: 400 });
+      }
+
       const filter = { isdeleted: false };
 
-      if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+      if (userId && email) {
         filter.userId = userId;
-      } else if (email) {
-        filter['customer.email'] = String(email).trim().toLowerCase();
+        filter['customer.email'] = normalizeEmail(email);
+      } else if (userId) {
+        filter.userId = userId;
+      } else {
+        filter['customer.email'] = normalizeEmail(email);
       }
 
       const bookings = await Booking.find(filter)

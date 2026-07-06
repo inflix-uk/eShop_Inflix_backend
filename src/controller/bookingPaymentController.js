@@ -3,6 +3,7 @@ const Booking = require('../models/booking');
 const BookingPackage = require('../models/bookingPackage');
 const BookingSlotHold = require('../models/bookingSlotHold');
 const StripeSettings = require('../models/stripeSettings');
+const { amountsMatch } = require('../utils/bookingPricingUtils');
 
 let stripeInstance = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -23,15 +24,12 @@ const bookingPaymentController = {
     try {
       const { bookingId, holdId, amount, currency } = req.body;
 
-      if (!amount || amount <= 0) {
-        return res.status(400).json({ error: 'Valid amount is required', status: 400 });
-      }
-
       let booking = null;
       let hold = null;
       let pkg = null;
       let bookingNumber = null;
       let groupBookingIds = [];
+      let expectedAmount = 0;
 
       if (bookingId) {
         if (!mongoose.Types.ObjectId.isValid(bookingId)) {
@@ -47,16 +45,20 @@ const bookingPaymentController = {
           return res.status(400).json({ error: 'Booking already paid', status: 400 });
         }
 
-        bookingNumber = booking.groupBookingNumber || booking.bookingNumber;
+        expectedAmount = Number(booking.totalAmount) || 0;
 
         if (booking.bookingGroupId) {
           const groupBookings = await Booking.find({
             bookingGroupId: booking.bookingGroupId,
             isdeleted: false,
-          }).select('_id');
+          }).select('_id totalAmount');
           groupBookingIds = groupBookings.map((b) => b._id.toString());
+          if (groupBookings.length > 0 && groupBookings[0].totalAmount) {
+            expectedAmount = Number(groupBookings[0].totalAmount);
+          }
         }
 
+        bookingNumber = booking.groupBookingNumber || booking.bookingNumber;
         pkg = await BookingPackage.findById(booking.packageId).lean();
       } else if (holdId) {
         if (!mongoose.Types.ObjectId.isValid(holdId)) {
@@ -65,7 +67,7 @@ const bookingPaymentController = {
 
         hold = await BookingSlotHold.findOne({
           _id: holdId,
-          status: 'active',
+          status: { $in: ['active', 'converting'] },
           expiresAt: { $gt: new Date() },
         });
 
@@ -74,6 +76,7 @@ const bookingPaymentController = {
         }
 
         pkg = await BookingPackage.findById(hold.packageId).lean();
+        expectedAmount = Number(pkg?.price) || 0;
       } else {
         return res.status(400).json({ error: 'bookingId or holdId is required', status: 400 });
       }
@@ -82,8 +85,20 @@ const bookingPaymentController = {
         return res.status(404).json({ error: 'Package not found', status: 404 });
       }
 
+      if (expectedAmount <= 0) {
+        return res.status(400).json({ error: 'Invalid booking amount', status: 400 });
+      }
+
+      if (amount != null && !amountsMatch(expectedAmount, amount)) {
+        return res.status(400).json({
+          error: 'Payment amount does not match booking total',
+          status: 400,
+          expectedAmount,
+        });
+      }
+
       const stripe = await getStripeInstance();
-      const amountInCents = Math.round(amount * 100);
+      const amountInCents = Math.round(expectedAmount * 100);
       const currencyCode = currency || 'gbp';
 
       const paymentIntentParams = {
@@ -133,7 +148,7 @@ const bookingPaymentController = {
         status: 200,
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
-        amount,
+        amount: expectedAmount,
         currency: currencyCode,
       });
     } catch (error) {

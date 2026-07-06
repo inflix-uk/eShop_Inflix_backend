@@ -3,6 +3,9 @@ const BookingPackage = require('../../models/bookingPackage');
 const BookingSettings = require('../../models/bookingSettings');
 const { checkOverlap, intervalsOverlap } = require('./overlapValidator');
 const { addMinutesToTime, isValidTimeHHmm, isValidDateYYYYMMDD } = require('./timeUtils');
+const { reserveWithOverlapCheck, isDuplicateKeyError } = require('./slotReservation');
+const { expireStalePendingBookings } = require('./expireStalePendingBookings');
+const { validateSlotEligibility } = require('./slotEligibility');
 
 async function createSlotHold({ packageId, date, startTime, sessionId, userId }) {
   if (!packageId || !date || !startTime) {
@@ -16,6 +19,8 @@ async function createSlotHold({ packageId, date, startTime, sessionId, userId })
   if (!isValidTimeHHmm(startTime)) {
     return { success: false, error: 'Invalid startTime format. Use HH:mm' };
   }
+
+  await expireStalePendingBookings();
 
   const settings = await BookingSettings.getSettings();
   if (!settings.isEnabled) {
@@ -33,51 +38,60 @@ async function createSlotHold({ packageId, date, startTime, sessionId, userId })
   }
 
   const endTime = addMinutesToTime(startTime, pkg.durationMinutes);
+  const eligibility = await validateSlotEligibility({
+    packageId,
+    date,
+    startTime,
+    endTime,
+    type: pkg.type,
+    settings,
+    pkg,
+  });
 
-  try {
-    const conflict = await checkOverlap(pkg.type, date, startTime, endTime);
-
-    if (conflict.hasConflict) {
-      return {
-        success: false,
-        error: 'Slot is no longer available',
-        conflict: conflict.conflictWith,
-      };
-    }
-
-    const holdDurationMinutes = settings.holdDurationMinutes || 15;
-    const expiresAt = new Date(Date.now() + holdDurationMinutes * 60 * 1000);
-
-    const hold = new BookingSlotHold({
-      packageId,
-      type: pkg.type,
-      date,
-      startTime,
-      endTime,
-      sessionId: sessionId || null,
-      userId: userId || null,
-      status: 'active',
-      expiresAt,
-    });
-
-    await hold.save();
-
-    return {
-      success: true,
-      hold: {
-        holdId: hold._id,
-        packageId: hold.packageId,
-        type: hold.type,
-        date: hold.date,
-        startTime: hold.startTime,
-        endTime: hold.endTime,
-        expiresAt: hold.expiresAt,
-      },
-    };
-  } catch (error) {
-    console.error('Error creating slot hold:', error);
-    return { success: false, error: 'Failed to create slot hold' };
+  if (!eligibility.valid) {
+    return { success: false, error: eligibility.error };
   }
+
+  const holdDurationMinutes = settings.holdDurationMinutes || 15;
+  const expiresAt = new Date(Date.now() + holdDurationMinutes * 60 * 1000);
+
+  const result = await reserveWithOverlapCheck({
+    type: pkg.type,
+    date,
+    startTime,
+    endTime,
+    saveFn: async () => {
+      const hold = new BookingSlotHold({
+        packageId,
+        type: pkg.type,
+        date,
+        startTime,
+        endTime,
+        sessionId: sessionId || null,
+        userId: userId || null,
+        status: 'active',
+        expiresAt,
+      });
+      await hold.save();
+      return {
+        hold: {
+          holdId: hold._id,
+          packageId: hold.packageId,
+          type: hold.type,
+          date: hold.date,
+          startTime: hold.startTime,
+          endTime: hold.endTime,
+          expiresAt: hold.expiresAt,
+        },
+      };
+    },
+  });
+
+  if (!result.success) {
+    return result;
+  }
+
+  return { success: true, hold: result.hold };
 }
 
 function slotsOverlapInBatch(slots) {
@@ -98,6 +112,8 @@ async function createMultiSlotHold({ packageId, slots, sessionId, userId }) {
   if (!packageId || !Array.isArray(slots) || slots.length === 0) {
     return { success: false, error: 'packageId and slots array are required' };
   }
+
+  await expireStalePendingBookings();
 
   const settings = await BookingSettings.getSettings();
   if (!settings.isEnabled) {
@@ -142,11 +158,51 @@ async function createMultiSlotHold({ packageId, slots, sessionId, userId }) {
 
   try {
     for (const slot of normalizedSlots) {
-      const conflict = await checkOverlap(pkg.type, slot.date, slot.startTime, slot.endTime, {
-        excludeHoldIds: createdHolds.map((h) => h._id),
+      const eligibility = await validateSlotEligibility({
+        packageId,
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        type: pkg.type,
+        settings,
+        pkg,
       });
 
-      if (conflict.hasConflict) {
+      if (!eligibility.valid) {
+        if (createdHolds.length > 0) {
+          await BookingSlotHold.updateMany(
+            { _id: { $in: createdHolds.map((h) => h._id) } },
+            { status: 'released' }
+          );
+        }
+        return { success: false, error: eligibility.error };
+      }
+
+      const result = await reserveWithOverlapCheck({
+        type: pkg.type,
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        excludeHoldIds: createdHolds.map((h) => h._id),
+        saveFn: async () => {
+          const hold = new BookingSlotHold({
+            packageId,
+            type: pkg.type,
+            date: slot.date,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            sessionId: sessionId || null,
+            userId: userId || null,
+            status: 'active',
+            expiresAt,
+          });
+          await hold.save();
+          createdHolds.push(hold);
+          return {};
+        },
+      });
+
+      if (!result.success) {
         if (createdHolds.length > 0) {
           await BookingSlotHold.updateMany(
             { _id: { $in: createdHolds.map((h) => h._id) } },
@@ -156,24 +212,9 @@ async function createMultiSlotHold({ packageId, slots, sessionId, userId }) {
         return {
           success: false,
           error: `Slot ${slot.date} ${slot.startTime} is no longer available`,
-          conflict: conflict.conflictWith,
+          conflict: result.conflict,
         };
       }
-
-      const hold = new BookingSlotHold({
-        packageId,
-        type: pkg.type,
-        date: slot.date,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        sessionId: sessionId || null,
-        userId: userId || null,
-        status: 'active',
-        expiresAt,
-      });
-
-      await hold.save();
-      createdHolds.push(hold);
     }
 
     return {
@@ -197,29 +238,47 @@ async function createMultiSlotHold({ packageId, slots, sessionId, userId }) {
         { status: 'released' }
       );
     }
+    if (isDuplicateKeyError(error)) {
+      return { success: false, error: 'One or more slots are no longer available' };
+    }
     return { success: false, error: 'Failed to create slot holds' };
   }
 }
 
-async function releaseHold(holdId) {
+async function releaseHold(holdId, sessionId) {
+  const filter = { _id: holdId, status: 'active' };
+  if (sessionId) {
+    filter.sessionId = sessionId;
+  }
+
   const hold = await BookingSlotHold.findOneAndUpdate(
-    { _id: holdId, status: 'active' },
+    filter,
     { status: 'released' },
     { new: true }
   );
 
-  return hold ? { success: true } : { success: false, error: 'Hold not found or already released' };
+  if (!hold) {
+    return { success: false, error: 'Hold not found, already released, or not authorized' };
+  }
+
+  return { success: true };
 }
 
-async function releaseHolds(holdIds = []) {
+async function releaseHolds(holdIds = [], sessionId) {
   if (!Array.isArray(holdIds) || holdIds.length === 0) {
     return { success: false, error: 'holdIds array is required' };
   }
 
-  const result = await BookingSlotHold.updateMany(
-    { _id: { $in: holdIds }, status: 'active' },
-    { status: 'released' }
-  );
+  const filter = { _id: { $in: holdIds }, status: 'active' };
+  if (sessionId) {
+    filter.sessionId = sessionId;
+  }
+
+  const result = await BookingSlotHold.updateMany(filter, { status: 'released' });
+
+  if (result.modifiedCount === 0) {
+    return { success: false, error: 'No holds released — not found or not authorized' };
+  }
 
   return { success: true, releasedCount: result.modifiedCount };
 }
