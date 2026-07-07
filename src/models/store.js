@@ -22,6 +22,11 @@ const storeSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    /** Per-store sitemap opt-outs, e.g. ["/categories"] for sites without a category index. */
+    sitemapExcludePaths: {
+      type: [String],
+      default: [],
+    },
   },
   { timestamps: true }
 );

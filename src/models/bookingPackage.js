@@ -67,6 +67,22 @@ const bookingPackageSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    /** Only one package should have this true — shown as top badge on booking card. */
+    highlightBadgeEnabled: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    highlightBadgeText: {
+      type: String,
+      default: 'Most Popular',
+      trim: true,
+    },
+    highlightBadgeUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     isdeleted: {
       type: Boolean,
       default: false,

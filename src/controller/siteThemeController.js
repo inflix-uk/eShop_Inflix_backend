@@ -53,31 +53,30 @@ const EMPTY_THEME_COLORS = {
 const EMPTY_UI_CUSTOM = {
   booking: {
     serviceCardBgColor: '',
+    buttonBgColor: '',
+    buttonTextColor: '',
+    listTextColor: '',
+    headingColor: '',
+    subheadingColor: '',
+    descriptionColor: '',
   },
 };
 
-const EMPTY_TAG_COLORS_ADMIN = {
-  h1: '',
-  h2: '',
-  h3: '',
-  h4: '',
-  h5: '',
-  h6: '',
-  p: '',
-  span: '',
-};
+const BOOKING_UI_FIELD_KEYS = Object.keys(EMPTY_UI_CUSTOM.booking);
 
-function publicBookingServiceCardBg(themeDoc) {
-  const stored = themeDoc?.uiCustom?.booking?.serviceCardBgColor;
-  return publicBodyBgColor(stored);
+function publicBookingUiField(stored) {
+  const v = typeof stored === 'string' ? stored.trim() : '';
+  if (!v) return '';
+  return normalizeHex(v) || '';
 }
 
 function themeUiCustomPayload(themeDoc) {
-  return {
-    booking: {
-      serviceCardBgColor: publicBookingServiceCardBg(themeDoc),
-    },
-  };
+  const booking = themeDoc?.uiCustom?.booking || {};
+  const out = {};
+  for (const key of BOOKING_UI_FIELD_KEYS) {
+    out[key] = publicBookingUiField(booking[key]);
+  }
+  return { booking: out };
 }
 
 /** `''` = storefront default white; `#rrggbb` = valid hex; `null` = invalid non-empty input. */
@@ -94,6 +93,18 @@ function publicBodyBgColor(stored) {
   if (!v) return '';
   return normalizeHex(v) || '';
 }
+
+const EMPTY_TAG_COLORS_ADMIN = {
+  h1: '',
+  h2: '',
+  h3: '',
+  h4: '',
+  h5: '',
+  h6: '',
+  p: '',
+  span: '',
+  label: '',
+};
 
 const siteThemeController = {
   async getThemeAdmin(req, res) {
@@ -237,12 +248,19 @@ const siteThemeController = {
   /** Admin: update booking module UI colors. */
   async updateBookingUi(req, res) {
     try {
-      const parsed = parseBodyBgColor(String(req.body?.serviceCardBgColor ?? ''));
-      if (parsed === null) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid service card color. Use #RRGGBB hex or leave empty for default white.',
-        });
+      const body = req.body?.booking && typeof req.body.booking === 'object'
+        ? req.body.booking
+        : req.body;
+      const parsedBooking = {};
+      for (const key of BOOKING_UI_FIELD_KEYS) {
+        const parsed = parseBodyBgColor(String(body?.[key] ?? ''));
+        if (parsed === null) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid ${key}. Use #RRGGBB hex or leave empty for default.`,
+          });
+        }
+        parsedBooking[key] = parsed === DEFAULT_BODY_BG ? '' : parsed;
       }
 
       let theme = await SiteTheme.findOne();
@@ -251,7 +269,9 @@ const siteThemeController = {
       }
       if (!theme.uiCustom) theme.uiCustom = {};
       if (!theme.uiCustom.booking) theme.uiCustom.booking = {};
-      theme.uiCustom.booking.serviceCardBgColor = parsed === DEFAULT_BODY_BG ? '' : parsed;
+      for (const key of BOOKING_UI_FIELD_KEYS) {
+        theme.uiCustom.booking[key] = parsedBooking[key];
+      }
       if (!theme.typography || Object.keys(theme.typography || {}).length === 0) {
         theme.typography = mergeStoredTypography(null);
       }

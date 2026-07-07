@@ -108,6 +108,34 @@ function normalizeExtras(extras) {
     .filter((item) => item.title.length > 0);
 }
 
+function normalizeHighlightBadgeText(value) {
+  const text = String(value ?? '').trim();
+  return text || 'Most Popular';
+}
+
+function normalizeHighlightBadgeUrl(value) {
+  const url = String(value ?? '').trim();
+  if (!url) return '';
+  if (url.startsWith('/')) return url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+async function clearOtherHighlightBadges(exceptId) {
+  const filter = { isdeleted: false, highlightBadgeEnabled: true };
+  if (exceptId) {
+    filter._id = { $ne: exceptId };
+  }
+  await BookingPackage.updateMany(filter, { $set: { highlightBadgeEnabled: false } });
+}
+
 const bookingPackageController = {
   getPublicPackages: async (req, res) => {
     try {
@@ -213,6 +241,9 @@ const bookingPackageController = {
         image,
         sortOrder,
         isActive,
+        highlightBadgeEnabled,
+        highlightBadgeText,
+        highlightBadgeUrl,
       } = req.body;
 
       if (!name || !type || durationMinutes === undefined || price === undefined) {
@@ -239,9 +270,15 @@ const bookingPackageController = {
         image: image || null,
         sortOrder: sortOrder !== undefined ? Number(sortOrder) : 0,
         isActive: isActive !== undefined ? Boolean(isActive) : true,
+        highlightBadgeEnabled: Boolean(highlightBadgeEnabled),
+        highlightBadgeText: normalizeHighlightBadgeText(highlightBadgeText),
+        highlightBadgeUrl: normalizeHighlightBadgeUrl(highlightBadgeUrl),
       });
 
       await newPackage.save();
+      if (newPackage.highlightBadgeEnabled) {
+        await clearOtherHighlightBadges(newPackage._id);
+      }
 
       return res.json({
         message: 'Booking package created successfully',
@@ -282,6 +319,9 @@ const bookingPackageController = {
         image,
         sortOrder,
         isActive,
+        highlightBadgeEnabled,
+        highlightBadgeText,
+        highlightBadgeUrl,
       } = req.body;
 
       if (type !== undefined && !isValidPackageType(type)) {
@@ -300,8 +340,20 @@ const bookingPackageController = {
       if (image !== undefined) existing.image = image;
       if (sortOrder !== undefined) existing.sortOrder = Number(sortOrder);
       if (isActive !== undefined) existing.isActive = Boolean(isActive);
+      if (highlightBadgeEnabled !== undefined) {
+        existing.highlightBadgeEnabled = Boolean(highlightBadgeEnabled);
+      }
+      if (highlightBadgeText !== undefined) {
+        existing.highlightBadgeText = normalizeHighlightBadgeText(highlightBadgeText);
+      }
+      if (highlightBadgeUrl !== undefined) {
+        existing.highlightBadgeUrl = normalizeHighlightBadgeUrl(highlightBadgeUrl);
+      }
 
       await existing.save();
+      if (existing.highlightBadgeEnabled) {
+        await clearOtherHighlightBadges(existing._id);
+      }
 
       return res.json({
         message: 'Booking package updated successfully',

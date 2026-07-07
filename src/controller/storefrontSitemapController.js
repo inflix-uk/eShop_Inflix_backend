@@ -8,6 +8,7 @@ const generateSitemapProductImagesXML =
 const { getNewBlogSitemapPathSegment } = require("../utils/newBlogSitemapPath");
 const { collectSitemapProductImageUrls } = require("../utils/orderLineImageUrlServer");
 const { appendFooterPageSitemapEntries } = require("../utils/footerPageSitemapPaths");
+const { storeSkipsSitemapCategories } = require("../utils/sitemapStoreExclusions");
 
 function slugify(value) {
   return String(value || "")
@@ -161,14 +162,15 @@ const storefrontSitemapController = {
 
       const storeId = req.store._id;
       const baseUrl = resolveSitemapBaseUrl(req);
+      const skipCategories = storeSkipsSitemapCategories(req.store);
 
       const [products, categories, blogs, newBlogs] = await Promise.all([
         Products.find({ storeId, isdeleted: false })
           .select("producturl variantValues productType updatedAt Gallery_Images meta_Image")
           .lean(),
-        ProductCategory.find({ storeId })
-          .select("name slug updatedAt")
-          .lean(),
+        skipCategories
+          ? Promise.resolve([])
+          : ProductCategory.find({ storeId }).select("name slug updatedAt").lean(),
         Blog.find({ storeId }).select("name updatedAt").lean(),
         NewBlog.find({ storeId, publishStatus: "published" })
           .select("slug updatedAt categories")
@@ -182,26 +184,30 @@ const storefrontSitemapController = {
         changefreq: "daily",
         priority: 1.0,
       });
-      urls.push({
-        loc: `${baseUrl}/categories`,
-        changefreq: "monthly",
-        priority: 0.8,
-      });
+      if (!skipCategories) {
+        urls.push({
+          loc: `${baseUrl}/categories`,
+          changefreq: "monthly",
+          priority: 0.8,
+        });
+      }
 
       await appendFooterPageSitemapEntries(urls, storeId, baseUrl);
 
       appendProductSitemapEntries(urls, products, baseUrl);
 
-      categories.forEach((category) => {
-        const categorySlug = category.slug || slugify(category.name || "");
-        if (!categorySlug) return;
-        urls.push({
-          loc: `${baseUrl}/categories/${categorySlug}`,
-          changefreq: "monthly",
-          priority: 0.6,
-          lastmod: category.updatedAt ? new Date(category.updatedAt).toISOString() : undefined,
+      if (!skipCategories) {
+        categories.forEach((category) => {
+          const categorySlug = category.slug || slugify(category.name || "");
+          if (!categorySlug) return;
+          urls.push({
+            loc: `${baseUrl}/categories/${categorySlug}`,
+            changefreq: "monthly",
+            priority: 0.6,
+            lastmod: category.updatedAt ? new Date(category.updatedAt).toISOString() : undefined,
+          });
         });
-      });
+      }
 
       blogs.forEach((blog) => {
         const blogSlug = slugify(blog.name || "");
