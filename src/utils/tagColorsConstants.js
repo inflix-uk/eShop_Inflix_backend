@@ -1,6 +1,6 @@
 const HEX6 = /^#[0-9A-Fa-f]{6}$/;
 
-const TAG_KEYS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span'];
+const TAG_KEYS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label'];
 
 const DEFAULT_TAG_COLORS = {
   h1: '#111827',
@@ -11,6 +11,7 @@ const DEFAULT_TAG_COLORS = {
   h6: '#374151',
   p: '#374151',
   span: '#374151',
+  label: '#374151',
 };
 
 function normalizeHex(input) {

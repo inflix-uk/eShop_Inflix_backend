@@ -26,6 +26,36 @@ const siteThemeSchema = new Schema(
           default: '',
           trim: true,
         },
+        buttonBgColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
+        buttonTextColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
+        listTextColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
+        headingColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
+        subheadingColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
+        descriptionColor: {
+          type: String,
+          default: '',
+          trim: true,
+        },
       },
     },
     tagColors: {
@@ -37,6 +67,7 @@ const siteThemeSchema = new Schema(
       h6: { type: String, default: '', trim: true },
       p: { type: String, default: '', trim: true },
       span: { type: String, default: '', trim: true },
+      label: { type: String, default: '', trim: true },
     },
     typography: {
       type: typographySchema,
