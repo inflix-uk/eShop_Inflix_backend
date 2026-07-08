@@ -50,6 +50,7 @@ const corsConfig = {
     'Origin',
     'x-user-role',
     'x-role',
+    'x-user-id',
   ],
 
   credentials: true,

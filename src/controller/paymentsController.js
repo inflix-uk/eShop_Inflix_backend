@@ -6,6 +6,15 @@ const Order = require("../models/order");
 const StripeSettings = require("../models/stripeSettings");
 const CheckoutLog = require("../models/checkoutLog");
 const auditLogService = require("../services/auditLogService");
+const { shadowLogCheckoutPricing } = require("../services/pricing/shadowLogPricing");
+const { resolvePaymentIntentProductSubtotal } = require("../services/pricing/resolvePaymentIntentProductSubtotal");
+const { computeCheckoutTotal } = require("../services/pricing/computeCheckoutTotal");
+const {
+  pricingResultToHttp,
+  checkoutTotalToHttp,
+  logCheckoutPricingBlocked,
+  logCheckoutPricingSuccess,
+} = require("../services/pricing/checkoutPricingHttp");
 
 // Booking payment confirmation service
 const { confirmBookingPayment, handleBookingPaymentFailed } = require('../services/bookingService/confirmBooking');
@@ -157,27 +166,34 @@ const paymentsController = {
             // Filter out trade-in products (they are credits, not charges)
             const chargeableProducts = cartproducts.filter(product => !product.isTradeIn);
 
-            // Calculate the Total Price Before Discount (excluding trade-ins) - SERVER-SIDE CALCULATION
-            let totalSalePrice = chargeableProducts.reduce((sum, product) => sum + (product.salePrice * product.qty), 0);
-
-            // Calculate the Total Discount Based on Coupon
-            let totalDiscount = 0;
-            if (coupondata) {
-                if (coupondata.discount_type === "flat") {
-                    totalDiscount = coupondata.discount;
-                } else if (coupondata.discount_type === "percentage") {
-                    const discountAmount = (totalSalePrice * coupondata.discount) / 100;
-                    totalDiscount = coupondata.upto ? Math.min(discountAmount, coupondata.upto) : discountAmount;
-                }
+            const checkout = await computeCheckoutTotal({
+                req,
+                cartItems: chargeableProducts,
+                couponInput: coupondata,
+                shippingMethodInput: shippingMethod,
+            });
+            const checkoutHttpError = checkoutTotalToHttp(checkout);
+            if (checkoutHttpError) {
+                logCheckoutPricingBlocked(
+                    'POST /create-payment-intent',
+                    orderNumber,
+                    checkout
+                );
+                return res.status(checkoutHttpError.status).json(checkoutHttpError.body);
             }
 
-            // Get shipping cost (default to 0 if not provided)
-            const shippingCost = shippingMethod?.price || 0;
+            logCheckoutPricingSuccess(
+                'POST /create-payment-intent',
+                orderNumber,
+                checkout.pricingResult
+            );
 
-            // Adjust the Total Price After Applying Discount + Shipping
-            const adjustedTotalPrice = Math.max(0, totalSalePrice - totalDiscount);
-            const finalTotal = adjustedTotalPrice + shippingCost;
-            const totalAmount = Math.round(finalTotal * 100); // Convert to pence
+            const totalSalePrice = checkout.productSubtotal;
+            const totalDiscount = checkout.totalDiscount;
+            const shippingCost = checkout.shippingCost;
+            const adjustedTotalPrice = checkout.adjustedProductTotal;
+            const finalTotal = checkout.finalTotal;
+            const totalAmount = checkout.totalAmountPence;
 
             console.log(`Calculated amount: ${totalAmount} pence (£${finalTotal}) - Products: £${adjustedTotalPrice}, Shipping: £${shippingCost}`);
 
@@ -340,6 +356,13 @@ const paymentsController = {
                 paymentIntentId: paymentIntent.id,
                 orderNumber: orderNumber || undefined,
                 data: { amount: totalAmount, isExpressCheckout: !!isExpressCheckout },
+            });
+
+            void shadowLogCheckoutPricing({
+                route: 'POST /create-payment-intent',
+                req,
+                cartproducts,
+                orderNumber,
             });
 
             res.json({
@@ -587,32 +610,39 @@ const paymentsController = {
 
             console.log('💰 Updating PaymentIntent amount:', paymentIntentId);
 
-            // Filter out trade-in products
-            const chargeableProducts = (cartproducts || []).filter(product => !product.isTradeIn);
-
-            // Calculate product total
-            let totalSalePrice = chargeableProducts.reduce((sum, product) => sum + (product.salePrice * product.qty), 0);
-
-            // Apply coupon discount
-            let totalDiscount = 0;
-            if (coupondata) {
-                if (coupondata.discount_type === "flat") {
-                    totalDiscount = coupondata.discount;
-                } else if (coupondata.discount_type === "percentage") {
-                    const discountAmount = (totalSalePrice * coupondata.discount) / 100;
-                    totalDiscount = coupondata.upto ? Math.min(discountAmount, coupondata.upto) : discountAmount;
-                }
+            if (!cartproducts || !Array.isArray(cartproducts) || cartproducts.length === 0) {
+                return res.status(400).json({ error: 'cartproducts are required' });
             }
 
-            // Get shipping cost
-            const shippingCost = shippingMethod?.price || 0;
+            const chargeableProducts = cartproducts.filter(product => !product.isTradeIn);
 
-            // Calculate final total
-            const adjustedTotalPrice = Math.max(0, totalSalePrice - totalDiscount);
-            const finalTotal = adjustedTotalPrice + shippingCost;
-            const totalAmount = Math.round(finalTotal * 100); // Convert to pence
+            const checkout = await computeCheckoutTotal({
+                req,
+                cartItems: chargeableProducts,
+                couponInput: coupondata,
+                shippingMethodInput: shippingMethod,
+            });
+            const checkoutHttpError = checkoutTotalToHttp(checkout);
+            if (checkoutHttpError) {
+                logCheckoutPricingBlocked(
+                    'POST /update-payment-intent-amount',
+                    req.body?.orderNumber,
+                    checkout
+                );
+                return res.status(checkoutHttpError.status).json(checkoutHttpError.body);
+            }
 
-            console.log(`New amount: ${totalAmount} pence (£${finalTotal}) - Products: £${adjustedTotalPrice}, Shipping: £${shippingCost}`);
+            logCheckoutPricingSuccess(
+                'POST /update-payment-intent-amount',
+                req.body?.orderNumber,
+                checkout.pricingResult
+            );
+
+            const shippingCost = checkout.shippingCost;
+            const finalTotal = checkout.finalTotal;
+            const totalAmount = checkout.totalAmountPence;
+
+            console.log(`New amount: ${totalAmount} pence (£${finalTotal}) - Products: £${checkout.adjustedProductTotal}, Shipping: £${shippingCost}`);
 
             if (totalAmount <= 0) {
                 return res.status(400).json({ error: 'Invalid amount calculated' });
@@ -632,6 +662,13 @@ const paymentsController = {
             });
 
             console.log('✅ PaymentIntent amount updated:', paymentIntent.id, '- New amount:', totalAmount);
+
+            void shadowLogCheckoutPricing({
+                route: 'POST /update-payment-intent-amount',
+                req,
+                cartproducts,
+                orderNumber: req.body?.orderNumber,
+            });
 
             res.json({
                 success: true,

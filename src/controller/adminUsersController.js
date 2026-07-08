@@ -8,6 +8,7 @@ const Product = require("../models/product");
 const UserProductPrice = require("../models/userProductPrice");
 const { computeVariantKey } = require("../utils/pricingVariantKey");
 const bcrypt = require("bcrypt");
+const { toSafeUser, SENSITIVE_USER_FIELDS } = require("../utils/safeUser");
 
 let legacyUserVariantKeysEnsured = false;
 async function ensureLegacyUserProductVariantKeys() {
@@ -26,10 +27,12 @@ const crypto = require("crypto");
 
 const adminUsersController = {
   getAllUser: (req, res) => {
-    const users = User.find()
+    User.find()
+      .select(SENSITIVE_USER_FIELDS)
+      .populate('roleId')
       .lean()
       .then((users) => {
-        res.json(users);
+        res.json(users.map(toSafeUser));
       })
       .catch((err) => {
         res.status(500).json({ error: err.message });
@@ -81,7 +84,7 @@ const adminUsersController = {
         id,
         { $set: { pricingGroup: pricingGroupId || null } },
         { new: true }
-      );
+      ).select(SENSITIVE_USER_FIELDS);
 
       if (!user) {
         return res.status(404).json({ status: 404, message: "User not found" });
@@ -90,7 +93,7 @@ const adminUsersController = {
       return res.status(200).json({
         status: 200,
         message: "User pricing group updated successfully",
-        user,
+        user: toSafeUser(user),
       });
     } catch (err) {
       console.error("Error assigning pricing group:", err);
@@ -245,14 +248,14 @@ const adminUsersController = {
     const { id } = req.params;
 
     User.findById(id)
+      .select(SENSITIVE_USER_FIELDS)
+      .populate('roleId')
       .then((user) => {
         if (!user) {
           return res.json({ error: "User not found", status: 404 });
         }
-        console.log(user);
 
-        // If user found, send it as JSON response
-        res.json({ user , status: 201, message: "User found successfully" });
+        res.json({ user: toSafeUser(user), status: 201, message: "User found successfully" });
       })
       .catch((err) => {
         console.error("Error finding user by ID:", err);

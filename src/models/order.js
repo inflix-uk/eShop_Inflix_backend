@@ -214,5 +214,18 @@ orderSchema.index({ customerKey: 1, createdAt: -1 }, { sparse: true });
 // buildStatusMatch in orderController).
 orderSchema.index({ isdeleted: 1, status: 1, createdAt: -1 });
 
+// One PaymentIntent must not fulfill multiple non-Failed orders
+orderSchema.index(
+  { 'paymentDetails.paymentIntentId': 1 },
+  {
+    unique: true,
+    sparse: true,
+    partialFilterExpression: {
+      status: { $ne: 'Failed' },
+      'paymentDetails.paymentIntentId': { $exists: true, $type: 'string', $ne: '' },
+    },
+  }
+);
+
 module.exports = mongoose.model('Order', orderSchema);
 

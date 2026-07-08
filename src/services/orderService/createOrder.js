@@ -38,6 +38,11 @@ const {
   logMarketingAttributionTrace,
   logMarketingAttributionMissing,
 } = require('../../utils/marketingAttribution');
+const { resolveCheckoutProductSubtotal } = require('../pricing/resolvePaymentIntentProductSubtotal');
+const { applyServerPricesToCart } = require('../pricing/applyServerPricesToCart');
+const { computeCheckoutTotal } = require('../pricing/computeCheckoutTotal');
+const { verifyPaymentForOrder, extractPaymentIntentId } = require('../pricing/verifyPaymentForOrder');
+const { buildPricingScope } = require('../pricing/buildPricingScope');
 
 // ============================================================================
 // HELPER FUNCTIONS - Coupon Management
@@ -308,17 +313,6 @@ const reduceVariantQuantities = async (cart) => {
 // ============================================================================
 // HELPER FUNCTIONS - Order Calculations
 // ============================================================================
-
-/**
- * Calculate total order value excluding trade-in products
- * @param {Array} cart - The cart items
- * @returns {number} Total order value
- */
-const calculateOrderTotal = (cart) => {
-    return cart
-        .filter(item => !item.isTradeIn && item.productId !== 'trade-in')
-        .reduce((sum, item) => sum + (item.qty || 0) * (item.salePrice || item.Price || 0), 0);
-};
 
 /**
  * Calculate discount amount based on coupon type
@@ -932,9 +926,9 @@ function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInform
  * @param {Object} orderData - Order data containing cart, shipping, contact info, etc.
  * @returns {Promise<Object>} Result object with success status and order data
  */
-const createOrderService = async (orderData) => {
+const createOrderService = async (orderData, req = null) => {
     try {
-        const { cart, shippingInformation, contactInformation, coupon, paymentDetails, orderNumber, status, shippingMethod, marketingAttribution } = orderData;
+        let { cart, shippingInformation, contactInformation, coupon, paymentDetails, orderNumber, status, shippingMethod, marketingAttribution } = orderData;
 
         // ====================================================================
         // STEP 1: Validate Cart
@@ -947,20 +941,112 @@ const createOrderService = async (orderData) => {
             };
         }
 
-        // ====================================================================
-        // STEP 2: Validate Coupon Usage
-        // ====================================================================
-        if (coupon) {
-            console.log("coupon");
-            const couponUsed = await hasUserUsedCoupon(contactInformation.userId, coupon.code);
+        const checkout = await computeCheckoutTotal({
+            req: req || {},
+            cartItems: cart,
+            couponInput: coupon,
+            shippingMethodInput: shippingMethod,
+        });
 
-            if (couponUsed) {
+        const pricingResult = checkout.pricingResult || checkout;
+        const pricingLog = {
+            event: 'PRICING_ORDER_CREATE',
+            orderNumber: orderNumber || null,
+            clientSubtotal: pricingResult.clientSubtotal,
+            serverSubtotal: pricingResult.serverSubtotal,
+            subtotalDelta: pricingResult.subtotalDelta,
+            usedServerAmount: Boolean(checkout.ok),
+            mismatchBlocked: !checkout.ok && checkout.error === 'PRICE_MISMATCH',
+            finalTotal: checkout.ok ? checkout.finalTotal : null,
+        };
+
+        if (!checkout.ok) {
+            console.warn(JSON.stringify({
+                ...pricingLog,
+                code: checkout.error,
+            }));
+
+            if (checkout.error === 'PRICE_MISMATCH') {
                 return {
                     success: false,
-                    message: "You have already used this coupon.",
-                    status: 400
+                    status: 409,
+                    code: 'PRICE_MISMATCH',
+                    message: 'Some prices have changed. Please review your cart.',
+                    serverLines: checkout.serverLines || [],
+                    mismatches: checkout.mismatches || [],
                 };
             }
+
+            if (checkout.error === 'COUPON_INVALID') {
+                return {
+                    success: false,
+                    status: 400,
+                    code: 'COUPON_INVALID',
+                    message: checkout.message || 'Invalid coupon.',
+                };
+            }
+
+            if (checkout.error === 'SHIPPING_INVALID') {
+                return {
+                    success: false,
+                    status: 400,
+                    code: 'SHIPPING_INVALID',
+                    message: checkout.message || 'Invalid shipping method.',
+                };
+            }
+
+            return {
+                success: false,
+                status: 400,
+                code: 'PRICING_UNRESOLVED',
+                message: 'One or more cart items could not be priced.',
+            };
+        }
+
+        console.log(JSON.stringify(pricingLog));
+
+        if (checkout.pricingResult?.resolvedServerLines) {
+            cart = applyServerPricesToCart(cart, checkout.pricingResult.resolvedServerLines);
+        }
+
+        const resolvedCoupon = checkout.coupon;
+        const resolvedShippingMethod = checkout.shippingMethod;
+        const totalOrderValue = checkout.productSubtotal;
+        const discountAmount = checkout.totalDiscount;
+        const discountedOrderValue = checkout.adjustedProductTotal;
+
+        // ====================================================================
+        // STEP 2: Payment verification (required before Pending / fulfillment)
+        // ====================================================================
+        const clientWantsPending = status === 'Pending';
+        let effectiveStatus = 'Failed';
+        let verifiedPaymentDetails = null;
+
+        if (clientWantsPending) {
+            const verification = await verifyPaymentForOrder({
+                req: req || {},
+                checkout,
+                paymentDetails,
+                orderNumber,
+                contactInformation,
+            });
+
+            if (!verification.ok) {
+                return {
+                    success: false,
+                    status: verification.status || 402,
+                    code: verification.code,
+                    message: verification.message,
+                };
+            }
+
+            effectiveStatus = 'Pending';
+            verifiedPaymentDetails = verification.serverPaymentDetails;
+        }
+
+        // Never trust client status for fulfillment — only Failed or verified Pending
+        if (status && status !== 'Failed' && status !== 'Pending') {
+            effectiveStatus = 'Failed';
         }
 
         // ====================================================================
@@ -986,7 +1072,7 @@ const createOrderService = async (orderData) => {
         // ====================================================================
         // STEP 4: Create or Update Order
         // ====================================================================
-        let order, newOrderNumber, totalOrderValue, savedOrder, discountedOrderValue = 0;
+        let order, newOrderNumber, savedOrder;
 
         if (orderNumber) {
             // UPDATE EXISTING ORDER
@@ -997,6 +1083,23 @@ const createOrderService = async (orderData) => {
                     success: false,
                     message: "Order not found",
                     status: 404
+                };
+            }
+
+            const incomingPaymentIntentId = extractPaymentIntentId(paymentDetails);
+
+            // Idempotent: same payment already confirmed on this order
+            if (
+                order.status === 'Pending' &&
+                incomingPaymentIntentId &&
+                order.paymentDetails?.paymentIntentId === incomingPaymentIntentId
+            ) {
+                return {
+                    success: true,
+                    message: 'Order already confirmed',
+                    order,
+                    orderNumber: order.orderNumber,
+                    status: 200,
                 };
             }
 
@@ -1012,20 +1115,16 @@ const createOrderService = async (orderData) => {
             order.cart = cart;
             order.shippingDetails = shippingInformation;
             order.contactDetails = contactInformation;
-            order.paymentDetails = paymentDetails;
-            if (shippingMethod) {
-                order.shippingMethod = shippingMethod;
+            if (verifiedPaymentDetails) {
+                order.paymentDetails = verifiedPaymentDetails;
+            }
+            if (resolvedShippingMethod) {
+                order.shippingMethod = resolvedShippingMethod;
             }
 
-            // Calculate total order value
-            totalOrderValue = calculateOrderTotal(cart);
-
-            // Apply coupon if available
-            const discountAmount = calculateDiscount(totalOrderValue, coupon);
-            discountedOrderValue = Math.max(0, totalOrderValue - discountAmount);
-            order.totalOrderValue = coupon ? discountedOrderValue : totalOrderValue;
-            order.coupon = coupon || order.coupon;
-            order.status = status || 'Failed';
+            order.totalOrderValue = resolvedCoupon ? discountedOrderValue : totalOrderValue;
+            order.coupon = resolvedCoupon || order.coupon;
+            order.status = effectiveStatus;
 
             applyMarketingFields(order, {
                 marketingAttributionRaw: marketingAttribution,
@@ -1039,27 +1138,19 @@ const createOrderService = async (orderData) => {
             console.log("Order updated:", updatedOrder);
 
         } else {
-            // CREATE NEW ORDER
+            // CREATE NEW ORDER — never allow Pending without verified payment
             newOrderNumber = await generateOrderNumber();
 
-            // Calculate total order value
-            totalOrderValue = calculateOrderTotal(cart);
-
-            const discountAmount = calculateDiscount(totalOrderValue, coupon);
-            discountedOrderValue = Math.max(0, totalOrderValue - discountAmount);
-            const finalOrderValue = coupon ? discountedOrderValue : totalOrderValue;
-
-            // Create the new order
             const newOrder = new Order({
                 orderNumber: newOrderNumber,
                 cart,
                 shippingDetails: shippingInformation,
                 contactDetails: contactInformation,
-                paymentDetails: paymentDetails,
-                totalOrderValue: finalOrderValue,
-                coupon,
-                status: status || 'Failed',
-                shippingMethod: shippingMethod || null,
+                paymentDetails: verifiedPaymentDetails || null,
+                totalOrderValue: resolvedCoupon ? discountedOrderValue : totalOrderValue,
+                coupon: resolvedCoupon,
+                status: effectiveStatus,
+                shippingMethod: resolvedShippingMethod || null,
             });
 
             applyMarketingFields(newOrder, {
@@ -1119,8 +1210,8 @@ const createOrderService = async (orderData) => {
             };
         }
 
-        // Calculate discount amount for email display
-        const discountAmount = calculateDiscount(totalOrderValue, coupon);
+        // Calculate discount amount for email display (server-resolved)
+        const emailDiscountAmount = discountAmount;
 
         // Generate customer email HTML with Trustpilot script
         const sharedEmailBranding = await getEmailBranding();
@@ -1131,8 +1222,8 @@ const createOrderService = async (orderData) => {
             orderNumber: order_number_fial,
             cart,
             totalOrderValue,
-            coupon,
-            discountAmount,
+            coupon: resolvedCoupon,
+            discountAmount: emailDiscountAmount,
             discountedOrderValue,
             totalItems,
             shippingInformation,
@@ -1163,8 +1254,8 @@ const createOrderService = async (orderData) => {
                 shippingInformation,
                 contactInformation,
                 totalOrderValue,
-                coupon,
-                discountAmount,
+                coupon: resolvedCoupon,
+                discountAmount: emailDiscountAmount,
                 discountedOrderValue,
                 cart,
                 branding: sharedEmailBranding,
@@ -1181,14 +1272,13 @@ const createOrderService = async (orderData) => {
             if (mailOptionsCustomer.bcc) console.log(`📧 Customer confirmation BCC: ${JSON.stringify(mailOptionsCustomer.bcc)}`);
 
             // If a coupon was used, update the coupon usage history
-            if (coupon && (savedOrder || order)) {
+            if (resolvedCoupon && (savedOrder || order)) {
                 const orderId = savedOrder ? savedOrder.orderNumber : order.orderNumber;
-                const userId = contactInformation.userId;
+                const scope = buildPricingScope(req || {});
+                const userId = scope.userId || contactInformation?.userId;
 
-                console.log(`Coupon code ${coupon}`);
-
-                await updateCouponUsage(coupon.code, userId, orderId);
-                console.log(`Coupon usage updated for coupon ${coupon.code}, user ${userId}, order ${orderId}`);
+                await updateCouponUsage(resolvedCoupon.code, userId, orderId);
+                console.log(`Coupon usage updated for coupon ${resolvedCoupon.code}, user ${userId}, order ${orderId}`);
             }
 
             sendMail(mailOptionsCustomer).then(
@@ -1215,6 +1305,14 @@ const createOrderService = async (orderData) => {
         };
 
     } catch (error) {
+        if (error?.code === 11000 && /paymentDetails\.paymentIntentId/i.test(String(error.message))) {
+            return {
+                success: false,
+                status: 409,
+                code: 'PAYMENT_ALREADY_USED',
+                message: 'This payment has already been used for another order.',
+            };
+        }
         console.error("Error creating order:", error);
         return {
             success: false,

@@ -12,6 +12,7 @@ class EnvironmentValidator {
       'PRERENDER_TOKEN',
       'DATABASE_URL',
       'JWT_SECRET',
+      'JWT_EXPIRES_IN',
       'STRIPE_SECRET_KEY',
       'STRIPE_PUBLISHABLE_KEY',
       'PAYPAL_CLIENT_ID',

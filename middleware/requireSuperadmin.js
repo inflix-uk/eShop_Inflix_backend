@@ -1,22 +1,17 @@
-const User = require("../src/models/user");
+const requireAuth = require('./requireAuth');
 
-module.exports = async (req, res, next) => {
-  try {
-    const roleHeader = req.headers["x-user-role"] || req.headers["x-role"] || null;
-    if (roleHeader && String(roleHeader).toLowerCase() === "superadmin") {
-      return next();
-    }
-
-    const userIdHeader = req.headers["x-user-id"] || req.headers["x-userid"] || null;
-    if (userIdHeader) {
-      const user = await User.findById(String(userIdHeader)).select("role");
-      if (user && user.role === "superadmin") {
-        return next();
-      }
-    }
-
-    return res.status(403).json({ error: "Forbidden: superadmin access required", status: 403 });
-  } catch (error) {
-    return res.status(403).json({ error: "Forbidden: superadmin access required", status: 403 });
+function requireSuperadminRole(req, res, next) {
+  if (!req.user || String(req.user.role).toLowerCase() !== 'superadmin') {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden',
+      message: 'Superadmin access required',
+      status: 403,
+    });
   }
-};
+  return next();
+}
+
+const requireSuperadmin = [requireAuth, requireSuperadminRole];
+
+module.exports = requireSuperadmin;
