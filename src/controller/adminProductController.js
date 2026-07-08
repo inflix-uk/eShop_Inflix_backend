@@ -1,11 +1,9 @@
 // controller/adminProductController.js
 const db = require("../../connections/mongo");
 const Product = require("../models/product");
-const GroupProductPrice = require("../models/groupProductPrice");
-const PricingGroup = require("../models/pricingGroup");
-const User = require("../models/user");
-const UserProductPrice = require("../models/userProductPrice");
-const { computeVariantKey } = require("../utils/pricingVariantKey");
+const { loadPricingContext } = require("../services/pricing/loadPricingContext");
+const { applyPricingToProducts } = require("../services/pricing/applyProductPricing");
+const { buildPricingScopeFromPricingScope } = require("../services/pricing/buildPricingScope");
 const { applyBrandFilterToQuery, isUnassignedBrandFilter } = require("../utils/productBrandFilters");
 const productCategory = require("../models/productCategories");
 
@@ -82,32 +80,10 @@ const adminProductController = {
 
     getAllActiveProduct: async (req, res) => {
         try {
-            const resolveOriginalPrice = (product) => {
-                const directPrice = Number(product?.price);
-                if (Number.isFinite(directPrice) && directPrice > 0) return directPrice;
-
-                const variants = Array.isArray(product?.variantValues)
-                    ? product.variantValues
-                    : [];
-                for (const v of variants) {
-                    const sale = Number(v?.salePrice);
-                    if (Number.isFinite(sale) && sale > 0) return sale;
-                    const regular = Number(v?.Price);
-                    if (Number.isFinite(regular) && regular > 0) return regular;
-                }
-
-                const minSale = Number(product?.minSalePrice);
-                if (Number.isFinite(minSale) && minSale > 0) return minSale;
-                const minPrice = Number(product?.minPrice);
-                if (Number.isFinite(minPrice) && minPrice > 0) return minPrice;
-
-                return 0;
-            };
-
             // Storefront listing/slider payload. Exclusion projection drops the
             // heavy fields that ONLY the product-detail page / navbar-search read
             // (verified: none are read off the products Redux slice). variantValues
-            // and all pricing fields are kept — the pricing logic below needs them.
+            // variantValues and all pricing fields are kept for applyPricingToProducts.
             // Exclusion (not inclusion) keeps every other field, so no card can break
             // from a missed field. Filter is index-covered by { status: 1, createdAt: -1 }.
             const LISTING_EXCLUDED_FIELDS =
@@ -123,147 +99,9 @@ const adminProductController = {
                 return res.json({ message: 'Products not found', status: 404 });
             }
 
-            const scopedGroupId = req.pricingScope?.groupId || null;
-            const scopedUserId = req.pricingScope?.userId || null;
-            const normalizeId = (value) => {
-                if (!value) return "";
-                if (typeof value === "string") return value.trim().toLowerCase();
-                if (typeof value === "object" && value._id) {
-                    return String(value._id).trim().toLowerCase();
-                }
-                return String(value).trim().toLowerCase();
-            };
-
-            const [groupOverrides, userOverrides, groupDoc, userDoc] = await Promise.all([
-                scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)
-                    ? GroupProductPrice.find({ groupId: scopedGroupId }).select('productId price variantKey').lean()
-                    : Promise.resolve([]),
-                scopedUserId && mongoose.Types.ObjectId.isValid(scopedUserId)
-                    ? UserProductPrice.find({ userId: scopedUserId }).select('productId price variantKey').lean()
-                    : Promise.resolve([]),
-                scopedGroupId && mongoose.Types.ObjectId.isValid(scopedGroupId)
-                    ? PricingGroup.findById(scopedGroupId).select('excludedProductIds').lean()
-                    : Promise.resolve(null),
-                scopedUserId && mongoose.Types.ObjectId.isValid(scopedUserId)
-                    ? User.findById(scopedUserId).select('excludedProductIds').lean()
-                    : Promise.resolve(null),
-            ]);
-
-            const excludedFromGroup = new Set(
-                (groupDoc?.excludedProductIds || []).map((id) => normalizeId(id))
-            );
-            const excludedFromUser = new Set(
-                (userDoc?.excludedProductIds || []).map((id) => normalizeId(id))
-            );
-
-            const groupOverrideMap = new Map();
-            for (const item of groupOverrides) {
-                const pid = normalizeId(item.productId);
-                const numericPrice = Number(item.price);
-                if (!pid || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
-                const vk =
-                    item.variantKey != null && String(item.variantKey).trim() !== ''
-                        ? String(item.variantKey).trim()
-                        : '';
-                const mapKey = vk ? `${pid}::${vk}` : pid;
-                groupOverrideMap.set(mapKey, numericPrice);
-            }
-
-            const userOverrideMap = new Map();
-            for (const item of userOverrides) {
-                const pid = normalizeId(item.productId);
-                const numericPrice = Number(item.price);
-                if (!pid || !Number.isFinite(numericPrice) || numericPrice <= 0) continue;
-                const vk =
-                    item.variantKey != null && String(item.variantKey).trim() !== ''
-                        ? String(item.variantKey).trim()
-                        : '';
-                const mapKey = vk ? `${pid}::${vk}` : pid;
-                userOverrideMap.set(mapKey, numericPrice);
-            }
-
-            const variantOriginalUnit = (v) => {
-                const sale = Number(v?.salePrice);
-                if (Number.isFinite(sale) && sale > 0) return sale;
-                const list = Number(v?.Price);
-                if (Number.isFinite(list) && list > 0) return list;
-                return 0;
-            };
-
-            const productsWithResolvedPrice = products.map((product) => {
-                const pid = normalizeId(product._id);
-                const groupExcluded = excludedFromGroup.has(pid);
-                const userExcluded = excludedFromUser.has(pid);
-                const userPriceWhole = userExcluded ? undefined : userOverrideMap.get(pid);
-                const groupPriceWhole = groupExcluded ? undefined : groupOverrideMap.get(pid);
-                const variants = Array.isArray(product.variantValues) ? product.variantValues : [];
-
-                if (variants.length > 0) {
-                    const nextVariants = variants.map((v, idx) => {
-                        const vk = computeVariantKey(v, idx);
-                        const composite = `${pid}::${vk}`;
-                        const groupSpecific = groupExcluded ? undefined : groupOverrideMap.get(composite);
-                        // Per-variant group: only variant-specific row (not product-level).
-                        const groupPrice =
-                            !groupExcluded &&
-                            Number.isFinite(groupSpecific) &&
-                            groupSpecific > 0
-                                ? groupSpecific
-                                : null;
-                        const userSpecific = userExcluded ? undefined : userOverrideMap.get(composite);
-                        // Per-variant user: only variant-specific row (not product-level).
-                        const userPrice =
-                            !userExcluded &&
-                            Number.isFinite(userSpecific) &&
-                            userSpecific > 0
-                                ? userSpecific
-                                : null;
-                        const orig = variantOriginalUnit(v);
-                        const resolved =
-                            Number.isFinite(userPrice) && userPrice > 0
-                                ? userPrice
-                                : Number.isFinite(groupPrice) && groupPrice > 0
-                                  ? groupPrice
-                                  : orig;
-                        const out = { ...v };
-                        if (Number.isFinite(resolved) && resolved > 0) {
-                            out.salePrice = String(resolved);
-                        }
-                        return out;
-                    });
-
-                    const unitPrices = nextVariants.map(variantOriginalUnit).filter((n) => n > 0);
-                    const minResolved =
-                        unitPrices.length > 0 ? Math.min(...unitPrices) : resolveOriginalPrice(product);
-
-                    return {
-                        ...product,
-                        variantValues: nextVariants,
-                        price: minResolved,
-                        originalPrice: resolveOriginalPrice(product),
-                        groupPrice: Number.isFinite(groupPriceWhole) && groupPriceWhole > 0 ? groupPriceWhole : null,
-                        userPrice: Number.isFinite(userPriceWhole) && userPriceWhole > 0 ? userPriceWhole : null,
-                    };
-                }
-
-                const originalPrice = resolveOriginalPrice(product);
-                const groupPrice = groupPriceWhole;
-                const userPrice = userPriceWhole;
-                const resolvedPrice =
-                    Number.isFinite(userPrice) && userPrice > 0
-                        ? userPrice
-                        : Number.isFinite(groupPrice) && groupPrice > 0
-                          ? groupPrice
-                          : originalPrice;
-
-                return {
-                    ...product,
-                    price: resolvedPrice,
-                    originalPrice,
-                    groupPrice: Number.isFinite(groupPrice) && groupPrice > 0 ? groupPrice : null,
-                    userPrice: Number.isFinite(userPrice) && userPrice > 0 ? userPrice : null,
-                };
-            });
+            const scope = buildPricingScopeFromPricingScope(req.pricingScope);
+            const ctx = await loadPricingContext(scope);
+            const productsWithResolvedPrice = applyPricingToProducts(products, ctx);
 
             return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
         } catch (error) {

@@ -1,55 +1,28 @@
 // controller/users.js
-const db = require("../../connections/mongo");
 const User = require("../models/user");
 const bcrypt = require("bcrypt");
 const crypto = require('crypto');
 const { sendMail } = require('../utils/mailer');
-
-
-const buildLoginUserResponse = (user) => ({
-    _id: user._id,
-    firstname: user.firstname,
-    lastname: user.lastname,
-    email: user.email,
-    pricingGroup: user.pricingGroup || null,
-    phoneNumber: user.phoneNumber,
-    address: user.address,
-    companyname: user.companyname,
-    dateofbirth: user.dateofbirth,
-    role: user.role,
-    userType: user.roleId ? user.roleId.name : null,
-    roleId: user.roleId ? user.roleId._id : null,
-    permissions: user.roleId ? user.roleId.permissions : null,
-    registerForApp: user.registerForApp,
-    createdAt: user.createdAt
-});
+const { toSafeUser, SENSITIVE_USER_FIELDS } = require('../utils/safeUser');
+const { sendLoginSuccess, clearAuthCookie } = require('../utils/authCookies');
 
 const usersController = {
-    // Register a new user
     registerUser: async (req, res, next) => {
         try {
-            // Extract user data from the request body
             const { firstName, lastName, email, password, phoneNumber, companyname, address ,dateofbirth,payableAccount,address2 } = req.body;
- 
-            console.log(req.body);
-   
 
-            // Check if the email already exists
             let existingEmail = await User.findOne({ email });
             if (existingEmail) {
                 return res.json({ message: "Email already exists", status: 400 });
             }
 
-            // Check if the phone number already exists
             let existingPhoneNumber = await User.findOne({ phoneNumber });
             if (existingPhoneNumber) {
                 return res.json({ message: "Phone number already exists", status: 400 });
             }
 
-            // Hash the password
             const hashedPassword = await bcrypt.hash(password, 10);
 
-            // Create a new user instance
             const newUser = new User({
                 firstname: firstName,
                 lastname: lastName,
@@ -70,11 +43,8 @@ const usersController = {
                 } : undefined
             });
 
-            // Save the user to the database
             await newUser.save();
 
-            
-             // Function to send welcome email
             const sendWelcomeEmail = async () => {
                 const emailContent = `
                         <!DOCTYPE html>
@@ -105,30 +75,27 @@ const usersController = {
             };
 
             try {
-                // Try to send welcome email (but don't wait for it to complete)
                 sendWelcomeEmail().catch(emailError => {
                     console.error("Failed to send welcome email:", emailError);
-                    // Don't reject here as we don't want to fail the registration
                 });
 
-                // Respond with success message immediately
-                return res.json({ 
-                    message: "User registered successfully", 
-                    status: 201, 
-                    user: newUser 
+                return res.json({
+                    success: true,
+                    message: "User registered successfully",
+                    status: 201,
+                    user: toSafeUser(newUser)
                 });
-                
+
             } catch (error) {
                 console.error("Error in email sending process:", error);
-                // Even if email fails, still return success response as user is registered
-                return res.json({ 
-                    message: "User registered successfully, but welcome email could not be sent", 
-                    status: 201, 
-                    user: newUser 
+                return res.json({
+                    success: true,
+                    message: "User registered successfully, but welcome email could not be sent",
+                    status: 201,
+                    user: toSafeUser(newUser)
                 });
             }
         } catch (error) {
-            // Handle errors
             console.error("Error registering user:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
@@ -136,25 +103,20 @@ const usersController = {
 
     registerUserFromAdmin: async (req, res, next) => {
         try {
-            // Extract user data from the request body
             const { firstName, lastName, email, password, phoneNumber, companyname, address } = req.body;
 
-            // Check if the email already exists
-            let userExist = await User.findOne({ email });
+            let userExist = await User.findOne({ email }).select(SENSITIVE_USER_FIELDS);
             if (userExist) {
-                return res.json({ message: "User already exists", status: 409, user: userExist });
+                return res.json({ message: "User already exists", status: 409, user: toSafeUser(userExist) });
             }
 
-            // Check if the phone number already exists
-            let userExistbyPhone = await User.findOne({ phoneNumber });
+            let userExistbyPhone = await User.findOne({ phoneNumber }).select(SENSITIVE_USER_FIELDS);
             if (userExistbyPhone) {
-                return res.json({ message: "Phone number already exists", status: 409, user: userExistbyPhone });
+                return res.json({ message: "Phone number already exists", status: 409, user: toSafeUser(userExistbyPhone) });
             }
 
-            // Hash the password
             const hashedPassword = await bcrypt.hash(password, 10);
 
-            // Create a new user instance
             const newUser = new User({
                 firstname: firstName,
                 lastname: lastName,
@@ -172,11 +134,8 @@ const usersController = {
                 } : undefined
             });
 
-            // Save the user to the database
             await newUser.save();
 
-            
-            // HTML template for welcome email
             const emailContent = `
                 <!DOCTYPE html>
                 <html lang="en">
@@ -186,14 +145,11 @@ const usersController = {
                 <title>Welcome to our store</title>
                 </head>
                 <body style="font-family: Arial, sans-serif;">
-
                 <div style="background-color: #f2f2f2; padding: 20px;">
                     <h1 style="color: #333333;">Welcome to our store!</h1>
                     <p style="color: #666666;">Dear ${firstName} ${lastName},</p>
                     <p style="color: #666666;">Your email address is: ${email}</p>
-                    <p style="color: #666666;">Your password is: ${password}</p>
-                    <p style="color: #666666;">Thank you for registering with us. We're excited to have you on board and look forward to providing you with the best services.</p>
-                    <p style="color: #666666;">If you have any questions or need any assistance, feel free to contact us.</p>
+                    <p style="color: #666666;">Thank you for registering with us.</p>
                     <p style="color: #666666;">Best regards,</p>
                     <p style="color: #666666;">The our store Team</p>
                 </div>
@@ -201,69 +157,67 @@ const usersController = {
                 </html>
             `;
 
-              sendMail({
+            sendMail({
                 to: newUser.email,
                 subject: 'Welcome to our store!',
                 html: emailContent
             }).catch((err) => console.log("Error sending welcome email:", err));
 
-            // Respond with success message
-            res.json({ message: "User registered successfully", status: 201, user: newUser });
+            res.json({
+                success: true,
+                message: "User registered successfully",
+                status: 201,
+                user: toSafeUser(newUser)
+            });
         } catch (error) {
-            // Handle errors
             console.error("Error registering user:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
     },
 
-
     updateUser: async (req, res, next) => {
         try {
             const { id } = req.params;
-    
+
             const {
-                firstname, 
-                lastname, 
-                email, 
-                phoneNumber, 
-                companyname, 
-                dateofbirth, 
-                address, 
-                role, 
-                roleId
+                firstname,
+                lastname,
+                email,
+                phoneNumber,
+                companyname,
+                dateofbirth,
+                address,
             } = req.body;
-    
-            console.log('Request Params:', req.params);
-            console.log('Request Body:', req.body);
-            
-            // Safely log address if it exists
-            if (address && typeof address === 'object') {
-                console.log('Address:', address);
-            }
-    
-            // Find the user by ID
+
             let user = await User.findById(id);
-    
+
             if (!user) {
                 return res.status(404).json({ message: "User not found", status: 404 });
             }
-    
-            // Update user fields
+
+            const requesterId = req.user ? String(req.user.id || req.user._id) : null;
+            const isSelf = requesterId && String(user._id) === requesterId;
+            const isAdmin = req.user && ['admin', 'superadmin'].includes(String(req.user.role).toLowerCase());
+
+            if (!isSelf && !isAdmin) {
+                return res.status(403).json({ message: 'Forbidden', status: 403 });
+            }
+
             if (firstname !== undefined) user.firstname = firstname;
             if (lastname !== undefined) user.lastname = lastname;
             if (email !== undefined) user.email = email;
             if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
             if (companyname !== undefined) user.companyname = companyname;
             if (dateofbirth !== undefined) user.dateofbirth = dateofbirth;
-            if (role !== undefined) user.role = role;
-            if (roleId !== undefined) user.roleId = roleId;
-            
-            // Update address if provided
-            if (address && typeof address === 'object') {
-                // Initialize address if it doesn't exist
-                user.address = user.address || {};
 
-                // Update address fields
+            if (isAdmin) {
+                const { role, roleId } = req.body;
+                if (role !== undefined) user.role = role;
+                if (roleId !== undefined) user.roleId = roleId;
+            }
+
+            if (address && typeof address === 'object') {
+                user.address = user.address || {};
                 user.address.address = address.address !== undefined ? address.address : user.address.address;
                 user.address.apartment = address.apartment !== undefined ? address.apartment : user.address.apartment;
                 user.address.country = address.country !== undefined ? address.country : user.address.country;
@@ -271,51 +225,43 @@ const usersController = {
                 user.address.county = address.county !== undefined ? address.county : user.address.county;
                 user.address.postalCode = address.postalCode !== undefined ? address.postalCode : user.address.postalCode;
             }
-    
-            // Save the updated user data
+
             await user.save();
-            console.log('Updated User:', user);
-    
-            // Respond with success message
-            res.json({ message: "User updated successfully", status: 201, user });
+
+            const populated = await User.findById(user._id)
+                .select(SENSITIVE_USER_FIELDS)
+                .populate('roleId');
+
+            res.json({
+                success: true,
+                message: "User updated successfully",
+                status: 201,
+                user: toSafeUser(populated)
+            });
         } catch (error) {
             console.error("Error updating user:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
     },
-    
 
-    // Login a user
     loginUser: async (req, res, next) => {
         try {
-            // Extract login credentials from the request body
-            const { email, password, enteredOtp } = req.body;
-            console.log(req.body);
+            const { email, password } = req.body;
 
-            // Find the user in the database by email and populate role permissions
             const user = await User.findOne({ email }).populate('roleId');
 
-            // If user not found, return error
             if (!user) {
                 return res.json({ message: "User not found", status: 404 });
             }
 
-            // Compare passwords
             const passwordMatch = await bcrypt.compare(password, user.password);
 
-            // If passwords don't match, return error
             if (!passwordMatch) {
                 return res.json({ message: "Invalid password", status: 401 });
             }
-            console.log('loged in suer :' , user);
-            
-            // Prepare user response with role and permissions
-            const userResponse = buildLoginUserResponse(user);
-            
-            // If user found and passwords match, return success message with user data including permissions
-            return res.json({ message: "Login successful", status: 201, user: userResponse });
+
+            return sendLoginSuccess(res, user, 'Login successful');
         } catch (error) {
-            // Handle errors
             console.error("Error logging in user:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
@@ -339,38 +285,27 @@ const usersController = {
                 return res.json({ message: "Access denied: superadmin only", status: 403 });
             }
 
-            return res.json({
-                message: "Superadmin login successful",
-                status: 201,
-                user: buildLoginUserResponse(user)
-            });
+            return sendLoginSuccess(res, user, 'Superadmin login successful');
         } catch (error) {
             console.error("Error logging in superadmin:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
     },
 
-    // Logout a user
     logoutUser: async (req, res, next) => {
         try {
-            // Here, you can include any logout-related logic you need
-            // For example, if using sessions, you might destroy the session
-            req.session.destroy((err) => {
-                if (err) {
-                    console.error("Error destroying session:", err);
-                    return res.json({ message: "Error logging out", status: 500 });
-                }
-                // Respond with success message if session is destroyed successfully
-                res.json({ message: "Logout successful", status: 201 });
+            clearAuthCookie(res);
+            return res.json({
+                success: true,
+                message: "Logout successful",
+                status: 201
             });
         } catch (error) {
-            // Handle errors
             console.error("Error logging out user:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
     },
 
-    // Forgot password
     forgotPassword: async (req, res) => {
         try {
             const { email } = req.body;
@@ -380,14 +315,17 @@ const usersController = {
                 return res.json({ message: "User not found", status: 404 });
             }
 
-            // Generate reset token
             const token = crypto.randomBytes(20).toString('hex');
             user.resetPasswordToken = token;
-            user.resetPasswordExpires = Date.now() + (1 * 3600000); // 5 hours
+            user.resetPasswordExpires = Date.now() + (1 * 3600000);
 
             await user.save();
 
-            // Create the HTML content for the email template
+            const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+            const resetUrl = frontendUrl
+                ? `${frontendUrl}/resetpassword/${token}`
+                : `/resetpassword/${token}`;
+
             const emailContent = `
             <!DOCTYPE html>
             <html lang="en">
@@ -397,23 +335,17 @@ const usersController = {
             <title>Password Reset</title>
             </head>
             <body style="font-family: Arial, sans-serif;">
-            
             <div style="background-color: #f2f2f2; padding: 20px;">
                 <h1 style="color: #333333;">Password Reset</h1>
                 <p style="color: #666666;">Dear User,</p>
                 <p style="color: #666666;">You have requested to reset your password. To proceed with the password reset, please click on the button below:</p>
                 <div style="text-align: center; margin-top: 20px;">
-                    <a href="http:///resetpassword/${token}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+                    <a href="${resetUrl}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
                 </div>
-                <p style="color: #666666;">This link will expire in 60 minutes. If you do not reset your password within this time, you will need to request another password reset.</p>
-                <p style="color: #666666;">If you did not request a password reset, please ignore this email.</p>
-                <p style="color: #666666;">Thank you,</p>
-                <p style="color: #666666;">our store Team </p>
+                <p style="color: #666666;">This link will expire in 60 minutes.</p>
             </div>
-            
             </body>
             </html>
-            
             `;
 
             try {
@@ -422,7 +354,6 @@ const usersController = {
                     subject: 'Reset Password',
                     html: emailContent
                 });
-                console.log('Reset password email sent');
                 return res.json({ message: 'Reset password email sent', status: 201 });
             } catch (emailErr) {
                 console.log(emailErr);
@@ -434,7 +365,6 @@ const usersController = {
         }
     },
 
-    // Reset password
     resetPassword: async (req, res) => {
         try {
             const { token, newPassword } = req.body;
@@ -457,47 +387,37 @@ const usersController = {
         }
     },
 
-    // Change password
     changepassword: async (req, res) => {
         try {
             const { oldPassword, newPassword } = req.body;
-            const { id } = req.params; // Assuming 'id' here is the userId
-            console.log('Request Body:', req.body);
-            console.log('Request Params:', req.params);
-    
-            // Find the user by ID
+            const { id } = req.params;
+
+            if (!req.user || String(req.user.id) !== String(id)) {
+                return res.status(403).json({ message: 'Forbidden', status: 403 });
+            }
+
             const user = await User.findById(id);
-    
-            // Check if user exists
+
             if (!user) {
                 return res.json({ message: 'User not found', status: 404 });
             }
-    
-            // Compare oldPassword with hashed password in database
+
             const isMatch = await bcrypt.compare(oldPassword, user.password);
-    
-            // If passwords don't match, return error
+
             if (!isMatch) {
                 return res.json({ message: 'Invalid old password', status: 400 });
             }
-    
-            // Hash the new password
+
             const hashedPassword = await bcrypt.hash(newPassword, 10);
-    
-            // Update user's password
             user.password = hashedPassword;
             await user.save();
-    
-            // Return success response
+
             return res.json({ message: 'Password changed successfully', status: 201 });
         } catch (error) {
             console.error("Error in changepassword:", error);
             return res.json({ message: 'Internal server error', status: 500 });
         }
     }
-
-
 };
 
 module.exports = usersController;
-

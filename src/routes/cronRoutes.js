@@ -1,13 +1,14 @@
 // routes/cronRoutes.js
 const express = require('express');
 const router = express.Router();
+const requireAdmin = require('../../middleware/requireAdmin');
 const { triggerFailedOrderEmailJob } = require('../../cronjob/cronScheduler');
+
+router.use(...requireAdmin);
 
 /**
  * Manually trigger the failed order email job
- * GET /api/cron/trigger-failed-order-emails
- *
- * For testing purposes only - should be protected in production
+ * GET /cron/trigger-failed-order-emails
  */
 router.get('/trigger-failed-order-emails', async (req, res) => {
     try {
@@ -31,10 +32,6 @@ router.get('/trigger-failed-order-emails', async (req, res) => {
     }
 });
 
-/**
- * Get cron job status
- * GET /api/cron/status
- */
 router.get('/status', (req, res) => {
     res.json({
         success: true,

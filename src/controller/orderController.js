@@ -12,6 +12,7 @@ const fs = require('fs');
 const updateOrderService = require("../services/orderService/updateOrder");
 const { bulkUpdateOrdersService } = require("../services/orderService/updateOrder");
 const createOrderService = require("../services/orderService/createOrder");
+const { shadowLogCheckoutPricing } = require("../services/pricing/shadowLogPricing");
 const {
     logMarketingAttributionInbound,
 } = require("../utils/marketingAttribution");
@@ -122,9 +123,56 @@ const orderController = {
                     raw: req.body.marketingAttribution,
                 });
             }
-            const result = await createOrderService(req.body);
+
+            void shadowLogCheckoutPricing({
+                route: 'POST /create/order',
+                req,
+                cartproducts: req.body?.cartproducts,
+                orderNumber: req.body?.orderNumber,
+            });
+
+            const result = await createOrderService(req.body, req);
 
             if (!result.success) {
+                if (result.code === 'PRICE_MISMATCH') {
+                    return res.status(409).json({
+                        success: false,
+                        code: result.code,
+                        message: result.message,
+                        serverLines: result.serverLines || [],
+                        mismatches: result.mismatches || [],
+                    });
+                }
+                if (result.code === 'PRICING_UNRESOLVED') {
+                    return res.status(400).json({
+                        success: false,
+                        code: result.code,
+                        message: result.message,
+                    });
+                }
+                if (result.code === 'COUPON_INVALID' || result.code === 'SHIPPING_INVALID') {
+                    return res.status(400).json({
+                        success: false,
+                        code: result.code,
+                        message: result.message,
+                    });
+                }
+                const paymentCodes = new Set([
+                    'PAYMENT_UNVERIFIED',
+                    'PAYMENT_CANCELLED',
+                    'PAYMENT_INCOMPLETE',
+                    'PAYMENT_AMOUNT_MISMATCH',
+                    'PAYMENT_ALREADY_USED',
+                    'PAYMENT_OWNERSHIP_MISMATCH',
+                    'PAYMENT_CURRENCY_MISMATCH',
+                ]);
+                if (result.code && paymentCodes.has(result.code)) {
+                    return res.status(result.status || 402).json({
+                        success: false,
+                        code: result.code,
+                        message: result.message,
+                    });
+                }
                 return res.status(result.status || 400).json({
                     message: result.message,
                     status: result.status
@@ -132,7 +180,7 @@ const orderController = {
             }
 
             // Order created successfully (both Failed and Pending status orders)
-            return res.status(201).json({
+            return res.status(result.status === 200 ? 200 : 201).json({
                 message: result.message,
                 order: result.order,
                 orderNumber: result.orderNumber,
@@ -793,6 +841,16 @@ const orderController = {
                     orders: []
                 });
             }
+
+            const requesterId = req.user ? String(req.user.id || req.user._id) : null;
+            const isAdmin = req.user && ['admin', 'superadmin'].includes(String(req.user.role).toLowerCase());
+            if (!requesterId) {
+                return res.status(401).json({ message: 'Authentication required', status: 401, orders: [] });
+            }
+            if (!isAdmin && String(userId) !== requesterId) {
+                return res.status(403).json({ message: 'Forbidden', status: 403, orders: [] });
+            }
+
             const orders = await Order.find({
                 'contactDetails.userId': userId,
                 isdeleted: { $ne: true }

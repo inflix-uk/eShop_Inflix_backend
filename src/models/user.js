@@ -89,5 +89,18 @@ userSchema.index({ createdAt: -1 });
 // collection scan of the users collection.
 userSchema.index({ roleId: 1 });
 
+const stripSensitiveUserFields = (_doc, ret) => {
+  delete ret.password;
+  delete ret.resetPasswordToken;
+  delete ret.resetPasswordExpires;
+  delete ret.otp;
+  delete ret.otpExpires;
+  delete ret.__v;
+  return ret;
+};
+
+userSchema.set('toJSON', { virtuals: true, transform: stripSensitiveUserFields });
+userSchema.set('toObject', { virtuals: true, transform: stripSensitiveUserFields });
+
 module.exports = mongoose.model('User', userSchema);
 
