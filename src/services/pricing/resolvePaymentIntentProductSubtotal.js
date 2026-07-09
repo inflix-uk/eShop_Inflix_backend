@@ -34,7 +34,11 @@ function findUnresolvedChargeableLines(serverLines) {
  * Server-authoritative checkout pricing decision (testable without MongoDB).
  * Client salePrice is compared only; billing always uses server subtotal.
  */
-function decideCheckoutProductSubtotal({ clientLines, serverLines }) {
+function decideCheckoutProductSubtotal({
+  clientLines,
+  serverLines,
+  enforceClientPriceMatch = true,
+}) {
   const diff = compareClientCart(clientLines, serverLines);
   const unresolved = findUnresolvedChargeableLines(serverLines);
 
@@ -49,6 +53,18 @@ function decideCheckoutProductSubtotal({ clientLines, serverLines }) {
   }
 
   if (!diff.matches) {
+    if (!enforceClientPriceMatch) {
+      return {
+        ok: true,
+        totalSalePrice: diff.serverSubtotal,
+        clientSubtotal: diff.clientSubtotal,
+        serverSubtotal: diff.serverSubtotal,
+        subtotalDelta: diff.subtotalDelta,
+        resolvedServerLines: serverLines,
+        clientPriceMismatch: true,
+        mismatches: diff.mismatches,
+      };
+    }
     return {
       ok: false,
       error: 'PRICE_MISMATCH',
@@ -67,6 +83,7 @@ function decideCheckoutProductSubtotal({ clientLines, serverLines }) {
     serverSubtotal: diff.serverSubtotal,
     subtotalDelta: diff.subtotalDelta,
     resolvedServerLines: serverLines,
+    clientPriceMismatch: false,
   };
 }
 
@@ -76,7 +93,11 @@ const decidePaymentIntentProductSubtotal = decideCheckoutProductSubtotal;
 /**
  * Resolve product subtotal from DB pricing. Always enforces server amounts + mismatch block.
  */
-async function resolveCheckoutProductSubtotal({ req, cartItems }) {
+async function resolveCheckoutProductSubtotal({
+  req,
+  cartItems,
+  enforceClientPriceMatch = true,
+}) {
   const clientLines = cartProductsToClientLines(cartItems);
   const scope = buildPricingScope(req);
   const server = await resolveCartPricing(
@@ -87,6 +108,7 @@ async function resolveCheckoutProductSubtotal({ req, cartItems }) {
   return decideCheckoutProductSubtotal({
     clientLines,
     serverLines: server.lines,
+    enforceClientPriceMatch,
   });
 }
 

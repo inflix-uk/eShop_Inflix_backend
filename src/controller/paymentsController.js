@@ -9,12 +9,22 @@ const auditLogService = require("../services/auditLogService");
 const { shadowLogCheckoutPricing } = require("../services/pricing/shadowLogPricing");
 const { resolvePaymentIntentProductSubtotal } = require("../services/pricing/resolvePaymentIntentProductSubtotal");
 const { computeCheckoutTotal } = require("../services/pricing/computeCheckoutTotal");
+const { buildCheckoutSessionLineItems } = require("../services/pricing/buildCheckoutSessionLineItems");
 const {
   pricingResultToHttp,
   checkoutTotalToHttp,
   logCheckoutPricingBlocked,
   logCheckoutPricingSuccess,
 } = require("../services/pricing/checkoutPricingHttp");
+const {
+  assertPaymentIntentReadAccess,
+  assertPaymentIntentMutateAccess,
+  assertMetadataUpdateAccess,
+  assertCheckoutSessionReadAccess,
+  buildSafeCardDetailsFromPaymentMethod,
+  buildSafeCardDetailsFromCharge,
+  buildSafePaymentDetailsResponse,
+} = require("../utils/assertPaymentIntentAccess");
 
 // Booking payment confirmation service
 const { confirmBookingPayment, handleBookingPaymentFailed } = require('../services/bookingService/confirmBooking');
@@ -28,6 +38,35 @@ const writeLog = (entry) => {
   } catch (e) {
     console.error('[CheckoutLog] write threw:', e.message);
   }
+};
+
+const logPaymentIntentAccessDenied = (route, req, result, extra = {}) => {
+  writeLog({
+    event: 'backend.payment_intent.access_denied',
+    source: 'backend',
+    paymentIntentId: req.body?.paymentIntentId || extra.paymentIntentId,
+    orderNumber: req.body?.orderNumber || extra.orderNumber,
+    data: {
+      route,
+      code: result.code,
+      status: result.status,
+      message: result.message,
+      email: req.body?.email,
+      sessionId: req.body?.sessionId,
+      requesterId: req.user?.id || req.user?._id || null,
+      ...extra,
+    },
+  });
+};
+
+const sendPaymentIntentAccessError = (res, route, req, result, extra = {}) => {
+  logPaymentIntentAccessDenied(route, req, result, extra);
+  return res.status(result.status || 403).json({
+    success: false,
+    code: result.code || 'PAYMENT_OWNERSHIP_MISMATCH',
+    error: result.message,
+    message: result.message,
+  });
 };
 const crypto = require("crypto");
 const dotenv = require("dotenv");
@@ -404,13 +443,32 @@ const paymentsController = {
                 return res.status(400).json({ error: 'paymentIntentId and orderNumber are required' });
             }
 
+            if (!email && !req.user) {
+                return res.status(400).json({ error: 'email is required for guest checkout' });
+            }
+
             // Get dynamic Stripe instance
             const stripe = await getStripeInstance();
 
+            const access = await assertMetadataUpdateAccess(req, {
+                paymentIntentId,
+                orderNumber,
+                email,
+                stripe,
+            });
+            if (!access.ok) {
+                return sendPaymentIntentAccessError(
+                    res,
+                    'POST /update-payment-intent-metadata',
+                    req,
+                    access,
+                    { paymentIntentId, orderNumber }
+                );
+            }
+
             console.log('📝 Updating PaymentIntent metadata:', paymentIntentId, 'with orderNumber:', orderNumber);
 
-            // Get the existing PaymentIntent to preserve existing metadata and amount
-            const existingIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+            const existingIntent = access.paymentIntent;
             const existingMetadata = existingIntent.metadata || {};
 
             // Build updated comprehensive description
@@ -599,14 +657,34 @@ const paymentsController = {
     // Update PaymentIntent amount when shipping method changes
     updatePaymentIntentAmount: async (req, res, next) => {
         try {
-            const { paymentIntentId, cartproducts, coupondata, shippingMethod } = req.body;
+            const { paymentIntentId, cartproducts, coupondata, shippingMethod, email } = req.body;
 
             if (!paymentIntentId) {
                 return res.status(400).json({ error: 'paymentIntentId is required' });
             }
 
+            if (!email && !req.user) {
+                return res.status(400).json({ error: 'email is required for guest checkout' });
+            }
+
             // Get dynamic Stripe instance
             const stripe = await getStripeInstance();
+
+            const access = await assertPaymentIntentMutateAccess(req, {
+                paymentIntentId,
+                contactEmail: email,
+                stripe,
+                amountUpdateOnly: true,
+            });
+            if (!access.ok) {
+                return sendPaymentIntentAccessError(
+                    res,
+                    'POST /update-payment-intent-amount',
+                    req,
+                    access,
+                    { paymentIntentId }
+                );
+            }
 
             console.log('💰 Updating PaymentIntent amount:', paymentIntentId);
 
@@ -648,14 +726,17 @@ const paymentsController = {
                 return res.status(400).json({ error: 'Invalid amount calculated' });
             }
 
-            // Update PaymentIntent amount and metadata
+            const existingMetadata = access.paymentIntent.metadata || {};
+
+            // Update PaymentIntent amount and metadata (merge — do not wipe existing keys)
             const paymentIntent = await stripe.paymentIntents.update(paymentIntentId, {
                 amount: totalAmount,
                 metadata: {
-                    shippingMethodName: shippingMethod?.name || '',
+                    ...existingMetadata,
+                    shippingMethodName: shippingMethod?.name || existingMetadata.shippingMethodName || '',
                     shippingMethodPrice: String(shippingCost),
-                    shippingMethodEstimatedDays: shippingMethod?.estimatedDays || '',
-                    shippingMethodId: shippingMethod?.methodId || '',
+                    shippingMethodEstimatedDays: shippingMethod?.estimatedDays || existingMetadata.shippingMethodEstimatedDays || '',
+                    shippingMethodId: shippingMethod?.methodId || existingMetadata.shippingMethodId || '',
                     shippingCost: String(shippingCost.toFixed(2)),
                     finalTotal: String(finalTotal.toFixed(2)),
                 }
@@ -685,17 +766,38 @@ const paymentsController = {
 
     retrievePaymentDetails: async (req, res, next) => {
         try {
-            const { paymentIntentId } = req.body;
+            const { paymentIntentId, email } = req.body;
             console.log("Retrieving payment details for:", paymentIntentId);
 
             if (!paymentIntentId) {
                 throw new Error("Payment intent ID is required");
             }
 
+            if (!email && !req.user) {
+                return res.status(400).json({
+                    error: { message: 'email is required for guest checkout' },
+                });
+            }
+
             // Get dynamic Stripe instance
             const stripe = await getStripeInstance();
 
-            const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+            const access = await assertPaymentIntentReadAccess(req, {
+                paymentIntentId,
+                contactEmail: email,
+                stripe,
+            });
+            if (!access.ok) {
+                return sendPaymentIntentAccessError(
+                    res,
+                    'POST /retrieve-payment-details',
+                    req,
+                    access,
+                    { paymentIntentId }
+                );
+            }
+
+            const paymentIntent = access.paymentIntent;
             if (!paymentIntent) {
                 throw new Error("Payment intent not found");
             }
@@ -712,25 +814,15 @@ const paymentsController = {
             if (paymentIntent.payment_method) {
                 try {
                     const paymentMethod = await stripe.paymentMethods.retrieve(paymentIntent.payment_method);
-
+                    cardDetails = buildSafeCardDetailsFromPaymentMethod(paymentMethod);
                     if (paymentMethod.card) {
-                        cardDetails = {
-                            brand: paymentMethod.card.brand,
-                            country: paymentMethod.card.country,
-                            exp_month: paymentMethod.card.exp_month,
-                            exp_year: paymentMethod.card.exp_year,
-                            last4: paymentMethod.card.last4,
-                        };
                         paymentType = "Card";
                     } else if (paymentMethod.link) {
                         paymentType = "Link";
-                        cardDetails = { payment_type: "Link" };
                     } else if (paymentMethod.paypal) {
                         paymentType = "PayPal";
-                        cardDetails = { payment_type: "PayPal", paypal_details: paymentMethod.paypal };
                     } else if (paymentMethod.klarna) {
                         paymentType = "Klarna";
-                        cardDetails = { payment_type: "Klarna", klarna_details: paymentMethod.klarna };
                     }
                 } catch (pmError) {
                     console.log("Could not retrieve payment method, checking charge...");
@@ -741,41 +833,26 @@ const paymentsController = {
             if (!cardDetails && paymentIntent.latest_charge) {
                 try {
                     const charge = await stripe.charges.retrieve(paymentIntent.latest_charge);
-                    if (charge.payment_method_details) {
-                        const pmDetails = charge.payment_method_details;
-                        if (pmDetails.card) {
-                            cardDetails = {
-                                brand: pmDetails.card.brand,
-                                country: pmDetails.card.country,
-                                exp_month: pmDetails.card.exp_month,
-                                exp_year: pmDetails.card.exp_year,
-                                last4: pmDetails.card.last4,
-                            };
-                            paymentType = "Card";
-                        } else if (pmDetails.link) {
-                            paymentType = "Link";
-                            cardDetails = { payment_type: "Link" };
-                        } else if (pmDetails.paypal) {
-                            paymentType = "PayPal";
-                            cardDetails = { payment_type: "PayPal" };
-                        } else if (pmDetails.klarna) {
-                            paymentType = "Klarna";
-                            cardDetails = { payment_type: "Klarna" };
-                        }
+                    cardDetails = buildSafeCardDetailsFromCharge(charge);
+                    if (charge.payment_method_details?.card) {
+                        paymentType = "Card";
+                    } else if (charge.payment_method_details?.link) {
+                        paymentType = "Link";
+                    } else if (charge.payment_method_details?.paypal) {
+                        paymentType = "PayPal";
+                    } else if (charge.payment_method_details?.klarna) {
+                        paymentType = "Klarna";
                     }
                 } catch (chargeError) {
                     console.log("Could not retrieve charge details");
                 }
             }
 
-            res.json({
-                paymentIntentId: paymentIntent.id,
-                paymentMethodId: paymentIntent.payment_method || null,
-                status: paymentIntent.status,
-                amount: paymentIntent.amount,
+            res.json(buildSafePaymentDetailsResponse({
+                paymentIntent,
+                cardDetails,
                 paymentType,
-                cardDetails: cardDetails || { payment_type: paymentType },
-            });
+            }));
         } catch (error) {
             console.error("Error retrieving payment details:", error.message);
             res.status(400).send({
@@ -788,11 +865,16 @@ const paymentsController = {
 
     retrievePaymentDetailsSession: async (req, res, next) => {
         try {
-            const { sessionId } = req.body;
-            // console.log("Request Body:", req.body);
+            const { sessionId, email } = req.body;
 
             if (!sessionId) {
                 throw new Error("Session ID is required");
+            }
+
+            if (!email && !req.user) {
+                return res.status(400).json({
+                    error: { message: 'email is required for guest checkout' },
+                });
             }
 
             // Get dynamic Stripe instance
@@ -800,50 +882,77 @@ const paymentsController = {
 
             // Retrieve session details
             const session = await stripe.checkout.sessions.retrieve(sessionId);
-            // console.log("Retrieve Checkout session details:", session);
-    
+
+            const sessionAccess = assertCheckoutSessionReadAccess(req, session, email);
+            if (!sessionAccess.ok) {
+                return sendPaymentIntentAccessError(
+                    res,
+                    'POST /retrieve-payment-details-session',
+                    req,
+                    sessionAccess,
+                    { sessionId }
+                );
+            }
+
             if (!session || !session.payment_intent) {
                 throw new Error("No payment intent associated with this session");
             }
-    
+
             // Retrieve payment intent
-            const paymentIntentId = session.payment_intent;   
-            const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-    
-            if (paymentIntent.status !== 'succeeded') {  
-                throw new Error(`Payment not completed. Current status: ${paymentIntent.status}`); 
+            const paymentIntentId = session.payment_intent;
+            const access = await assertPaymentIntentReadAccess(req, {
+                paymentIntentId,
+                contactEmail: email,
+                stripe,
+            });
+            if (!access.ok) {
+                return sendPaymentIntentAccessError(
+                    res,
+                    'POST /retrieve-payment-details-session',
+                    req,
+                    access,
+                    { paymentIntentId, sessionId }
+                );
             }
-    
-            // Attempt to retrieve card details if present
-            let cardDetails;
+
+            const paymentIntent = access.paymentIntent;
+
+            if (paymentIntent.status !== 'succeeded') {
+                throw new Error(`Payment not completed. Current status: ${paymentIntent.status}`);
+            }
+
+            let cardDetails = null;
+            let paymentType = 'Unknown';
+
             if (paymentIntent.payment_method) {
                 const paymentMethod = await stripe.paymentMethods.retrieve(paymentIntent.payment_method);
-                cardDetails = paymentMethod.card || paymentMethod.klarna|| paymentMethod.paypal;
+                cardDetails = buildSafeCardDetailsFromPaymentMethod(paymentMethod);
+                if (paymentMethod.card) {
+                    paymentType = 'Card';
+                } else if (paymentMethod.link) {
+                    paymentType = 'Link';
+                } else if (paymentMethod.paypal) {
+                    paymentType = 'PayPal';
+                } else if (paymentMethod.klarna) {
+                    paymentType = 'Klarna';
+                }
             } else if (paymentIntent.latest_charge) {
                 const charge = await stripe.charges.retrieve(paymentIntent.latest_charge);
-                cardDetails = charge.payment_method_details.card || charge.payment_method_details.klarna;
+                cardDetails = buildSafeCardDetailsFromCharge(charge);
+                if (charge.payment_method_details?.card) {
+                    paymentType = 'Card';
+                } else if (charge.payment_method_details?.klarna) {
+                    paymentType = 'Klarna';
+                }
             } else {
                 throw new Error("No payment method or charges associated with this payment intent");
-            }   
-    
-            console.log("cardDetails: ".cardDetails)
-            // Check if cardDetails has card information or Klarna details
-            res.json({
-                paymentIntentId: paymentIntent.id,
-                paymentMethodId: paymentIntent.payment_method || paymentIntent.latest_charge,
-                cardDetails: cardDetails ? {
-                    brand: cardDetails.brand || "N/A",
-                    country: cardDetails.country || "N/A",
-                    exp_month: cardDetails.exp_month || "N/A",
-                    exp_year: cardDetails.exp_year || "N/A",
-                    last4: cardDetails.last4 || "N/A",
-                    payment_type: cardDetails.klarna ? "Klarna" : "Card"
-                } : {
-                    payment_type: "Klarna",
-                    klarna_details: cardDetails.klarna || "N/A",
-                     paypal_details: cardDetails.paypal || "N/A"
-                }
-            });
+            }
+
+            res.json(buildSafePaymentDetailsResponse({
+                paymentIntent,
+                cardDetails,
+                paymentType,
+            }));
     
         } catch (error) {
             console.error("Error retrieving session or payment details:", error.message);
@@ -859,91 +968,108 @@ const paymentsController = {
    
     createCheckoutSession: async (req, res, next) => {
         try {
-            // const { cartproducts, paymentIntentId, coupondata, shippingInformation, contactInformation } = req.body;
-            const { cartproducts, paymentIntentId, coupondata, shippingInformation } = req.body;
-            const contactInformation = req.body.contactInformation || { email: "", userId: "" }; // provide default values
+            const {
+                cartproducts,
+                paymentIntentId,
+                coupondata,
+                shippingInformation,
+                shippingMethod,
+                orderNumber,
+            } = req.body;
+            const contactInformation = req.body.contactInformation || { email: "", userId: "" };
 
-            // Get dynamic Stripe instance
-            const stripe = await getStripeInstance();
-
-            console.log("Received order details:", req.body);
-
-            // Step 1: Filter out trade-in products (they are credits, not charges)
-            const chargeableProducts = cartproducts.filter(product => !product.isTradeIn);
-
-            // Step 2: Calculate the Total Price Before Discount (excluding trade-ins)
-            let totalSalePrice = chargeableProducts.reduce((sum, product) => sum + (product.salePrice * product.qty), 0);
-
-            // Step 3: Calculate the Total Discount Based on Coupon
-            let totalDiscount = 0;
-            if (coupondata) {
-                if (coupondata.discount_type === "flat") {
-                    totalDiscount = coupondata.discount;
-                } else if (coupondata.discount_type === "percentage") {
-                    const discountAmount = (totalSalePrice * coupondata.discount) / 100;
-                    totalDiscount = coupondata.upto ? Math.min(discountAmount, coupondata.upto) : discountAmount;
-                }
+            if (!cartproducts || !Array.isArray(cartproducts) || cartproducts.length === 0) {
+                return res.status(400).json({ error: 'Cart products are required' });
             }
-    
-            // Step 4: Adjust the Total Price After Applying Discount
-            const adjustedTotalPrice = Math.max(0, totalSalePrice - totalDiscount);
-            console.log("Adjusted Total Price after discount:", adjustedTotalPrice);
 
-            // Step 5: Distribute the Discount Proportionally Across Products for Accurate Line Item Pricing
-            const discountProportion = totalDiscount / totalSalePrice;
-    
-            // Step 6: Create Line Items with Discounted Price for Each Product (excluding trade-ins)
-            const lineItems = chargeableProducts.map((product) => {
-                // Calculate the discounted sale price for each product
-                let discountedSalePrice = product.salePrice - (product.salePrice * discountProportion);
-                discountedSalePrice = Math.max(0, discountedSalePrice);
+            const stripe = await getStripeInstance();
+            const chargeableProducts = cartproducts.filter((product) => !product.isTradeIn);
 
-                // Get the product image URL if available
-                const imageUrl = product.variantImages && product.variantImages.length > 0 && product.variantImages[0].path
-                    ? `${process.env.FRONTEND_URL}/${encodeURIComponent(product.variantImages[0].path)}`
-                    : null;
-
-                return {
-                    price_data: {
-                        currency: "GBP",
-                        product_data: {
-                            name: `${product.productName} - ${product.name.replace(/\s*\(#[\d\w]+\)/, '')}`,
-                            images: imageUrl ? [imageUrl] : [],
-                        },
-                        unit_amount: Math.round(discountedSalePrice * 100), // Amount in pence (pence/cents)
-                    },
-                    quantity: product.qty,
-                };
+            const checkout = await computeCheckoutTotal({
+                req,
+                cartItems: chargeableProducts,
+                couponInput: coupondata,
+                shippingMethodInput: shippingMethod || req.body.shippingMethod,
+                enforceClientPriceMatch: false,
             });
 
-            // Step 7: Calculate the Total Amount in Pence
-            const totalAmount = Math.round(adjustedTotalPrice * 100);
+            const checkoutHttpError = checkoutTotalToHttp(checkout);
+            if (checkoutHttpError) {
+                logCheckoutPricingBlocked(
+                    'POST /create-checkout-session',
+                    orderNumber,
+                    checkout
+                );
+                return res.status(checkoutHttpError.status).json(checkoutHttpError.body);
+            }
 
-            // Step 8: Create or Retrieve the Stripe Customer
+            if (checkout.pricingResult?.clientPriceMismatch) {
+                console.warn(
+                    JSON.stringify({
+                        event: 'PRICING_CHECKOUT_SESSION_MISMATCH',
+                        route: 'POST /create-checkout-session',
+                        orderNumber: orderNumber || null,
+                        clientSubtotal: checkout.pricingResult.clientSubtotal,
+                        serverSubtotal: checkout.pricingResult.serverSubtotal,
+                        subtotalDelta: checkout.pricingResult.subtotalDelta,
+                        mismatchCount: checkout.pricingResult.mismatches?.length || 0,
+                        usedServerAmount: true,
+                    })
+                );
+            } else {
+                logCheckoutPricingSuccess(
+                    'POST /create-checkout-session',
+                    orderNumber,
+                    checkout.pricingResult
+                );
+            }
+
+            void shadowLogCheckoutPricing({
+                route: 'POST /create-checkout-session',
+                req,
+                cartproducts,
+                orderNumber,
+            });
+
+            const totalAmount = checkout.totalAmountPence;
+            const serverLines = checkout.pricingResult.resolvedServerLines || [];
+
+            const lineItems = buildCheckoutSessionLineItems({
+                cartProducts: chargeableProducts,
+                serverLines,
+                productSubtotal: checkout.productSubtotal,
+                totalDiscount: checkout.totalDiscount,
+                shippingCost: checkout.shippingCost,
+                shippingMethod: checkout.shippingMethod,
+                frontendUrl: process.env.FRONTEND_URL,
+            });
+
+            if (totalAmount <= 0) {
+                return res.status(400).json({ error: 'Invalid amount calculated' });
+            }
+
             const customer = await stripe.customers.create({
                 email: contactInformation.email || "",
                 metadata: {
                     userId: contactInformation.userId || "",
-                    firstName: shippingInformation.firstName || "",
-                    lastName: shippingInformation.lastName || "",
-                    address: shippingInformation.address || "",
-                    apartment: shippingInformation.apartment || "",
-                    country: shippingInformation.country || "United Kingdom",
-                    city: shippingInformation.city || "",
-                    county: shippingInformation.county || "",
-                    postalCode: shippingInformation.postalCode || "",
-                    phoneNumber: shippingInformation.phoneNumber || ""
+                    firstName: shippingInformation?.firstName || "",
+                    lastName: shippingInformation?.lastName || "",
+                    address: shippingInformation?.address || "",
+                    apartment: shippingInformation?.apartment || "",
+                    country: shippingInformation?.country || "United Kingdom",
+                    city: shippingInformation?.city || "",
+                    county: shippingInformation?.county || "",
+                    postalCode: shippingInformation?.postalCode || "",
+                    phoneNumber: shippingInformation?.phoneNumber || ""
                 }
             });
-    
+
             let paymentIntent;
             if (paymentIntentId) {
-                // Update Existing PaymentIntent if Available
                 paymentIntent = await stripe.paymentIntents.update(paymentIntentId, {
                     amount: totalAmount,
                 });
             } else {
-                // Create a New PaymentIntent if Not Exists
                 paymentIntent = await stripe.paymentIntents.create({
                     customer: customer.id,
                     setup_future_usage: "off_session",
@@ -953,7 +1079,6 @@ const paymentsController = {
                 });
             }
 
-            // Step 9: Create a Checkout Session in Stripe
             const session = await stripe.checkout.sessions.create({
                 payment_method_types: ['card', 'klarna', 'paypal'],
                 line_items: lineItems,
@@ -963,16 +1088,12 @@ const paymentsController = {
                 client_reference_id: paymentIntent.id,
                 customer: customer.id,
                 metadata: {
-                    // Optionally add order_id if needed
-                    // order_id: orderNumber, 
                     email: contactInformation.email,
-                    phoneNumber: shippingInformation.phoneNumber
+                    phoneNumber: shippingInformation?.phoneNumber || "",
+                    orderNumber: orderNumber || "",
                 }
             });
-    
-            // console.log("Stripe session created:", session);
 
-            // Step 10: Send Session Details and Client Secret Back to the Frontend
             res.json({
                 id: session.id,
                 clientSecret: paymentIntent.client_secret,

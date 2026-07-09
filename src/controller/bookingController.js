@@ -3,6 +3,11 @@ const Booking = require('../models/booking');
 const BookingPackage = require('../models/bookingPackage');
 const bookingService = require('../services/bookingService');
 const { normalizeEmail } = require('../utils/bookingPricingUtils');
+const {
+  resolveScopedUserId,
+  getRequesterId,
+  isAdminUser,
+} = require('../utils/ownershipAuth');
 
 const bookingController = {
   getAvailableSlots: async (req, res) => {
@@ -328,25 +333,22 @@ const bookingController = {
 
   getUserBookings: async (req, res) => {
     try {
-      const { userId, email } = req.body;
+      const { userId: clientUserId, email } = req.body;
 
-      if (!userId && !email) {
-        return res.status(400).json({ error: 'userId or email is required', status: 400 });
+      const scope = resolveScopedUserId(req, clientUserId);
+      if (!scope.ok) {
+        return res.status(scope.status).json({ error: scope.message, status: scope.status });
       }
 
-      if (userId && !mongoose.Types.ObjectId.isValid(userId)) {
-        return res.status(400).json({ error: 'Invalid userId', status: 400 });
-      }
+      const filter = { isdeleted: false, userId: scope.userId };
 
-      const filter = { isdeleted: false };
-
-      if (userId && email) {
-        filter.userId = userId;
-        filter['customer.email'] = normalizeEmail(email);
-      } else if (userId) {
-        filter.userId = userId;
-      } else {
-        filter['customer.email'] = normalizeEmail(email);
+      if (email) {
+        const normalizedEmail = normalizeEmail(email);
+        const requesterEmail = normalizeEmail(req?.user?.email);
+        if (!isAdminUser(req) && normalizedEmail !== requesterEmail) {
+          return res.status(403).json({ error: 'Forbidden', status: 403 });
+        }
+        filter['customer.email'] = normalizedEmail;
       }
 
       const bookings = await Booking.find(filter)
@@ -363,6 +365,11 @@ const bookingController = {
       console.error('Error fetching user bookings:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
+  },
+
+  getMyBookings: async (req, res, next) => {
+    req.body = { userId: getRequesterId(req) };
+    return bookingController.getUserBookings(req, res, next);
   },
 
   getAdminBookings: async (req, res) => {

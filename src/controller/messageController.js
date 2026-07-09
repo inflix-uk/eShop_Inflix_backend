@@ -15,6 +15,14 @@ const mongoose = require('mongoose');
 const { exit } = require("process");
 const { sendMessageNotification } = require("../../email/MessageNotification/MessageNotification");
 const { sendMessageNotificationToAdmin } = require("../../email/MessageNotification/MessageNotificationToAdmin");
+const Order = require("../models/order");
+const {
+    assertSelfOrAdmin,
+    assertOrderAccess,
+    assertReturnOrderAccess,
+    getRequesterId,
+    sendOwnershipError,
+} = require('../utils/ownershipAuth');
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         const destinationFolder = './uploads/message';
@@ -194,6 +202,14 @@ const messageController = {
 
             try {
                 const { senderId } = req.params;
+                const access = assertSelfOrAdmin(req, senderId);
+                if (!access.ok) {
+                    return res.status(access.status).json({
+                        success: false,
+                        message: access.message,
+                    });
+                }
+
                 let { message, requestOrder, orderId } = req.body;
 
                 console.log("Received request body:", req.body);
@@ -226,10 +242,25 @@ const messageController = {
                     }));
                 }
 
-                // Check if this is a return order conversation
                 const isReturnOrder = orderId && orderId.startsWith('return_');
                 const actualOrderId = isReturnOrder ? null : (orderId || null);
                 const actualReturnOrderId = isReturnOrder ? orderId.replace('return_', '') : null;
+
+                if (actualOrderId && mongoose.Types.ObjectId.isValid(actualOrderId)) {
+                    const linkedOrder = await Order.findById(actualOrderId);
+                    const orderAccess = assertOrderAccess(req, linkedOrder, { allowAdmin: true });
+                    if (!orderAccess.ok) {
+                        return sendOwnershipError(res, orderAccess);
+                    }
+                }
+
+                if (actualReturnOrderId && mongoose.Types.ObjectId.isValid(actualReturnOrderId)) {
+                    const linkedReturn = await ReturnOrder.findById(actualReturnOrderId);
+                    const returnAccess = assertReturnOrderAccess(req, linkedReturn, { allowAdmin: true });
+                    if (!returnAccess.ok) {
+                        return sendOwnershipError(res, returnAccess);
+                    }
+                }
 
                 // Create new message
                 const newMessage = new Message({
@@ -568,6 +599,11 @@ const messageController = {
     },
     getConversations: async (req, res) => {
         try {
+            const access = assertSelfOrAdmin(req, req.params.userId);
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
+
             const { userId } = req.params;
             const adminId = "66cdf5f6dec61c826428d298";
 
@@ -792,10 +828,34 @@ const messageController = {
     },
     getMessagesByConversation: async (req, res) => {
         try {
+            const access = assertSelfOrAdmin(req, req.params.userId);
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
+
             const { userId, orderId } = req.params;
             const adminId = "66cdf5f6dec61c826428d298";
 
             console.log("Getting messages for user:", userId, "orderId:", orderId);
+
+            const isReturnOrder = orderId && orderId.startsWith('return_');
+            const actualId = isReturnOrder ? orderId.replace('return_', '') : orderId;
+
+            if (!isReturnOrder && orderId && orderId !== 'general' && mongoose.Types.ObjectId.isValid(actualId)) {
+                const linkedOrder = await Order.findById(actualId);
+                const orderAccess = assertOrderAccess(req, linkedOrder, { allowAdmin: true });
+                if (!orderAccess.ok) {
+                    return sendOwnershipError(res, orderAccess);
+                }
+            }
+
+            if (isReturnOrder && actualId && mongoose.Types.ObjectId.isValid(actualId)) {
+                const linkedReturn = await ReturnOrder.findById(actualId);
+                const returnAccess = assertReturnOrderAccess(req, linkedReturn, { allowAdmin: true });
+                if (!returnAccess.ok) {
+                    return sendOwnershipError(res, returnAccess);
+                }
+            }
 
             const query = {
                 participants: { $all: [adminId, userId] },
@@ -807,13 +867,13 @@ const messageController = {
             };
 
             // Check if this is a return order conversation
-            const isReturnOrder = orderId && orderId.startsWith('return_');
-            const actualId = isReturnOrder ? orderId.replace('return_', '') : orderId;
+            const isReturnOrderQuery = orderId && orderId.startsWith('return_');
+            const actualIdQuery = isReturnOrderQuery ? orderId.replace('return_', '') : orderId;
 
             // Add orderId/returnOrderId filter
             if (orderId && orderId !== 'general') {
-                if (isReturnOrder) {
-                    query.returnOrderId = actualId;
+                if (isReturnOrderQuery) {
+                    query.returnOrderId = actualIdQuery;
                     query.orderId = null; // Ensure we only get return order messages
                 } else {
                     query.orderId = orderId;
@@ -854,8 +914,8 @@ const messageController = {
 
             // Add orderId/returnOrderId filter for marking as read
             if (orderId && orderId !== 'general') {
-                if (isReturnOrder) {
-                    updateQuery.returnOrderId = actualId;
+                if (isReturnOrderQuery) {
+                    updateQuery.returnOrderId = actualIdQuery;
                 } else {
                     updateQuery.orderId = orderId;
                 }
@@ -986,6 +1046,11 @@ const messageController = {
 
     getConversationTags: async (req, res) => {
         try {
+            const access = assertSelfOrAdmin(req, req.params.userId);
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
+
             const { userId, conversationId } = req.params;
 
             const conversationTags = await ConversationTag.findOne({
@@ -1471,6 +1536,14 @@ const messageController = {
             const { orderIds } = req.body;
             const adminId = "66cdf5f6dec61c826428d298";
             const adminObjectId = new mongoose.Types.ObjectId(adminId);
+            const requesterId = getRequesterId(req);
+
+            if (!requesterId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Authentication required',
+                });
+            }
 
             if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
                 return res.status(400).json({
@@ -1479,10 +1552,19 @@ const messageController = {
                 });
             }
 
-            // Convert string orderIds to ObjectIds (filter out invalid ones)
-            const orderObjectIds = orderIds
-                .filter(id => mongoose.Types.ObjectId.isValid(id))
-                .map(id => new mongoose.Types.ObjectId(id));
+            const validOrderIds = orderIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+            const ownedOrders = await Order.find({
+                _id: { $in: validOrderIds },
+            }).select('_id contactDetails.userId contactDetails.email');
+
+            const allowedOrderIds = ownedOrders
+                .filter((order) => {
+                    const access = assertOrderAccess(req, order, { allowAdmin: true });
+                    return access.ok;
+                })
+                .map((order) => order._id);
+
+            const orderObjectIds = allowedOrderIds.map((id) => new mongoose.Types.ObjectId(id));
 
             // Aggregate unread counts grouped by orderId
             const unreadCounts = await Message.aggregate([
@@ -1510,7 +1592,7 @@ const messageController = {
                 unreadCountsMap[id] = 0;
             });
 
-            // Fill in actual counts
+            // Fill in actual counts only for allowed orders
             unreadCounts.forEach(item => {
                 if (item._id) {
                     unreadCountsMap[item._id.toString()] = item.count;
@@ -1528,7 +1610,35 @@ const messageController = {
                 message: "Error getting unread counts for orders"
             });
         }
-    }
+    },
+
+    getMyConversations: async (req, res, next) => {
+        req.params = { ...req.params, userId: getRequesterId(req) };
+        return messageController.getConversations(req, res, next);
+    },
+
+    getMyMessagesByConversation: async (req, res, next) => {
+        req.params = {
+            ...req.params,
+            userId: getRequesterId(req),
+            orderId: req.params.orderId,
+        };
+        return messageController.getMessagesByConversation(req, res, next);
+    },
+
+    sendMyMessage: async (req, res, next) => {
+        req.params = { ...req.params, senderId: getRequesterId(req) };
+        return messageController.sendMessage(req, res, next);
+    },
+
+    getMyConversationTags: async (req, res, next) => {
+        req.params = {
+            ...req.params,
+            userId: getRequesterId(req),
+            conversationId: req.params.conversationId,
+        };
+        return messageController.getConversationTags(req, res, next);
+    },
 }
 
 module.exports = messageController

@@ -26,6 +26,62 @@ const {
     sendOrderUpdateEmailToCustomer,
     buildOrderDataForStatusEmail,
 } = require('../../email/OrderUpdateEmailToCustomer/OrderUpdateEmailToCustomer');
+const {
+    resolveScopedUserId,
+    assertOrderAccess,
+    assertReturnOrderAccess,
+    getRequesterId,
+    getRequesterEmail,
+    isAdminUser,
+    sendOwnershipError,
+} = require('../utils/ownershipAuth');
+
+async function fetchOrdersWithLabelsForUser(userId, { includeEmailMatch = false, requesterEmail = '' } = {}) {
+    const filter = { isdeleted: { $ne: true } };
+    if (includeEmailMatch && requesterEmail) {
+        filter.$or = [
+            { 'contactDetails.userId': userId },
+            { 'contactDetails.email': requesterEmail },
+        ];
+    } else {
+        filter['contactDetails.userId'] = userId;
+    }
+
+    const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
+    if (!orders || orders.length === 0) {
+        return [];
+    }
+
+    const returnOrderIds = orders
+        .filter((order) => order.returnOrderId)
+        .map((order) => order.returnOrderId);
+
+    let labelMap = {};
+    if (returnOrderIds.length > 0) {
+        const labels = await Label.find({
+            returnOrder: { $in: returnOrderIds },
+            isDeleted: false,
+        }).lean();
+
+        labels.forEach((label) => {
+            if (label.returnOrder) {
+                labelMap[label.returnOrder.toString()] = {
+                    _id: label._id,
+                    fileName: label.fileName,
+                    filePath: label.filePath,
+                    fileSize: label.fileSize,
+                };
+            }
+        });
+    }
+
+    return orders.map((order) => ({
+        ...order,
+        returnOrderLabel: order.returnOrderId
+            ? labelMap[order.returnOrderId.toString()] || null
+            : null,
+    }));
+}
 
 // Maps the lowercase UI status filter to the exact enum casing stored on
 // orders. Using an exact string (instead of a case-insensitive regex) lets the
@@ -788,6 +844,11 @@ const orderController = {
                 });
             }
 
+            const access = assertOrderAccess(req, order, { allowAdmin: true });
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
+
             const plain = order.toObject ? order.toObject({ flattenMaps: true }) : order;
             res.json({
                 message: 'Order retrieved successfully',
@@ -799,6 +860,11 @@ const orderController = {
             console.error("Error creating order:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
+    },
+
+    getMyOrderById: async (req, res, next) => {
+        req.params.id = req.params.orderId;
+        return orderController.getOrderById(req, res, next);
     },
 
         
@@ -833,79 +899,38 @@ const orderController = {
     
     getOrderByUser: async (req, res, next) => {
         try {
-            const { userId } = req.body;
-            if (!userId) {
-                return res.json({
-                    message: 'userId is required',
-                    status: 400,
-                    orders: []
-                });
+            const scope = resolveScopedUserId(req, req.body?.userId);
+            if (!scope.ok) {
+                return sendOwnershipError(res, scope);
             }
 
-            const requesterId = req.user ? String(req.user.id || req.user._id) : null;
-            const isAdmin = req.user && ['admin', 'superadmin'].includes(String(req.user.role).toLowerCase());
-            if (!requesterId) {
-                return res.status(401).json({ message: 'Authentication required', status: 401, orders: [] });
-            }
-            if (!isAdmin && String(userId) !== requesterId) {
-                return res.status(403).json({ message: 'Forbidden', status: 403, orders: [] });
-            }
+            const ordersWithLabels = await fetchOrdersWithLabelsForUser(scope.userId, {
+                includeEmailMatch: !isAdminUser(req),
+                requesterEmail: getRequesterEmail(req),
+            });
 
-            const orders = await Order.find({
-                'contactDetails.userId': userId,
-                isdeleted: { $ne: true }
-            }).sort({ createdAt: -1 }).lean();
-
-            if (!orders || orders.length === 0) {
+            if (!ordersWithLabels.length) {
                 return res.json({
                     message: 'No orders found for this user',
                     status: 200,
-                    orders: []
+                    orders: [],
                 });
             }
-
-            // Get return order IDs from orders that have returnOrderId
-            const returnOrderIds = orders
-                .filter(order => order.returnOrderId)
-                .map(order => order.returnOrderId);
-
-            // Fetch labels for all return orders in one query
-            let labelMap = {};
-            if (returnOrderIds.length > 0) {
-                const labels = await Label.find({
-                    returnOrder: { $in: returnOrderIds },
-                    isDeleted: false
-                }).lean();
-
-                // Create a map of returnOrderId -> label
-                labels.forEach(label => {
-                    if (label.returnOrder) {
-                        labelMap[label.returnOrder.toString()] = {
-                            _id: label._id,
-                            fileName: label.fileName,
-                            filePath: label.filePath,
-                            fileSize: label.fileSize
-                        };
-                    }
-                });
-            }
-
-            // Attach labels to orders
-            const ordersWithLabels = orders.map(order => ({
-                ...order,
-                returnOrderLabel: order.returnOrderId ? labelMap[order.returnOrderId.toString()] || null : null
-            }));
 
             res.json({
                 message: 'Orders retrieved successfully',
                 orders: ordersWithLabels,
-                status: 201
+                status: 201,
             });
         } catch (error) {
-            // Handle errors
             console.error("Error retrieving order:", error);
             res.json({ message: "Internal server error", status: 500 });
         }
+    },
+
+    getMyOrders: async (req, res, next) => {
+        req.body = { userId: getRequesterId(req) };
+        return orderController.getOrderByUser(req, res, next);
     },
 
     returnOrder: async (req, res, next) => {
@@ -1044,6 +1069,11 @@ console.log("Updated Return Order:", updatedReturnOrder);
                     status: 404
                 });
             }
+
+            const access = assertReturnOrderAccess(req, returnOrder, { allowAdmin: true });
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
     
             // Respond with the retrieved return order
             res.json({
@@ -1113,6 +1143,11 @@ console.log("Updated Return Order:", updatedReturnOrder);
                 });
             }
 
+            const access = assertOrderAccess(req, order, { allowAdmin: true });
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
+
             // Respond with the retrieved order
             res.json({
                 message: 'Order retrieved successfully',
@@ -1126,24 +1161,24 @@ console.log("Updated Return Order:", updatedReturnOrder);
         }
     },
 
+    getMyOrderByNumber: async (req, res, next) => {
+        req.params.orderNumber = req.params.orderNumber;
+        return orderController.getOrderByOrderNumber(req, res, next);
+    },
+
     /**
      * Get order numbers for a specific user (fast endpoint for dropdowns)
      * Returns only order _id, orderNumber, status, and createdAt
      */
     getOrderNumbersByUserId: async (req, res) => {
         try {
-            const { userId } = req.params;
-
-            if (!userId) {
-                return res.status(400).json({
-                    message: 'User ID is required',
-                    status: 400
-                });
+            const scope = resolveScopedUserId(req, req.params.userId);
+            if (!scope.ok) {
+                return sendOwnershipError(res, scope);
             }
 
-            // Fast query - only select needed fields, no population
             const orders = await Order.find(
-                { 'contactDetails.userId': userId, isdeleted: false },
+                { 'contactDetails.userId': scope.userId, isdeleted: false },
                 { _id: 1, orderNumber: 1, status: 1, createdAt: 1, totalOrderValue: 1 }
             )
             .sort({ createdAt: -1 })
@@ -1168,6 +1203,11 @@ console.log("Updated Return Order:", updatedReturnOrder);
                 error: error.message
             });
         }
+    },
+
+    getMyOrderNumbers: async (req, res, next) => {
+        req.params = { ...req.params, userId: getRequesterId(req) };
+        return orderController.getOrderNumbersByUserId(req, res, next);
     },
 };
 module.exports = orderController;
