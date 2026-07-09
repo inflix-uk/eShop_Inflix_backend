@@ -11,6 +11,13 @@ const fs = require('fs');
 const multer = require('multer');
 const moment = require('moment');
 const mongoose = require('mongoose');
+const {
+    resolveScopedUserId,
+    assertOrderAccess,
+    assertRequestOrderAccess,
+    getRequesterId,
+    sendOwnershipError,
+} = require('../utils/ownershipAuth');
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -84,6 +91,21 @@ const requestOrderController = {
                     });
                 }
 
+                const order = await Order.findById(orderId);
+                if (!order) {
+                    return res.status(404).json({
+                        message: 'Order not found',
+                        status: 404,
+                    });
+                }
+
+                const orderAccess = assertOrderAccess(req, order, { allowAdmin: true });
+                if (!orderAccess.ok) {
+                    return sendOwnershipError(res, orderAccess);
+                }
+
+                const scopedUserId = getRequesterId(req);
+
                 // Check if a return request already exists for this order
                 const existingRequest = await RequestOrder.findOne({ orderId: orderId });
                 if (existingRequest) {
@@ -103,7 +125,7 @@ const requestOrderController = {
             
                 // Create a new RequestOrder instance
                 const requestOrder = new RequestOrder({
-                    userId: contactDetails.userId,
+                    userId: scopedUserId,
                     orderId: orderId, // Fixed: Use the parsed `orderId`
                     notes: additionalDetails || '',
                     status: status || 'Pending',
@@ -159,6 +181,11 @@ const requestOrderController = {
                     message: 'Request order not found',
                     status: 404
                 });
+            }
+
+            const access = assertRequestOrderAccess(req, requestOrder, { allowAdmin: true });
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
             }    
 
             // Respond with the retrieved return order
@@ -355,11 +382,12 @@ const requestOrderController = {
     },
     getApproveRequestOrder: async (req, res, next) => {
         try {
-            const { userId } = req.params;
-            console.log("userId", userId);
+            const scope = resolveScopedUserId(req, req.params.userId);
+            if (!scope.ok) {
+                return sendOwnershipError(res, scope);
+            }
 
-            // Retrieve all request orders with populated order and user details
-            const requestOrders = await RequestOrder.find({ userId: userId, status: "Accepted" })
+            const requestOrders = await RequestOrder.find({ userId: scope.userId, status: "Accepted" })
                 .populate({
                     path: 'orderId', 
                     model: 'Order', 
@@ -387,11 +415,12 @@ const requestOrderController = {
     },
     getAllRequestByUserId: async (req, res, next) => {
         try {
-            const { userId } = req.params;
-            console.log("userId", userId);
+            const scope = resolveScopedUserId(req, req.params.userId);
+            if (!scope.ok) {
+                return sendOwnershipError(res, scope);
+            }
     
-            // Retrieve all request orders with populated order and user details
-            const requestOrders = await RequestOrder.find({ userId: userId })
+            const requestOrders = await RequestOrder.find({ userId: scope.userId })
                 .populate({
                     path: 'orderId', 
                     model: 'Order', 
@@ -416,6 +445,11 @@ const requestOrderController = {
                 errors: error.message || error.errors || {},    
             }); 
         }   
+    },
+
+    getMyReturnRequests: async (req, res, next) => {
+        req.params = { ...req.params, userId: getRequesterId(req) };
+        return requestOrderController.getAllRequestByUserId(req, res, next);
     },
     
 };

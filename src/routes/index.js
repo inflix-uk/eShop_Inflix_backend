@@ -75,6 +75,7 @@ const requireAuth = require('../../middleware/requireAuth');
 const requireAdmin = require('../../middleware/requireAdmin');
 const resolvePricingScope = require('../../middleware/resolvePricingScope');
 const optionalAuth = require('../../middleware/optionalAuth');
+const paymentIntentRateLimit = require('../../middleware/paymentIntentRateLimit');
 // Shared HTTP cache headers for public storefront GETs (see middleware/publicCache.js).
 const publicCache = require('../../middleware/publicCache');
 const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
@@ -98,11 +99,11 @@ router.get('/health', healthController.getHealth);
 // ========================================================================
 router.get('/config',                           paymentsController.config);
 router.post('/create-payment-intent',           paymentsController.createPaymentIntent);
-router.post('/update-payment-intent-metadata',  paymentsController.updatePaymentIntentMetadata);
+router.post('/update-payment-intent-metadata',  paymentIntentRateLimit, paymentsController.updatePaymentIntentMetadata);
 router.post('/checkout-log',                    paymentsController.logCheckoutEvent);
-router.post('/update-payment-intent-amount',    paymentsController.updatePaymentIntentAmount);
-router.post('/retrieve-payment-details',        paymentsController.retrievePaymentDetails);
-router.post('/retrieve-payment-details-session',paymentsController.retrievePaymentDetailsSession);
+router.post('/update-payment-intent-amount',    paymentIntentRateLimit, paymentsController.updatePaymentIntentAmount);
+router.post('/retrieve-payment-details',        paymentIntentRateLimit, paymentsController.retrievePaymentDetails);
+router.post('/retrieve-payment-details-session',paymentIntentRateLimit, paymentsController.retrievePaymentDetailsSession);
 router.post("/create-checkout-session",         paymentsController.createCheckoutSession);
 router.post('/payment',                         paymentsController.verifyPaymentPaypal);
 router.get('/success',                          paymentsController.successPaymentPaypal);
@@ -152,6 +153,7 @@ router.post('/registerUser/fromAdmin',        ...requireAdmin, usersController.r
 router.post('/login',                         usersController.loginUser);
 router.post('/superadmin/login',              usersController.superadminLogin);
 router.post('/logout',                        usersController.logoutUser);
+router.get('/auth/me',                        requireAuth, usersController.getSessionUser);
 router.patch('/update/user/:id',              requireAuth, usersController.updateUser);
 router.post('/forgotpassword',                usersController.forgotPassword);
 router.post('/resetpassword',                 usersController.resetPassword);
@@ -427,6 +429,12 @@ router.get('/get/order/number/:orderNumber',        requireAuth, ordersControlle
 router.post('/get/order/user',                       requireAuth, ordersController.getOrderByUser);
 router.get('/get/order-numbers/user/:userId',       requireAuth, ordersController.getOrderNumbersByUserId);
 
+// Customer-scoped routes (JWT user is source of truth)
+router.get('/my/orders',                              requireAuth, ordersController.getMyOrders);
+router.get('/my/orders/:orderId',                     requireAuth, ordersController.getMyOrderById);
+router.get('/my/orders/by-number/:orderNumber',       requireAuth, ordersController.getMyOrderByNumber);
+router.get('/my/order-numbers',                       requireAuth, ordersController.getMyOrderNumbers);
+
 // ========================================================================
 // STATIC META PAGES MANAGEMENT
 // ========================================================================
@@ -448,6 +456,7 @@ router.patch('/update/return/:id',                   ...requireAdmin, returnOrde
 router.get('/getallreturn/orders',                   ...requireAdmin, returnOrderController.getAllReturnOrders);
 router.patch('/returnOrder/updateStatus/:id',        ...requireAdmin, returnOrderController.updateStatus);
 router.get('/get/return-orders/user/:userId',        requireAuth, returnOrderController.getReturnOrdersByUserId);
+router.get('/my/returns',                            requireAuth, returnOrderController.getMyReturns);
 
 // ========================================================================
 // REQUEST ORDER MANAGEMENT
@@ -459,6 +468,7 @@ router.get('/getallrequest/orders',                   ...requireAdmin, requestOr
 router.patch('/updatestatus/requestorder/:id',        ...requireAdmin, requestOrderController.updateStatusRequestOrder);
 router.get('/user/approve/request/order/:userId',     requireAuth, requestOrderController.getApproveRequestOrder);
 router.get('/user/allrequest/:userId',                requireAuth, requestOrderController.getAllRequestByUserId);
+router.get('/my/return-requests',                     requireAuth, requestOrderController.getMyReturnRequests);
 
 // ========================================================================
 // RETURN ORDER OPTIONS MANAGEMENT (Dynamic Dropdowns)
@@ -563,6 +573,12 @@ router.get('/conversation/tags/predefined/all',                  ...requireAdmin
 router.post('/conversation/tags/:userId/:conversationId',        ...requireAdmin, messageController.addTagToConversation);
 router.delete('/conversation/tags/:userId/:conversationId/:tagName', ...requireAdmin, messageController.removeTagFromConversation);
 router.get('/conversation/tags/:userId/:conversationId',         requireAuth, messageController.getConversationTags);
+
+// Customer-scoped messaging (JWT user is source of truth)
+router.get('/my/conversations',                                  requireAuth, messageController.getMyConversations);
+router.get('/my/conversations/:orderId/messages',                requireAuth, messageController.getMyMessagesByConversation);
+router.post('/my/messages',                                      requireAuth, messageController.sendMyMessage);
+router.get('/my/conversations/:conversationId/tags',               requireAuth, messageController.getMyConversationTags);
 
 // PRELOADED MESSAGES (Quick Reply Templates)
 router.get('/preloaded-messages',                                ...requireAdmin, preloadedMessageController.getAllPreloadedMessages);
@@ -1056,7 +1072,8 @@ router.post('/create/booking/hold', bookingController.createSlotHold);
 router.post('/verify/booking/holds', bookingController.verifySlotHolds);
 router.post('/release/booking/hold', bookingController.releaseSlotHold);
 router.post('/create/booking', bookingController.createBooking);
-router.post('/get/booking/user', bookingController.getUserBookings);
+router.post('/get/booking/user', requireAuth, bookingController.getUserBookings);
+router.get('/my/bookings', requireAuth, bookingController.getMyBookings);
 router.post('/create/booking/payment-intent', bookingPaymentController.createBookingPaymentIntent);
 router.get('/get/booking/:bookingNumber', bookingController.getBookingByNumber);
 

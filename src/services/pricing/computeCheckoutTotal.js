@@ -15,10 +15,12 @@ async function computeCheckoutTotal({
   cartItems,
   couponInput,
   shippingMethodInput,
+  enforceClientPriceMatch = true,
 }) {
   const pricingResult = await resolveCheckoutProductSubtotal({
     req,
     cartItems,
+    enforceClientPriceMatch,
   });
 
   if (!pricingResult.ok) {

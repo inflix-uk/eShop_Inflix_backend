@@ -87,4 +87,16 @@ describe('checkout product subtotal (always server-authoritative)', () => {
     assert.equal(result.ok, true);
     assert.equal(result.totalSalePrice, 40);
   });
+
+  test('legacy checkout session mode allows mismatch but bills server subtotal', () => {
+    const result = decideCheckoutProductSubtotal({
+      clientLines: [clientLine(5, 1)],
+      serverLines: [serverLine(80, 1)],
+      enforceClientPriceMatch: false,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.totalSalePrice, 80);
+    assert.equal(result.clientPriceMismatch, true);
+  });
 });

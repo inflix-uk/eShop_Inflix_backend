@@ -417,6 +417,36 @@ const usersController = {
             console.error("Error in changepassword:", error);
             return res.json({ message: 'Internal server error', status: 500 });
         }
+    },
+
+    getSessionUser: async (req, res) => {
+        try {
+            const user = await User.findById(req.user.id)
+                .select(SENSITIVE_USER_FIELDS)
+                .populate('roleId')
+                .lean();
+
+            if (!user) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Unauthorized',
+                    status: 401,
+                });
+            }
+
+            return res.json({
+                success: true,
+                user: toSafeUser(user),
+                status: 200,
+            });
+        } catch (error) {
+            console.error('Error fetching session user:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error',
+                status: 500,
+            });
+        }
     }
 };
 

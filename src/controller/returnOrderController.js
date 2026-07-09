@@ -13,6 +13,14 @@ const multer = require('multer');
 const moment = require('moment');
 const mongoose = require('mongoose');
 const { exit } = require("process");
+const {
+    resolveScopedUserId,
+    assertReturnOrderAccess,
+    getRequesterId,
+    getRequesterEmail,
+    isAdminUser,
+    sendOwnershipError,
+} = require('../utils/ownershipAuth');
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -232,6 +240,11 @@ const returnOrderController = {
                 });
             }
 
+            const access = assertReturnOrderAccess(req, returnOrder, { allowAdmin: true });
+            if (!access.ok) {
+                return sendOwnershipError(res, access);
+            }
+
             // Respond with the retrieved return order
             res.json({
                 message: 'Return order retrieved successfully',
@@ -370,10 +383,12 @@ const returnOrderController = {
      */
     getReturnOrdersByUserId: async (req, res) => {
         try {
-            const { userId } = req.params;
+            const scope = resolveScopedUserId(req, req.params.userId);
+            if (!scope.ok) {
+                return sendOwnershipError(res, scope);
+            }
 
-            // First, get the user's email
-            const user = await User.findById(userId);
+            const user = await User.findById(scope.userId);
             if (!user) {
                 return res.status(404).json({
                     message: 'User not found',
@@ -381,9 +396,8 @@ const returnOrderController = {
                 });
             }
 
-            // Find return orders by user's email
             const returnOrders = await ReturnOrder.find({
-                email: { $regex: new RegExp(`^${user.email}$`, 'i') } // Case-insensitive match
+                email: { $regex: new RegExp(`^${user.email}$`, 'i') }
             })
             .populate({
                 path: 'requestOrder',
@@ -392,7 +406,7 @@ const returnOrderController = {
                     { path: 'orderId', model: 'Order' }
                 ]
             })
-            .sort({ createdAt: -1 }); // Newest first
+            .sort({ createdAt: -1 });
 
             res.status(200).json({
                 message: 'Return orders retrieved successfully',
@@ -407,6 +421,11 @@ const returnOrderController = {
                 error: error.message
             });
         }
+    },
+
+    getMyReturns: async (req, res, next) => {
+        req.params = { ...req.params, userId: getRequesterId(req) };
+        return returnOrderController.getReturnOrdersByUserId(req, res, next);
     },
 
 
