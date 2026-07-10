@@ -5,20 +5,24 @@ const crypto = require('crypto');
 const { sendMail } = require('../utils/mailer');
 const { toSafeUser, SENSITIVE_USER_FIELDS } = require('../utils/safeUser');
 const { sendLoginSuccess, clearAuthCookie } = require('../utils/authCookies');
+const { sendInvalidCredentials } = require('../utils/loginResponses');
+const { sendRegistrationRejected } = require('../utils/registrationResponses');
 
 const usersController = {
     registerUser: async (req, res, next) => {
         try {
             const { firstName, lastName, email, password, phoneNumber, companyname, address ,dateofbirth,payableAccount,address2 } = req.body;
 
-            let existingEmail = await User.findOne({ email });
+            const existingEmail = await User.findOne({ email });
             if (existingEmail) {
-                return res.json({ message: "Email already exists", status: 400 });
+                return sendRegistrationRejected(res);
             }
 
-            let existingPhoneNumber = await User.findOne({ phoneNumber });
-            if (existingPhoneNumber) {
-                return res.json({ message: "Phone number already exists", status: 400 });
+            if (phoneNumber) {
+                const existingPhoneNumber = await User.findOne({ phoneNumber });
+                if (existingPhoneNumber) {
+                    return sendRegistrationRejected(res);
+                }
             }
 
             const hashedPassword = await bcrypt.hash(password, 10);
@@ -74,30 +78,22 @@ const usersController = {
                 });
             };
 
-            try {
-                sendWelcomeEmail().catch(emailError => {
-                    console.error("Failed to send welcome email:", emailError);
-                });
+            sendWelcomeEmail().catch((emailError) => {
+                console.error("Failed to send welcome email:", emailError);
+            });
 
-                return res.json({
-                    success: true,
-                    message: "User registered successfully",
-                    status: 201,
-                    user: toSafeUser(newUser)
-                });
-
-            } catch (error) {
-                console.error("Error in email sending process:", error);
-                return res.json({
-                    success: true,
-                    message: "User registered successfully, but welcome email could not be sent",
-                    status: 201,
-                    user: toSafeUser(newUser)
-                });
-            }
+            return res.status(201).json({
+                success: true,
+                message: "User registered successfully",
+                status: 201,
+                user: toSafeUser(newUser)
+            });
         } catch (error) {
+            if (error && error.code === 11000) {
+                return sendRegistrationRejected(res);
+            }
             console.error("Error registering user:", error);
-            res.json({ message: "Internal server error", status: 500 });
+            res.status(500).json({ success: false, message: "Internal server error" });
         }
     },
 
@@ -251,19 +247,19 @@ const usersController = {
             const user = await User.findOne({ email }).populate('roleId');
 
             if (!user) {
-                return res.json({ message: "User not found", status: 404 });
+                return sendInvalidCredentials(res);
             }
 
             const passwordMatch = await bcrypt.compare(password, user.password);
 
             if (!passwordMatch) {
-                return res.json({ message: "Invalid password", status: 401 });
+                return sendInvalidCredentials(res);
             }
 
             return sendLoginSuccess(res, user, 'Login successful');
         } catch (error) {
             console.error("Error logging in user:", error);
-            res.json({ message: "Internal server error", status: 500 });
+            res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
 
@@ -273,22 +269,25 @@ const usersController = {
 
             const user = await User.findOne({ email }).populate('roleId');
             if (!user) {
-                return res.json({ message: "User not found", status: 404 });
+                return sendInvalidCredentials(res);
             }
 
             const passwordMatch = await bcrypt.compare(password, user.password);
             if (!passwordMatch) {
-                return res.json({ message: "Invalid password", status: 401 });
+                return sendInvalidCredentials(res);
             }
 
             if (user.role !== "superadmin") {
-                return res.json({ message: "Access denied: superadmin only", status: 403 });
+                return res.status(403).json({
+                    success: false,
+                    message: 'Access denied: superadmin only',
+                });
             }
 
             return sendLoginSuccess(res, user, 'Superadmin login successful');
         } catch (error) {
             console.error("Error logging in superadmin:", error);
-            res.json({ message: "Internal server error", status: 500 });
+            res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
 
@@ -307,26 +306,28 @@ const usersController = {
     },
 
     forgotPassword: async (req, res) => {
+        const forgotPasswordAck = {
+            success: true,
+            message: 'If an account exists for this email, a reset link has been sent.',
+            status: 201,
+        };
+
         try {
             const { email } = req.body;
             const user = await User.findOne({ email });
 
-            if (!user) {
-                return res.json({ message: "User not found", status: 404 });
-            }
+            if (user) {
+                const token = crypto.randomBytes(20).toString('hex');
+                user.resetPasswordToken = token;
+                user.resetPasswordExpires = Date.now() + (1 * 3600000);
+                await user.save();
 
-            const token = crypto.randomBytes(20).toString('hex');
-            user.resetPasswordToken = token;
-            user.resetPasswordExpires = Date.now() + (1 * 3600000);
+                const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
+                const resetUrl = frontendUrl
+                    ? `${frontendUrl}/resetpassword/${token}`
+                    : `/resetpassword/${token}`;
 
-            await user.save();
-
-            const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
-            const resetUrl = frontendUrl
-                ? `${frontendUrl}/resetpassword/${token}`
-                : `/resetpassword/${token}`;
-
-            const emailContent = `
+                const emailContent = `
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -348,20 +349,21 @@ const usersController = {
             </html>
             `;
 
-            try {
-                await sendMail({
-                    to: user.email,
-                    subject: 'Reset Password',
-                    html: emailContent
-                });
-                return res.json({ message: 'Reset password email sent', status: 201 });
-            } catch (emailErr) {
-                console.log(emailErr);
-                return res.json({ message: 'Error sending reset password email', status: 500 });
+                try {
+                    await sendMail({
+                        to: user.email,
+                        subject: 'Reset Password',
+                        html: emailContent,
+                    });
+                } catch (emailErr) {
+                    console.error('Error sending reset password email:', emailErr);
+                }
             }
+
+            return res.status(200).json(forgotPasswordAck);
         } catch (error) {
             console.error("Error in forgotPassword:", error);
-            res.json({ message: 'Internal server error', status: 500 });
+            res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
 
@@ -371,7 +373,10 @@ const usersController = {
             const user = await User.findOne({ resetPasswordToken: token, resetPasswordExpires: { $gt: Date.now() } });
 
             if (!user) {
-                return res.json({ message: 'Invalid or expired token', status: 400 });
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid or expired token',
+                });
             }
 
             const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -380,10 +385,14 @@ const usersController = {
             user.resetPasswordExpires = undefined;
             await user.save();
 
-            res.json({ message: 'Password reset successful', status: 201 });
+            return res.status(200).json({
+                success: true,
+                message: 'Password reset successful',
+                status: 201,
+            });
         } catch (error) {
             console.error("Error in resetPassword:", error);
-            res.json({ message: 'Internal server error', status: 500 });
+            res.status(500).json({ success: false, message: 'Internal server error' });
         }
     },
 

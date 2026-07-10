@@ -120,15 +120,36 @@ const imageFileFilter = (req, file, cb) => {
   }
 };
 
+function serializeFooterSettingsForClient(settingsDoc) {
+  if (!settingsDoc) {
+    return getDefaultFooterSettings();
+  }
+
+  const settingsData = settingsDoc.toObject ? settingsDoc.toObject() : { ...settingsDoc };
+  delete settingsData._id;
+  delete settingsData.__v;
+  delete settingsData.createdAt;
+  delete settingsData.updatedAt;
+
+  const defaultFooter = getDefaultFooterSettings();
+  settingsData.bottomBar = {
+    ...defaultFooter.bottomBar,
+    ...(settingsData.bottomBar || {}),
+  };
+  // Ensure legacy section5 data is never exposed to clients
+  delete settingsData.section5;
+
+  return settingsData;
+}
+
 /**
  * GET /footer/settings
- * Get all footer settings or return defaults
+ * Get all footer settings or return defaults (admin)
  */
 const getFooterSettings = async (req, res) => {
   try {
-    let settings = await FooterSettings.findOne();
-    
-    // If no settings exist, return default structure
+    const settings = await FooterSettings.findOne();
+
     if (!settings) {
       const defaultSettings = getDefaultFooterSettings();
       return res.status(200).json({
@@ -137,28 +158,43 @@ const getFooterSettings = async (req, res) => {
         message: 'Default footer settings returned'
       });
     }
-    
-    // Convert to plain object and return
-    const settingsData = settings.toObject();
-    delete settingsData._id;
-    delete settingsData.__v;
-    delete settingsData.createdAt;
-    delete settingsData.updatedAt;
 
-    const defaultFooter = getDefaultFooterSettings();
-    settingsData.bottomBar = {
-      ...defaultFooter.bottomBar,
-      ...(settingsData.bottomBar || {}),
-    };
-    // Ensure legacy section5 data is never exposed to clients
-    delete settingsData.section5;
-    
     res.status(200).json({
       success: true,
-      data: settingsData
+      data: serializeFooterSettingsForClient(settings)
     });
   } catch (error) {
     console.error('❌ Error fetching footer settings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch footer settings',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * GET /footer/settings/public
+ * Storefront read-only footer settings (no auth).
+ */
+const getFooterSettingsPublic = async (req, res) => {
+  try {
+    const settings = await FooterSettings.findOne();
+
+    if (!settings) {
+      return res.status(200).json({
+        success: true,
+        data: getDefaultFooterSettings(),
+        message: 'Default footer settings returned'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: serializeFooterSettingsForClient(settings)
+    });
+  } catch (error) {
+    console.error('❌ Error fetching public footer settings:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch footer settings',
@@ -466,6 +502,7 @@ const handleFooterImageUpload = (req, res, next) => {
 
 module.exports = {
   getFooterSettings,
+  getFooterSettingsPublic,
   saveFooterSettings,
   updateFooterSection,
   uploadFooterImage,

@@ -168,6 +168,10 @@ class Server {
   }
 
   initializeMiddleware() {
+    if (serverConfig.trustProxy) {
+      this.app.set('trust proxy', serverConfig.trustProxy);
+    }
+
     // Security headers
     this.app.use(securityHeaders);
 
