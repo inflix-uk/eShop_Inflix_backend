@@ -76,6 +76,15 @@ const requireAdmin = require('../../middleware/requireAdmin');
 const resolvePricingScope = require('../../middleware/resolvePricingScope');
 const optionalAuth = require('../../middleware/optionalAuth');
 const paymentIntentRateLimit = require('../../middleware/paymentIntentRateLimit');
+const {
+  userLoginRateLimit,
+  superadminLoginRateLimit,
+} = require('../../middleware/loginRateLimits');
+const {
+  forgotPasswordRateLimit,
+  resetPasswordRateLimit,
+} = require('../../middleware/passwordResetRateLimits');
+const { registerRateLimit } = require('../../middleware/registrationRateLimits');
 // Shared HTTP cache headers for public storefront GETs (see middleware/publicCache.js).
 const publicCache = require('../../middleware/publicCache');
 const resolveStoreByDomain = require('../middleware/resolveStoreByDomain');
@@ -146,17 +155,17 @@ router.put('/product-card/settings',            ...requireAdmin, productCardSett
 // USER AUTHENTICATION & REGISTRATION
 // ========================================================================
 // User registration from different sources
-router.post('/register',                      usersController.registerUser);
+router.post('/register',                      registerRateLimit, usersController.registerUser);
 router.post('/registerUser/fromAdmin',        ...requireAdmin, usersController.registerUserFromAdmin);
 
 // Authentication & password management
-router.post('/login',                         usersController.loginUser);
-router.post('/superadmin/login',              usersController.superadminLogin);
+router.post('/login',                         userLoginRateLimit, usersController.loginUser);
+router.post('/superadmin/login',              superadminLoginRateLimit, usersController.superadminLogin);
 router.post('/logout',                        usersController.logoutUser);
 router.get('/auth/me',                        requireAuth, usersController.getSessionUser);
 router.patch('/update/user/:id',              requireAuth, usersController.updateUser);
-router.post('/forgotpassword',                usersController.forgotPassword);
-router.post('/resetpassword',                 usersController.resetPassword);
+router.post('/forgotpassword',                forgotPasswordRateLimit, usersController.forgotPassword);
+router.post('/resetpassword',                 resetPasswordRateLimit, usersController.resetPassword);
 router.patch('/changepassword/:id',           requireAuth, usersController.changepassword);
 router.get('/superadmin/controls/public',     superadminControlsController.getPublicSuperadminControls);
 router.get('/superadmin/controls',            ...requireSuperadmin, superadminControlsController.getSuperadminControls);
@@ -695,6 +704,7 @@ router.delete('/delete/deal/:id', ...requireAdmin, dealsController.deleteDeal);
 // ========================================================================
 // FOOTER SETTINGS MANAGEMENT
 // ========================================================================
+router.get('/footer/settings/public', publicCache.long, footerSettingsController.getFooterSettingsPublic);
 router.get('/footer/settings', ...requireAdmin, footerSettingsController.getFooterSettings);
 router.post('/footer/settings', ...requireAdmin, footerSettingsController.saveFooterSettings);
 router.patch('/footer/settings/:section', ...requireAdmin, footerSettingsController.updateFooterSection);

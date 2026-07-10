@@ -21,10 +21,9 @@ function clearAuthCookie(res) {
 
 function sendLoginSuccess(res, user, message = 'Login successful') {
   setAuthCookie(res, user);
-  return res.json({
+  return res.status(200).json({
     success: true,
     message,
-    status: 201,
     user: toSafeUser(user),
   });
 }
