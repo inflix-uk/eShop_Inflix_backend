@@ -60,6 +60,9 @@ const bookingSettingsSchema = new mongoose.Schema(
         stat2Label: { type: String, default: '', trim: true },
         stat3Value: { type: String, default: '', trim: true },
         stat3Label: { type: String, default: '', trim: true },
+        statsValueColor: { type: String, default: '', trim: true },
+        statsLabelColor: { type: String, default: '', trim: true },
+        statsBgColor: { type: String, default: '', trim: true },
       },
       services: {
         heading: { type: String, default: '', trim: true },
@@ -74,6 +77,11 @@ const bookingSettingsSchema = new mongoose.Schema(
           },
         ],
         default: [],
+      },
+      customWidget: {
+        enabled: { type: Boolean, default: false },
+        html: { type: String, default: '', trim: true },
+        css: { type: String, default: '', trim: true },
       },
     },
     pageContentUpdatedAt: {

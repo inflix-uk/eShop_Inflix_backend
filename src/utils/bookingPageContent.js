@@ -10,6 +10,9 @@ const DEFAULT_BOOKING_PAGE_CONTENT = Object.freeze({
     stat2Label: 'Online Booking',
     stat3Value: '100%',
     stat3Label: 'Secure Payment',
+    statsValueColor: '#111827',
+    statsLabelColor: '#6b7280',
+    statsBgColor: '',
   },
   services: {
     heading: 'Our Services',
@@ -29,11 +32,17 @@ const DEFAULT_BOOKING_PAGE_CONTENT = Object.freeze({
       description: 'Pay securely with card, Apple Pay, or Google Pay',
     },
   ],
+  customWidget: {
+    enabled: false,
+    html: '',
+    css: '',
+  },
 });
 
 const HERO_KEYS = Object.keys(DEFAULT_BOOKING_PAGE_CONTENT.hero).filter(
   (k) => k !== 'statsEnabled'
 );
+const HERO_COLOR_KEYS = ['statsValueColor', 'statsLabelColor', 'statsBgColor'];
 const SERVICES_KEYS = Object.keys(DEFAULT_BOOKING_PAGE_CONTENT.services);
 
 function toStr(value, fallback) {
@@ -53,6 +62,7 @@ function cloneDefaults() {
     hero: { ...DEFAULT_BOOKING_PAGE_CONTENT.hero },
     services: { ...DEFAULT_BOOKING_PAGE_CONTENT.services },
     trust: DEFAULT_BOOKING_PAGE_CONTENT.trust.map((b) => ({ ...b })),
+    customWidget: { ...DEFAULT_BOOKING_PAGE_CONTENT.customWidget },
   };
 }
 
@@ -95,7 +105,15 @@ function sanitizePageContent(raw) {
     };
   });
 
-  return { hero, services, trust };
+  const customWidgetSrc =
+    source.customWidget && typeof source.customWidget === 'object' ? source.customWidget : {};
+  const customWidget = {
+    enabled: toBool(customWidgetSrc.enabled, DEFAULT_BOOKING_PAGE_CONTENT.customWidget.enabled),
+    html: toStr(customWidgetSrc.html, DEFAULT_BOOKING_PAGE_CONTENT.customWidget.html),
+    css: toStr(customWidgetSrc.css, DEFAULT_BOOKING_PAGE_CONTENT.customWidget.css),
+  };
+
+  return { hero, services, trust, customWidget };
 }
 
 function pageContentPayload(doc) {

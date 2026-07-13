@@ -1030,6 +1030,7 @@ router.post(
 router.get('/get/booking/packages/admin', ...requireAdmin, bookingPackageController.getAdminPackages);
 router.patch('/update/booking/package/:id', ...requireAdmin, bookingPackageController.updatePackage);
 router.delete('/delete/booking/package/:id', ...requireAdmin, bookingPackageController.deletePackage);
+router.patch('/reorder/booking/packages', ...requireAdmin, bookingPackageController.reorderPackages);
 
 router.post(
   '/create/booking/availability',

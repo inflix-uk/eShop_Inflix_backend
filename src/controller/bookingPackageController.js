@@ -437,6 +437,45 @@ const bookingPackageController = {
   },
 
   handlePackageImageUpload,
+
+  reorderPackages: async (req, res) => {
+    try {
+      const { orderedIds } = req.body;
+
+      if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+        return res.status(400).json({
+          error: 'orderedIds must be a non-empty array of package IDs',
+          status: 400,
+        });
+      }
+
+      for (const id of orderedIds) {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+          return res.status(400).json({
+            error: `Invalid package id: ${id}`,
+            status: 400,
+          });
+        }
+      }
+
+      const bulkOps = orderedIds.map((id, index) => ({
+        updateOne: {
+          filter: { _id: id, isdeleted: false },
+          update: { $set: { sortOrder: index } },
+        },
+      }));
+
+      await BookingPackage.bulkWrite(bulkOps);
+
+      return res.json({
+        message: 'Packages reordered successfully',
+        status: 200,
+      });
+    } catch (error) {
+      console.error('Error reordering packages:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
 };
 
 module.exports = bookingPackageController;

@@ -7,6 +7,7 @@ const {
   sanitizeTagColors,
   tagColorsAdminPayload,
   tagColorsPublicPayload,
+  mergeStoredTagColors,
   DEFAULT_TAG_COLORS,
 } = require('../utils/tagColorsConstants');
 
@@ -106,6 +107,13 @@ const EMPTY_TAG_COLORS_ADMIN = {
   label: '',
 };
 
+function resolveTagColorsEnabled(themeDoc) {
+  if (!themeDoc || typeof themeDoc.tagColorsEnabled !== 'boolean') {
+    return true;
+  }
+  return themeDoc.tagColorsEnabled;
+}
+
 const siteThemeController = {
   async getThemeAdmin(req, res) {
     try {
@@ -117,6 +125,7 @@ const siteThemeController = {
             ...EMPTY_THEME_COLORS,
             uiCustom: EMPTY_UI_CUSTOM,
             tagColors: EMPTY_TAG_COLORS_ADMIN,
+            tagColorsEnabled: true,
             typography: mergeStoredTypography(null),
             updatedAt: null,
           },
@@ -130,6 +139,7 @@ const siteThemeController = {
           bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
           uiCustom: themeUiCustomPayload(theme),
           tagColors: tagColorsAdminPayload(theme),
+          tagColorsEnabled: resolveTagColorsEnabled(theme),
           typography: typographyPayload(theme),
           updatedAt: theme.updatedAt,
         },
@@ -153,6 +163,7 @@ const siteThemeController = {
             ...EMPTY_THEME_COLORS,
             uiCustom: EMPTY_UI_CUSTOM,
             tagColors: mergeStoredTagColors(null),
+            tagColorsEnabled: true,
             typography: mergeStoredTypography(null),
           },
         });
@@ -165,6 +176,7 @@ const siteThemeController = {
           bodyBgColor: publicBodyBgColor(theme.bodyBgColor),
           uiCustom: themeUiCustomPayload(theme),
           tagColors: tagColorsPublicPayload(theme),
+          tagColorsEnabled: resolveTagColorsEnabled(theme),
           typography: typographyPayload(theme),
         },
       });
@@ -176,6 +188,7 @@ const siteThemeController = {
           ...EMPTY_THEME_COLORS,
           uiCustom: EMPTY_UI_CUSTOM,
           tagColors: mergeStoredTagColors(null),
+          tagColorsEnabled: true,
           typography: mergeStoredTypography(null),
         },
       });
@@ -324,9 +337,18 @@ const siteThemeController = {
   async updateTagColors(req, res) {
     try {
       const nextTagColors = sanitizeTagColors(req.body);
+      const enabledRaw = req.body?.tagColorsEnabled;
+      const nextTagColorsEnabled =
+        typeof enabledRaw === 'boolean' ? enabledRaw : undefined;
       let theme = await SiteTheme.findOne();
       if (!theme) {
         theme = new SiteTheme({});
+      }
+
+      if (typeof nextTagColorsEnabled === 'boolean') {
+        theme.tagColorsEnabled = nextTagColorsEnabled;
+      } else if (typeof theme.tagColorsEnabled !== 'boolean') {
+        theme.tagColorsEnabled = true;
       }
 
       if (!theme.tagColors) theme.tagColors = {};
@@ -347,6 +369,7 @@ const siteThemeController = {
         message: 'Tag colors saved',
         data: {
           tagColors: tagColorsAdminPayload(theme),
+          tagColorsEnabled: resolveTagColorsEnabled(theme),
           updatedAt: theme.updatedAt,
         },
       });
