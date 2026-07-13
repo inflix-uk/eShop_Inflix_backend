@@ -1,6 +1,6 @@
 const HEX6 = /^#[0-9A-Fa-f]{6}$/;
 
-const TAG_KEYS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label'];
+const TAG_KEYS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'label', 'bookingCalendarDate', 'bookingSelectedDateBg', 'bookingSelectedSlotBg'];
 
 const DEFAULT_TAG_COLORS = {
   h1: '#111827',
@@ -12,6 +12,9 @@ const DEFAULT_TAG_COLORS = {
   p: '#374151',
   span: '#374151',
   label: '#374151',
+  bookingCalendarDate: '#111827',
+  bookingSelectedDateBg: '#c2fc12',
+  bookingSelectedSlotBg: '#c2fc12',
 };
 
 function normalizeHex(input) {

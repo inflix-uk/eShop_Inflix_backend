@@ -58,6 +58,11 @@ const siteThemeSchema = new Schema(
         },
       },
     },
+    /** When false, storefront skips global h1–h6/p/span/label color overrides (section pickers win). */
+    tagColorsEnabled: {
+      type: Boolean,
+      default: true,
+    },
     tagColors: {
       h1: { type: String, default: '', trim: true },
       h2: { type: String, default: '', trim: true },
@@ -68,6 +73,9 @@ const siteThemeSchema = new Schema(
       p: { type: String, default: '', trim: true },
       span: { type: String, default: '', trim: true },
       label: { type: String, default: '', trim: true },
+      bookingCalendarDate: { type: String, default: '', trim: true },
+      bookingSelectedDateBg: { type: String, default: '', trim: true },
+      bookingSelectedSlotBg: { type: String, default: '', trim: true },
     },
     typography: {
       type: typographySchema,
