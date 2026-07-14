@@ -637,7 +637,7 @@ router.patch('/update/role/:id',                      ...requireSuperadmin, role
 router.delete('/delete/role/:id',                     ...requireSuperadmin, roleAndPermissons.deleteRole);
 router.get('/get/all/roles',                          ...requireAdmin, roleAndPermissons.getAllRole);
 router.get('/get/users/by-role/:roleId',              ...requireAdmin, roleAndPermissons.getUsersByRole);
-router.post('/implement/permission/on/role',          ...requireSuperadmin, roleAndPermissons.implementPermissionOnRole);
+router.post('/implement/permission/on/role',          ...requireAdmin, roleAndPermissons.implementPermissionOnRole);
 
 // ========================================================================
 // PDF LABELS MANAGEMENT

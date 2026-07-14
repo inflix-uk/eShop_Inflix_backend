@@ -83,6 +83,11 @@ const bookingPackageSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    bundleBenefits: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     isdeleted: {
       type: Boolean,
       default: false,
