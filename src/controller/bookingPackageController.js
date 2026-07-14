@@ -244,6 +244,7 @@ const bookingPackageController = {
         highlightBadgeEnabled,
         highlightBadgeText,
         highlightBadgeUrl,
+        bundleBenefits,
       } = req.body;
 
       if (!name || !type || durationMinutes === undefined || price === undefined) {
@@ -273,6 +274,7 @@ const bookingPackageController = {
         highlightBadgeEnabled: Boolean(highlightBadgeEnabled),
         highlightBadgeText: normalizeHighlightBadgeText(highlightBadgeText),
         highlightBadgeUrl: normalizeHighlightBadgeUrl(highlightBadgeUrl),
+        bundleBenefits: bundleBenefits || '',
       });
 
       await newPackage.save();
@@ -322,6 +324,7 @@ const bookingPackageController = {
         highlightBadgeEnabled,
         highlightBadgeText,
         highlightBadgeUrl,
+        bundleBenefits,
       } = req.body;
 
       if (type !== undefined && !isValidPackageType(type)) {
@@ -345,6 +348,9 @@ const bookingPackageController = {
       }
       if (highlightBadgeText !== undefined) {
         existing.highlightBadgeText = normalizeHighlightBadgeText(highlightBadgeText);
+      }
+      if (bundleBenefits !== undefined) {
+        existing.bundleBenefits = bundleBenefits || '';
       }
       if (highlightBadgeUrl !== undefined) {
         existing.highlightBadgeUrl = normalizeHighlightBadgeUrl(highlightBadgeUrl);
