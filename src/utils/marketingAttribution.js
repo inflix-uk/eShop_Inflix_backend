@@ -17,7 +17,11 @@ const MAX_LEN = {
   generic: 256,
 };
 
-const ALLOWED_CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'ttclid'];
+/** URL click IDs — kept even without marketing consent (guide §7.5). */
+const URL_CLICK_IDS = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'ttclid', 'oppref'];
+/** Cookie-based Meta IDs — marketing consent required. */
+const COOKIE_CLICK_IDS = ['fbc', 'fbp'];
+const ALLOWED_CLICK_IDS = [...URL_CLICK_IDS, ...COOKIE_CLICK_IDS];
 const CAMPAIGN_ID_KEYS = [
   'googleCampaignId',
   'googleAdGroupId',
@@ -98,15 +102,29 @@ function normalizeTouch(rawTouch) {
   return Object.keys(touch).length > 0 ? touch : undefined;
 }
 
-function normalizeClickIds(raw, allowClickIds) {
-  if (!allowClickIds || !raw || typeof raw !== 'object' || Array.isArray(raw)) {
+/**
+ * Guide §7.5: always keep URL click IDs; fbc/fbp only when marketing allowed.
+ * @param {object} raw
+ * @param {{ allowCookieClickIds?: boolean }} options
+ */
+function normalizeClickIds(raw, options = {}) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return undefined;
   }
 
+  const allowCookieClickIds = options.allowCookieClickIds !== false;
   const clickIds = {};
-  for (const key of ALLOWED_CLICK_IDS) {
+
+  for (const key of URL_CLICK_IDS) {
     const value = sanitizeString(raw[key], MAX_LEN.clickId);
     if (value) clickIds[key] = value;
+  }
+
+  if (allowCookieClickIds) {
+    for (const key of COOKIE_CLICK_IDS) {
+      const value = sanitizeString(raw[key], MAX_LEN.clickId);
+      if (value) clickIds[key] = value;
+    }
   }
 
   return Object.keys(clickIds).length > 0 ? clickIds : undefined;
@@ -315,12 +333,12 @@ function normalizeMarketingAttribution(raw) {
 
     const consent = normalizeConsent(raw.consent);
     const marketingConsentDenied = consent?.marketing === false;
-    const allowClickIds = !marketingConsentDenied;
+    const allowCookieClickIds = consent?.marketing === true;
 
     const firstTouch = normalizeTouch(raw.firstTouch);
     const lastTouch = normalizeTouch(raw.lastTouch);
     const orderTouch = normalizeTouch(raw.orderTouch);
-    const clickIds = normalizeClickIds(raw.clickIds, allowClickIds);
+    const clickIds = normalizeClickIds(raw.clickIds, { allowCookieClickIds });
     const campaignIds = normalizeCampaignIds(raw.campaignIds);
     const touches = [firstTouch, lastTouch, orderTouch].filter(Boolean);
 
@@ -366,6 +384,12 @@ function normalizeMarketingAttribution(raw) {
     const visitorId = sanitizeString(raw.visitorId, MAX_LEN.visitorId);
     if (sessionId) result.sessionId = sessionId;
     if (visitorId) result.visitorId = visitorId;
+
+    const analyticsAllowed = consent?.analytics === true;
+    if (analyticsAllowed) {
+      const gaClientId = sanitizeString(raw.gaClientId, MAX_LEN.visitorId);
+      if (gaClientId) result.gaClientId = gaClientId;
+    }
 
     return result;
   } catch (err) {

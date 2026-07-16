@@ -13,6 +13,10 @@ function normalizeCampaign(value) {
   return String(value).trim();
 }
 
+function campaignKey(value) {
+  return normalizeCampaign(value).toLowerCase();
+}
+
 function computeRoas(revenue, spend) {
   if (!spend || spend <= 0) return null;
   return round2(revenue / spend);
@@ -50,9 +54,12 @@ async function aggregateSpendByCampaign(startDate, endDate, platform = DEFAULT_P
   for (const row of rows) {
     const campaign = normalizeCampaign(row._id);
     if (!campaign) continue;
-    map.set(campaign, {
-      spend: round2(row.spend),
-      recordCount: row.recordCount,
+    const key = campaignKey(campaign);
+    const existing = map.get(key);
+    map.set(key, {
+      campaign: existing?.campaign || campaign,
+      spend: round2((existing?.spend || 0) + (row.spend || 0)),
+      recordCount: (existing?.recordCount || 0) + (row.recordCount || 0),
     });
   }
   return map;
@@ -60,46 +67,69 @@ async function aggregateSpendByCampaign(startDate, endDate, platform = DEFAULT_P
 
 /**
  * Join Google Ads spend with attributed campaign revenue for ROAS / ROI.
+ * Spend-only campaigns (no orders yet) are included — matches Campaign ROAS & CPA table.
  */
 function buildCampaignRoasRows(revenueByCampaign, spendByCampaign) {
-  const campaignNames = new Set([
-    ...(revenueByCampaign || []).map((row) => normalizeCampaign(row.campaign)),
-    ...[...spendByCampaign.keys()],
-  ]);
+  const revenueMap = new Map();
+  for (const row of revenueByCampaign || []) {
+    const name = normalizeCampaign(row.campaign);
+    if (!name) continue;
+    const key = campaignKey(name);
+    const existing = revenueMap.get(key);
+    if (existing) {
+      existing.revenue += Number(row.revenue) || 0;
+      existing.orders += Number(row.orders) || 0;
+    } else {
+      revenueMap.set(key, {
+        campaign: name,
+        revenue: Number(row.revenue) || 0,
+        orders: Number(row.orders) || 0,
+      });
+    }
+  }
 
-  const revenueMap = new Map(
-    (revenueByCampaign || []).map((row) => [normalizeCampaign(row.campaign), row])
-  );
-
+  const keys = new Set([...revenueMap.keys(), ...spendByCampaign.keys()]);
   const rows = [];
 
-  for (const campaign of campaignNames) {
+  for (const key of keys) {
+    if (!key) continue;
+
+    const revenueRow = revenueMap.get(key) || { campaign: null, revenue: 0, orders: 0 };
+    const spendRow = spendByCampaign.get(key);
+    const campaign = spendRow?.campaign || revenueRow.campaign;
     if (!campaign) continue;
 
-    const revenueRow = revenueMap.get(campaign) || { revenue: 0, orders: 0 };
-    const spendRow = spendByCampaign.get(campaign);
     const spend = spendRow?.spend ?? 0;
     const revenue = round2(revenueRow.revenue || 0);
     const orders = revenueRow.orders || 0;
     const hasSpend = spend > 0;
+    // Image parity: with spend and 0 orders, CPA shows £0.00 (not N/A).
+    const cac = hasSpend ? (orders > 0 ? computeCac(spend, orders) : 0) : null;
+    const roas = hasSpend ? computeRoas(revenue, spend) : null;
 
     rows.push({
+      source: 'Google Ads',
       name: campaign,
       orders,
       revenue,
       aov: orders > 0 ? round2(revenue / orders) : 0,
       spend: hasSpend ? spend : null,
-      roas: hasSpend ? computeRoas(revenue, spend) : null,
+      roas,
       roi: hasSpend ? computeRoiPercent(revenue, spend) : null,
-      cac: hasSpend ? computeCac(spend, orders) : null,
+      cac,
       spendAvailability: hasSpend ? 'available' : UNAVAILABLE,
       roasAvailability: hasSpend ? 'available' : UNAVAILABLE,
       roiAvailability: hasSpend ? 'available' : UNAVAILABLE,
-      cacAvailability: hasSpend && orders > 0 ? 'available' : UNAVAILABLE,
+      cacAvailability: hasSpend ? 'available' : UNAVAILABLE,
     });
   }
 
-  return rows.sort((a, b) => (b.spend || 0) - (a.spend || 0) || b.revenue - a.revenue);
+  return rows.sort(
+    (a, b) =>
+      (b.spend || 0) - (a.spend || 0) ||
+      b.revenue - a.revenue ||
+      String(a.name).localeCompare(String(b.name))
+  );
 }
 
 async function getAdvertisingPerformance(startDate, endDate, platform = DEFAULT_PLATFORM) {
@@ -148,6 +178,22 @@ async function getAdSpendRoasMetrics(startDate, endDate, revenueByCampaign) {
   const blendedRoi = computeRoiPercent(attributedRevenue, advertisingPerformance.totalSpend);
   const blendedCac = computeCac(advertisingPerformance.totalSpend, attributedOrders);
 
+  /** Rows for Overview "Campaign ROAS & CPA" — spend campaigns only. */
+  const campaignRoasCpa = campaignsWithSpend.map((row) => ({
+    source: row.source || 'Google Ads',
+    campaign: row.name,
+    name: row.name,
+    spend: row.spend,
+    revenue: row.revenue,
+    orders: row.orders,
+    roas: row.roas ?? 0,
+    cpa: row.cac ?? 0,
+    cac: row.cac ?? 0,
+    spendAvailability: 'available',
+    roasAvailability: 'available',
+    cacAvailability: 'available',
+  }));
+
   return {
     advertisingPerformance: {
       ...advertisingPerformance,
@@ -158,6 +204,7 @@ async function getAdSpendRoasMetrics(startDate, endDate, revenueByCampaign) {
       blendedCac,
     },
     campaignRoasRoi,
+    campaignRoasCpa,
     campaignPerformance: campaignRoasRoi,
   };
 }

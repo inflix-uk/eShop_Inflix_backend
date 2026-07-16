@@ -494,6 +494,7 @@ router.post('/return-order-options/seed',              ...requireAdmin, returnOr
 // ========================================================================
 // COUPON MANAGEMENT
 // ========================================================================
+router.post('/validate/coupon',                        couponController.validateCouponForCheckout);
 router.post('/create/coupon',                          ...requireAdmin, couponController.createCoupon);
 router.get('/get/all/coupons',                         ...requireAdmin, couponController.getAllCoupon);
 router.get('/get/coupon/:id',                          ...requireAdmin, couponController.getCouponById);
@@ -514,8 +515,37 @@ router.get('/get/stats4',                              ...requireAdmin, adminSta
 // ========================================================================
 const analyticsAdSpendController = require('../controller/analyticsAdSpendController');
 const analyticsOverviewController = require('../controller/analyticsOverviewController');
+const analyticsAdPerformanceController = require('../controller/analyticsAdPerformanceController');
+const analyticsCampaignController = require('../controller/analyticsCampaignController');
+const analyticsOrderFraudController = require('../controller/analyticsOrderFraudController');
 const analyticsVisitorSessionController = require('../controller/analyticsVisitorSessionController');
 router.get('/analytics/overview', ...requireAdmin, analyticsOverviewController.getOverview);
+router.patch(
+  '/analytics/order/:id/fraud',
+  ...requireAdmin,
+  analyticsOrderFraudController.setFraudFlag
+);
+router.get(
+  '/analytics/ad-performance',
+  ...requireAdmin,
+  analyticsAdPerformanceController.getAdPerformance
+);
+router.get(
+  '/analytics/ad-performance/orders',
+  ...requireAdmin,
+  analyticsAdPerformanceController.getAdPerformanceOrders
+);
+router.get(
+  '/analytics/campaigns',
+  ...requireAdmin,
+  analyticsCampaignController.getCampaignAnalytics
+);
+router.get(
+  '/analytics/campaigns/orders',
+  ...requireAdmin,
+  analyticsCampaignController.getCampaignOrders
+);
+router.post('/analytics/campaign/click', analyticsCampaignController.trackClick);
 router.post('/analytics/ad-spend', ...requireAdmin, analyticsAdSpendController.upsert);
 router.post('/analytics/visitor-session', analyticsVisitorSessionController.record);
 router.get('/get/order/stats',                         ...requireAdmin, adminStatsController.getOrderStats);

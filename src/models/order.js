@@ -123,7 +123,11 @@ const orderSchema = new mongoose.Schema({
             fbclid: String,
             msclkid: String,
             ttclid: String,
+            oppref: String,
+            fbc: String,
+            fbp: String,
         },
+        gaClientId: String,
         campaignIds: {
             googleCampaignId: String,
             googleAdGroupId: String,
@@ -157,6 +161,13 @@ const orderSchema = new mongoose.Schema({
         type: String,
         required: false,
     },
+    /** Manual marketing fraud flag — excluded from fraud-adjusted ROAS/POAS. */
+    marketingFraud: {
+        flagged: { type: Boolean, default: false },
+        reason: { type: String, default: null },
+        flaggedAt: { type: Date, default: null },
+        flaggedBy: { type: String, default: null },
+    },
     createdAt: {
         type: Date,
         default: Date.now
@@ -172,6 +183,8 @@ const orderSchema = new mongoose.Schema({
     
     
 });
+
+orderSchema.index({ 'marketingFraud.flagged': 1, createdAt: -1 }, { sparse: true });
 
 // Index for filtering by isdeleted status
 orderSchema.index({ isdeleted: 1 });

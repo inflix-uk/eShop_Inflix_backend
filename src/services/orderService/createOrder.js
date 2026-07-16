@@ -928,7 +928,40 @@ function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInform
  */
 const createOrderService = async (orderData, req = null) => {
     try {
-        let { cart, shippingInformation, contactInformation, coupon, paymentDetails, orderNumber, status, shippingMethod, marketingAttribution } = orderData;
+        let {
+            cart,
+            shippingInformation,
+            contactInformation,
+            coupon,
+            paymentDetails,
+            orderNumber,
+            status,
+            shippingMethod,
+            marketingAttribution,
+            conversionConsent,
+        } = orderData;
+
+        // Guide §6.6 — merge top-level conversionConsent into attribution.consent when present.
+        if (
+            conversionConsent &&
+            typeof conversionConsent === 'object' &&
+            !Array.isArray(conversionConsent)
+        ) {
+            const base =
+                marketingAttribution && typeof marketingAttribution === 'object'
+                    ? { ...marketingAttribution }
+                    : {};
+            marketingAttribution = {
+                ...base,
+                consent: {
+                    ...(base.consent && typeof base.consent === 'object' ? base.consent : {}),
+                    analytics: conversionConsent.analytics === true,
+                    marketing: conversionConsent.marketing === true,
+                    capturedAt:
+                        (base.consent && base.consent.capturedAt) || new Date().toISOString(),
+                },
+            };
+        }
 
         // ====================================================================
         // STEP 1: Validate Cart
