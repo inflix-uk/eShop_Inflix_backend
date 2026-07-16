@@ -158,5 +158,90 @@ console.log(req.body);
         }
     },
 
+    /**
+     * Public storefront endpoint: validate a single coupon by code.
+     * Does not list all coupons (admin-only).
+     */
+    validateCouponForCheckout: async (req, res) => {
+        try {
+            const rawCode = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+            const cartTotal = Number(req.body?.cartTotal) || 0;
+            const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+
+            if (!rawCode) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Coupon code is required',
+                    status: 400,
+                });
+            }
+
+            const coupon = await Coupon.findOne({
+                code: { $regex: new RegExp(`^${rawCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+            }).lean();
+
+            if (!coupon || coupon.status === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Invalid coupon code',
+                    status: 404,
+                });
+            }
+
+            if (coupon.expiryDate && new Date(coupon.expiryDate) < new Date()) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This coupon has expired.',
+                    status: 400,
+                });
+            }
+
+            if (typeof coupon.usage === 'number' && coupon.usage > 0 && (coupon.used || 0) >= coupon.usage) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This coupon is no longer available.',
+                    status: 400,
+                });
+            }
+
+            if (coupon.minOrderValue > 0 && cartTotal < coupon.minOrderValue) {
+                return res.status(400).json({
+                    success: false,
+                    message: `This coupon requires a minimum order of £${coupon.minOrderValue}.`,
+                    status: 400,
+                });
+            }
+
+            if (userId && !coupon.allowMultiple && Array.isArray(coupon.usageHistory)) {
+                const alreadyUsed = coupon.usageHistory.some(
+                    (usage) => String(usage.userId) === String(userId)
+                );
+                if (alreadyUsed) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'You have already used this coupon.',
+                        status: 400,
+                    });
+                }
+            }
+
+            const { usageHistory, ...safeCoupon } = coupon;
+
+            return res.json({
+                success: true,
+                message: 'Coupon is valid',
+                coupon: safeCoupon,
+                status: 201,
+            });
+        } catch (error) {
+            console.error('Error validating coupon:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error',
+                status: 500,
+            });
+        }
+    },
+
 }
 module.exports = couponController;

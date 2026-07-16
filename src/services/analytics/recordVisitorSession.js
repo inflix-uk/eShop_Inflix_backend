@@ -1,4 +1,5 @@
 const MarketingVisitorSession = require('../../models/marketingVisitorSession');
+const { normalizeMarketingAttribution } = require('../../utils/marketingAttribution');
 
 function sanitizeId(value, maxLen = 128) {
   if (value == null) return undefined;
@@ -15,7 +16,16 @@ function parseDate(value) {
 
 /**
  * Upsert a marketing visitor session (storefront, consent-gated). Never throws.
- * @param {{ sessionId?: string, visitorId?: string, startedAt?: string|Date, landingPage?: string }} payload
+ * Accepts optional attribution (same raw shape as order marketingAttribution).
+ * @param {{
+ *   sessionId?: string,
+ *   visitorId?: string,
+ *   startedAt?: string|Date,
+ *   landingPage?: string,
+ *   deviceType?: string,
+ *   attribution?: object,
+ *   marketingAttribution?: object,
+ * }} payload
  */
 async function recordVisitorSession(payload = {}) {
   const sessionId = sanitizeId(payload.sessionId);
@@ -26,16 +36,35 @@ async function recordVisitorSession(payload = {}) {
   const landingPage = payload.landingPage
     ? String(payload.landingPage).trim().slice(0, 2048)
     : undefined;
+  const deviceRaw = String(payload.deviceType || '')
+    .trim()
+    .toLowerCase();
+  const deviceType = ['mobile', 'desktop', 'tablet', 'unknown'].includes(deviceRaw)
+    ? deviceRaw
+    : undefined;
   const now = new Date();
+
+  const rawAttribution = payload.attribution || payload.marketingAttribution;
+  const normalizedAttribution =
+    rawAttribution && typeof rawAttribution === 'object' && !Array.isArray(rawAttribution)
+      ? normalizeMarketingAttribution(rawAttribution)
+      : undefined;
+
+  const $set = {
+    lastSeenAt: now,
+    ...(visitorId ? { visitorId } : {}),
+    ...(landingPage ? { landingPage } : {}),
+    ...(deviceType ? { deviceType } : {}),
+  };
+
+  if (normalizedAttribution) {
+    $set.attribution = normalizedAttribution;
+  }
 
   await MarketingVisitorSession.findOneAndUpdate(
     { sessionId },
     {
-      $set: {
-        lastSeenAt: now,
-        ...(visitorId ? { visitorId } : {}),
-        ...(landingPage ? { landingPage } : {}),
-      },
+      $set,
       $setOnInsert: {
         sessionId,
         startedAt,
