@@ -271,7 +271,7 @@ const bookingController = {
         bookingNumber: normalizedNumber,
         isdeleted: false,
       })
-        .populate('packageId', 'name price durationMinutes type')
+        .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
         .lean();
 
       if (!booking) {
@@ -279,7 +279,7 @@ const bookingController = {
           groupBookingNumber: normalizedNumber,
           isdeleted: false,
         })
-          .populate('packageId', 'name price durationMinutes type')
+          .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
           .lean();
       }
 
@@ -294,7 +294,7 @@ const bookingController = {
       const syncedBooking = await syncBookingPaymentIfNeeded(booking);
       if (syncedBooking && syncedBooking._id) {
         booking = await Booking.findOne({ _id: syncedBooking._id })
-          .populate('packageId', 'name price durationMinutes type')
+          .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
           .lean();
       }
 
@@ -352,7 +352,7 @@ const bookingController = {
       }
 
       const bookings = await Booking.find(filter)
-        .populate('packageId', 'name price durationMinutes type')
+        .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
         .sort({ date: -1, startTime: -1 })
         .lean();
 
@@ -386,7 +386,7 @@ const bookingController = {
 
       const [bookings, total] = await Promise.all([
         Booking.find(filter)
-          .populate('packageId', 'name price durationMinutes type')
+          .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(Number(limit))
@@ -420,7 +420,7 @@ const bookingController = {
       }
 
       const booking = await Booking.findOne({ _id: id })
-        .populate('packageId', 'name price durationMinutes type description image')
+        .populate('packageId', 'name price durationMinutes durationDisplayUnit type description image')
         .lean();
 
       if (!booking) {
@@ -494,7 +494,7 @@ const bookingController = {
         { _id: id },
         update,
         { new: true }
-      ).populate('packageId', 'name price durationMinutes type');
+      ).populate('packageId', 'name price durationMinutes durationDisplayUnit type');
 
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found', status: 404 });
@@ -543,7 +543,7 @@ const bookingController = {
         { _id: id },
         update,
         { new: true }
-      ).populate('packageId', 'name price durationMinutes type');
+      ).populate('packageId', 'name price durationMinutes durationDisplayUnit type');
 
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found', status: 404 });

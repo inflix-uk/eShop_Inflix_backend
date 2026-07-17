@@ -114,6 +114,7 @@ async function getAvailableSlots(packageId, date) {
       name: pkg.name,
       type: pkg.type,
       durationMinutes: pkg.durationMinutes,
+      durationDisplayUnit: pkg.durationDisplayUnit || 'minutes',
       price: pkg.price,
     },
     date,

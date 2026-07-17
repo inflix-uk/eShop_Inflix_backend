@@ -98,7 +98,19 @@ async function buildEmailHtml({ eventType, booking, pkg, newBooking, cancelReaso
   const customerName = booking?.customer?.name || 'Customer';
   const bookingNumber = booking?.bookingNumber || '';
   const packageName = getPackageName(booking, pkg);
-  const duration = pkg?.durationMinutes || booking?.packageId?.durationMinutes;
+  const durationMinutes = pkg?.durationMinutes || booking?.packageId?.durationMinutes;
+  const durationUnit =
+    pkg?.durationDisplayUnit || booking?.packageId?.durationDisplayUnit || 'minutes';
+  const durationLabel = (() => {
+    const minutes = Number(durationMinutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) return '';
+    if (durationUnit === 'hours') {
+      const hours = minutes / 60;
+      const value = Number.isInteger(hours) ? String(hours) : String(Math.round(hours * 100) / 100);
+      return `${value} hr`;
+    }
+    return `${minutes} min`;
+  })();
   const storeName = process.env.STORE_NAME || process.env.EMAIL_FROM_NAME || 'Our team';
 
   let bodyExtra = '';
@@ -177,7 +189,7 @@ async function buildEmailHtml({ eventType, booking, pkg, newBooking, cancelReaso
                 </tr>
                 <tr>
                   <td style="padding:6px 0;color:#666;">Service</td>
-                  <td style="padding:6px 0;color:#333;">${escapeHtml(packageName)}${duration ? ` • ${duration} min` : ''}</td>
+                  <td style="padding:6px 0;color:#333;">${escapeHtml(packageName)}${durationLabel ? ` • ${escapeHtml(durationLabel)}` : ''}</td>
                 </tr>
               </table>
 

@@ -25,6 +25,12 @@ const bookingPackageSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+    /** How admins entered/display duration in UI — canonical storage stays durationMinutes. */
+    durationDisplayUnit: {
+      type: String,
+      enum: ['minutes', 'hours'],
+      default: 'minutes',
+    },
     price: {
       type: Number,
       required: true,

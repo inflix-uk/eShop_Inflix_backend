@@ -100,7 +100,7 @@ async function rescheduleBooking({
     }
 
     const originalPopulated = await Booking.findById(originalBooking._id)
-      .populate('packageId', 'name price durationMinutes type')
+      .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
       .lean();
 
     const { notifyBookingStatusEmail } = require('../email/bookingStatusEmailService');

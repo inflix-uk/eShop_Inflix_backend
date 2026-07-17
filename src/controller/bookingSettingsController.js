@@ -23,6 +23,9 @@ const bookingSettingsController = {
           timezone: settings.timezone,
           minAdvanceBookingHours: settings.minAdvanceBookingHours,
           maxAdvanceBookingDays: settings.maxAdvanceBookingDays,
+          slotIntervalDisplayUnit: settings.slotIntervalDisplayUnit || 'minutes',
+          holdDurationDisplayUnit: settings.holdDurationDisplayUnit || 'minutes',
+          minAdvanceDisplayUnit: settings.minAdvanceDisplayUnit || 'hours',
         },
       });
     } catch (error) {
@@ -54,6 +57,9 @@ const bookingSettingsController = {
         timezone,
         minAdvanceBookingHours,
         maxAdvanceBookingDays,
+        slotIntervalDisplayUnit,
+        holdDurationDisplayUnit,
+        minAdvanceDisplayUnit,
         updatedBy,
       } = req.body;
 
@@ -68,6 +74,15 @@ const bookingSettingsController = {
       }
       if (maxAdvanceBookingDays !== undefined) {
         settings.maxAdvanceBookingDays = Number(maxAdvanceBookingDays);
+      }
+      if (slotIntervalDisplayUnit === 'hours' || slotIntervalDisplayUnit === 'minutes') {
+        settings.slotIntervalDisplayUnit = slotIntervalDisplayUnit;
+      }
+      if (holdDurationDisplayUnit === 'hours' || holdDurationDisplayUnit === 'minutes') {
+        settings.holdDurationDisplayUnit = holdDurationDisplayUnit;
+      }
+      if (minAdvanceDisplayUnit === 'hours' || minAdvanceDisplayUnit === 'minutes') {
+        settings.minAdvanceDisplayUnit = minAdvanceDisplayUnit;
       }
       if (updatedBy) settings.updatedBy = updatedBy;
 

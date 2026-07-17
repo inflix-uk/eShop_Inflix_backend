@@ -92,7 +92,7 @@ async function cancelBooking({
     }
 
     const populated = await Booking.findById(booking._id)
-      .populate('packageId', 'name price durationMinutes type')
+      .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
       .lean();
 
     const { notifyBookingStatusEmail } = require('../email/bookingStatusEmailService');
