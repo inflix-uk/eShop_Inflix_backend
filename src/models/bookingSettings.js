@@ -11,10 +11,22 @@ const bookingSettingsSchema = new mongoose.Schema(
       default: 30,
       min: 5,
     },
+    /** UI preference for slot interval field (canonical value is always minutes). */
+    slotIntervalDisplayUnit: {
+      type: String,
+      enum: ['minutes', 'hours'],
+      default: 'minutes',
+    },
     holdDurationMinutes: {
       type: Number,
       default: 15,
       min: 1,
+    },
+    /** UI preference for hold duration field (canonical value is always minutes). */
+    holdDurationDisplayUnit: {
+      type: String,
+      enum: ['minutes', 'hours'],
+      default: 'minutes',
     },
     timezone: {
       type: String,
@@ -25,6 +37,12 @@ const bookingSettingsSchema = new mongoose.Schema(
       type: Number,
       default: 2,
       min: 0,
+    },
+    /** UI preference for min advance field (canonical value is always hours; may be fractional). */
+    minAdvanceDisplayUnit: {
+      type: String,
+      enum: ['minutes', 'hours'],
+      default: 'hours',
     },
     maxAdvanceBookingDays: {
       type: Number,

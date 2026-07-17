@@ -233,6 +233,7 @@ const bookingPackageController = {
         slug,
         type,
         durationMinutes,
+        durationDisplayUnit,
         price,
         description,
         detailPage,
@@ -258,11 +259,17 @@ const bookingPackageController = {
         return res.status(400).json({ error: 'Invalid package type', status: 400 });
       }
 
+      const unit =
+        durationDisplayUnit === 'hours' || durationDisplayUnit === 'minutes'
+          ? durationDisplayUnit
+          : 'minutes';
+
       const newPackage = new BookingPackage({
         name: String(name).trim(),
         slug: slug ? String(slug).trim() : null,
         type,
         durationMinutes: Number(durationMinutes),
+        durationDisplayUnit: unit,
         price: Number(price),
         description: description || '',
         detailPage: detailPage || '',
@@ -313,6 +320,7 @@ const bookingPackageController = {
         slug,
         type,
         durationMinutes,
+        durationDisplayUnit,
         price,
         description,
         detailPage,
@@ -335,6 +343,9 @@ const bookingPackageController = {
       if (slug !== undefined) existing.slug = slug ? String(slug).trim() : null;
       if (type !== undefined) existing.type = type;
       if (durationMinutes !== undefined) existing.durationMinutes = Number(durationMinutes);
+      if (durationDisplayUnit === 'hours' || durationDisplayUnit === 'minutes') {
+        existing.durationDisplayUnit = durationDisplayUnit;
+      }
       if (price !== undefined) existing.price = Number(price);
       if (description !== undefined) existing.description = description;
       if (detailPage !== undefined) existing.detailPage = detailPage;
