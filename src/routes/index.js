@@ -77,10 +77,6 @@ const resolvePricingScope = require('../../middleware/resolvePricingScope');
 const optionalAuth = require('../../middleware/optionalAuth');
 const paymentIntentRateLimit = require('../../middleware/paymentIntentRateLimit');
 const {
-  userLoginRateLimit,
-  superadminLoginRateLimit,
-} = require('../../middleware/loginRateLimits');
-const {
   forgotPasswordRateLimit,
   resetPasswordRateLimit,
 } = require('../../middleware/passwordResetRateLimits');
@@ -159,8 +155,8 @@ router.post('/register',                      registerRateLimit, usersController
 router.post('/registerUser/fromAdmin',        ...requireAdmin, usersController.registerUserFromAdmin);
 
 // Authentication & password management
-router.post('/login',                         userLoginRateLimit, usersController.loginUser);
-router.post('/superadmin/login',              superadminLoginRateLimit, usersController.superadminLogin);
+router.post('/login',                         usersController.loginUser);
+router.post('/superadmin/login',              usersController.superadminLogin);
 router.post('/logout',                        usersController.logoutUser);
 router.get('/auth/me',                        requireAuth, usersController.getSessionUser);
 router.patch('/update/user/:id',              requireAuth, usersController.updateUser);
@@ -329,7 +325,9 @@ router.put('/update/variant-attribute-model-details/:id/:valueSlug/:modelSlug', 
 // PRODUCT MANAGEMENT (Admin Panel)
 // ========================================================================
 // Product CRUD Operations
-router.post('/create/product',                        ...requireAdmin, adminProductController.createProduct); 
+router.post('/create/product',                        ...requireAdmin, adminProductController.createProduct);
+router.post('/import/products',                       ...requireAdmin, adminProductController.importProducts);
+router.get('/get/product/csv-reference',               ...requireAdmin, adminProductController.getCsvReferenceData); 
 router.patch('/update/product/:id',                   ...requireAdmin, adminProductController.updateProduct);
 router.patch('/status/product/:id',                   ...requireAdmin, adminProductController.statusProduct); 
 router.patch('/feature/product/:id',                  ...requireAdmin, adminProductController.featureProduct);

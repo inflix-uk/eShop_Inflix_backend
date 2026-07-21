@@ -19,6 +19,7 @@ const mongoose = require('mongoose');
 // Import services
 const updateProductService = require('../services/productService/updateProduct');
 const createProductService = require('../services/productService/createProduct');
+const importProductsService = require('../services/productService/importProducts');
 
 
 
@@ -51,7 +52,7 @@ const adminProductController = {
                     is_refundable, is_authenticated, low_stock_quantity_alert,
                     Shipping_Information, has_warranty, productType, discount,
                     Purchase_Quantity, status, Seo_Meta, Product_summary,
-                    Product_description, specifications, comes_with, variantDesc,
+                    Product_description, specifications, comesWithItems, variantDesc,
                     sim_option, productSalePrice, battery, producturl
                 } = req.body;
 
@@ -60,7 +61,7 @@ const adminProductController = {
                     name, category, subcategory, tags, brand, condition, is_featured,
                     is_refundable, is_authenticated, low_stock_quantity_alert,
                     has_warranty, productType, status, Seo_Meta, Product_summary,
-                    Product_description, specifications, comes_with, variantDesc,
+                    Product_description, specifications, comesWithItems, variantDesc,
                     sim_option, battery, producturl, req
                 });
 
@@ -75,6 +76,81 @@ const adminProductController = {
         } catch (error) {
             console.error('Error creating product:', error);
             return res.json({ message: 'Failed to create product', status: 500 });
+        }
+    },
+
+    /**
+     * Every dropdown-backed value a product can reference, in one call.
+     * Feeds the spreadsheet export's data-validation lists so the options in
+     * the file always match what the product form itself offers.
+     */
+    getCsvReferenceData: async (req, res) => {
+        try {
+            const ProductCategory = require('../models/productCategories');
+            const ProductTag = require('../models/productTags');
+            const VariantAttribute = require('../models/VariantAttribute');
+
+            const [categories, tags, attributes] = await Promise.all([
+                ProductCategory.find({ isPublish: true }, { name: 1, subCategory: 1 }).lean(),
+                ProductTag.find({ isPublished: true }, { name: 1 }).lean(),
+                VariantAttribute.find({ isDeleted: { $ne: true }, isActive: { $ne: false } }).lean(),
+            ]);
+
+            const reference = {
+                categories: categories.map(c => ({
+                    name: c.name,
+                    subCategories: Array.isArray(c.subCategory) ? c.subCategory : [],
+                })),
+                tags: tags.map(t => t.name).filter(Boolean),
+                attributes: attributes.map(a => ({
+                    name: a.name,
+                    slug: a.slug,
+                    hasModels: !!a.hasModels,
+                    values: (a.values || [])
+                        .filter(v => v.isActive !== false && v.isDeleted !== true)
+                        .map(v => ({
+                            name: v.name,
+                            slug: v.slug,
+                            models: (v.models || [])
+                                .filter(m => m.isActive !== false && m.isDeleted !== true)
+                                .map(m => ({ name: m.name, slug: m.slug })),
+                        })),
+                })),
+            };
+
+            return res.json({ message: 'Reference data retrieved', reference, status: 200 });
+        } catch (error) {
+            console.error('Error getting CSV reference data:', error);
+            return res.json({ message: 'Failed to get reference data', status: 500 });
+        }
+    },
+
+    /**
+     * Bulk import products parsed from CSV by the admin panel.
+     * Body: { products: [...], updateExisting?: boolean, dryRun?: boolean }
+     */
+    importProducts: async (req, res) => {
+        try {
+            const { products, updateExisting = true, dryRun = false } = req.body || {};
+
+            if (!Array.isArray(products) || products.length === 0) {
+                return res.json({ message: 'No products supplied', status: 400 });
+            }
+
+            const result = await importProductsService.importProducts(products, {
+                updateExisting,
+                dryRun,
+            });
+
+            return res.json({
+                message: result.message,
+                results: result.results,
+                details: result.details,
+                status: result.status,
+            });
+        } catch (error) {
+            console.error('Error importing products:', error);
+            return res.json({ message: error.message || 'Failed to import products', status: 500 });
         }
     },
 
