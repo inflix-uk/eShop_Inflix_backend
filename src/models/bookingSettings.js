@@ -101,6 +101,19 @@ const bookingSettingsSchema = new mongoose.Schema(
         html: { type: String, default: '', trim: true },
         css: { type: String, default: '', trim: true },
       },
+      /** HTML/CSS blocks inserted into the packages grid after every N cards (typically 3, 6, 9…). */
+      inlineWidgets: {
+        type: [
+          {
+            _id: false,
+            enabled: { type: Boolean, default: true },
+            afterPackageCount: { type: Number, default: 3, min: 1 },
+            html: { type: String, default: '', trim: true },
+            css: { type: String, default: '', trim: true },
+          },
+        ],
+        default: [],
+      },
     },
     pageContentUpdatedAt: {
       type: Date,

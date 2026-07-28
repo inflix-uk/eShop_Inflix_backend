@@ -37,6 +37,7 @@ const DEFAULT_BOOKING_PAGE_CONTENT = Object.freeze({
     html: '',
     css: '',
   },
+  inlineWidgets: [],
 });
 
 const HERO_KEYS = Object.keys(DEFAULT_BOOKING_PAGE_CONTENT.hero).filter(
@@ -57,12 +58,32 @@ function toBool(value, fallback) {
   return fallback;
 }
 
+function clampAfterPackageCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return 3;
+  return Math.min(Math.floor(n), 300);
+}
+
+function sanitizeInlineWidgets(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry) => entry && typeof entry === 'object')
+    .slice(0, 20)
+    .map((entry) => ({
+      enabled: toBool(entry.enabled, true),
+      afterPackageCount: clampAfterPackageCount(entry.afterPackageCount),
+      html: toStr(entry.html, ''),
+      css: toStr(entry.css, ''),
+    }));
+}
+
 function cloneDefaults() {
   return {
     hero: { ...DEFAULT_BOOKING_PAGE_CONTENT.hero },
     services: { ...DEFAULT_BOOKING_PAGE_CONTENT.services },
     trust: DEFAULT_BOOKING_PAGE_CONTENT.trust.map((b) => ({ ...b })),
     customWidget: { ...DEFAULT_BOOKING_PAGE_CONTENT.customWidget },
+    inlineWidgets: [],
   };
 }
 
@@ -113,7 +134,9 @@ function sanitizePageContent(raw) {
     css: toStr(customWidgetSrc.css, DEFAULT_BOOKING_PAGE_CONTENT.customWidget.css),
   };
 
-  return { hero, services, trust, customWidget };
+  const inlineWidgets = sanitizeInlineWidgets(source.inlineWidgets);
+
+  return { hero, services, trust, customWidget, inlineWidgets };
 }
 
 function pageContentPayload(doc) {
