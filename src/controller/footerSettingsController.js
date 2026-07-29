@@ -71,6 +71,8 @@ const diskStorage = multer.diskStorage({
       subdirectory = 'footer/social';
     } else if (type === 'payment-logo') {
       subdirectory = 'footer/payments';
+    } else if (type === 'newsletter') {
+      subdirectory = 'footer/newsletter';
     }
 
     const destinationFolder = `./uploads/${subdirectory}`;
@@ -391,7 +393,7 @@ const uploadFooterImage = async (req, res) => {
     const { type, directory } = req.body;
 
     // Validate type
-    const validTypes = ['logo', 'social-icon', 'payment-logo'];
+    const validTypes = ['logo', 'social-icon', 'payment-logo', 'newsletter'];
     if (!type || !validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
@@ -424,6 +426,8 @@ const uploadFooterImage = async (req, res) => {
         folder = 'footer/social';
       } else if (type === 'payment-logo') {
         folder = 'footer/payments';
+      } else if (type === 'newsletter') {
+        folder = 'footer/newsletter';
       }
       imagePath = await uploadToBlob(req.file, folder);
 

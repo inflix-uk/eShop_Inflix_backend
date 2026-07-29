@@ -92,6 +92,14 @@ const bannerSchema = new Schema({
     },
     // Full type fields
     content: {
+        /** Layout style: "default" = current layout, "podcast" = podcast studio style */
+        layoutStyle: {
+            type: String,
+            trim: true,
+            enum: ['default', 'podcast'],
+            default: 'default'
+        },
+        // === DEFAULT LAYOUT FIELDS ===
         title: {
             type: String,
             trim: true
@@ -173,7 +181,67 @@ const bannerSchema = new Schema({
             trim: true,
             enum: ['left', 'center', 'right'],
             default: 'right'
-        }
+        },
+        // === PODCAST LAYOUT FIELDS ===
+        /** Main heading e.g. "Podcast Studio" */
+        heading: {
+            type: String,
+            trim: true
+        },
+        /** Accent word shown in highlight color e.g. "Manchester" */
+        headingAccent: {
+            type: String,
+            trim: true
+        },
+        /** Color for the accent word */
+        headingAccentColor: {
+            type: String,
+            trim: true,
+            default: '#C2FC12'
+        },
+        /** Tagline below heading e.g. "A premium content creation space by Two Minds Studio." */
+        tagline: {
+            type: String,
+            trim: true
+        },
+        /** Longer description paragraph */
+        description: {
+            type: String,
+            trim: true
+        },
+        /** CTA button text e.g. "Book Your Session" */
+        ctaText: {
+            type: String,
+            trim: true
+        },
+        /** CTA button link */
+        ctaLink: {
+            type: String,
+            trim: true
+        },
+        /** CTA button icon (flaticon class) e.g. "fi-rr-calendar" */
+        ctaIcon: {
+            type: String,
+            trim: true
+        },
+        /** CTA button background color */
+        ctaButtonColor: {
+            type: String,
+            trim: true,
+            default: '#C2FC12'
+        },
+        /** CTA button text color */
+        ctaButtonTextColor: {
+            type: String,
+            trim: true,
+            default: '#000000'
+        },
+        /** Feature cards shown at bottom of podcast layout */
+        featureCards: [{
+            icon: { type: String, trim: true },
+            title: { type: String, trim: true },
+            text: { type: String, trim: true }
+        }]
     },
     extraImage: {
         type: String,

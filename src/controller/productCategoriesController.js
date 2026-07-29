@@ -133,6 +133,17 @@ const productCategoriescontroller = {
           console.warn("Blob storage not configured, images will not be saved properly");
         }
 
+        // Allow media library URL when no banner file was uploaded
+        if (!bannerImage && typeof req.body.bannerUrl === 'string' && req.body.bannerUrl.trim()) {
+          const bannerUrl = req.body.bannerUrl.trim();
+          const filename = bannerUrl.split('/').pop()?.split('?')[0] || 'banner';
+          bannerImage = {
+            filename,
+            path: null,
+            url: bannerUrl,
+          };
+        }
+
         // Create a new product category instance
         let parsedMetaSchemas = [];
         if (metaSchemas) {

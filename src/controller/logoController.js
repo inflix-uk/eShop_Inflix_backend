@@ -195,6 +195,26 @@ async function deleteFile(filePath) {
     }
 }
 
+/** Only remove assets uploaded via logo/favicon management — never media library files. */
+function isManagedAssetUrl(filePath, folder) {
+    if (!filePath || typeof filePath !== 'string') return false;
+    const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+    const marker = `/${String(folder).toLowerCase()}/`;
+    return (
+        normalized.includes(marker) ||
+        normalized.includes(`uploads/${folder}/`) ||
+        normalized.startsWith(`${folder}/`)
+    );
+}
+
+async function deleteManagedAsset(filePath, folder) {
+    if (!isManagedAssetUrl(filePath, folder)) {
+        console.log(`Skipping delete of non-managed ${folder} asset: ${filePath}`);
+        return;
+    }
+    await deleteFile(filePath);
+}
+
 // Helper function to sanitize text
 function sanitizeText(text) {
     if (!text) return '';
@@ -270,15 +290,36 @@ const logoController = {
     
     /**
      * POST /update/logo - Upload or update logo (Admin)
+     * Accepts multipart file `logo` and/or body `logoUrl` (media library URL) and `altText`.
      */
     updateLogo: async (req, res) => {
         let logoUrl = null;
         try {
-            // Check if file was uploaded
-            if (!req.file) {
+            const mediaLibraryUrl =
+                typeof req.body.logoUrl === 'string' ? req.body.logoUrl.trim() : '';
+            const hasFile = Boolean(req.file);
+            const hasLibraryUrl = Boolean(mediaLibraryUrl);
+
+            if (!hasFile && !hasLibraryUrl) {
+                // Allow altText-only update when a logo already exists
+                let existing = await Logo.findOne();
+                if (existing && existing.logoUrl) {
+                    const altText = req.body.altText ? sanitizeText(req.body.altText) : existing.altText || 'Logo';
+                    existing.altText = altText;
+                    await existing.save();
+                    return res.status(200).json({
+                        success: true,
+                        message: 'Logo updated successfully',
+                        data: {
+                            logoUrl: existing.logoUrl,
+                            altText: existing.altText,
+                            updatedAt: existing.updatedAt
+                        }
+                    });
+                }
                 return res.status(400).json({
                     success: false,
-                    message: 'Logo file is required'
+                    message: 'Logo file or media library URL is required'
                 });
             }
 
@@ -288,16 +329,20 @@ const logoController = {
             // Get altText from request body (optional)
             const altText = req.body.altText ? sanitizeText(req.body.altText) : 'Logo';
 
-            // Delete old logo file if exists
-            if (logo && logo.logoUrl) {
-                await deleteFile(logo.logoUrl);
+            // Delete old managed logo file when replacing (never delete media library assets)
+            if (logo && logo.logoUrl && logo.logoUrl !== (hasFile ? '' : mediaLibraryUrl)) {
+                await deleteManagedAsset(logo.logoUrl, 'logo');
             }
 
-            // Get file URL (blob or local)
-            if (useBlobStorage) {
-                logoUrl = await uploadToBlob(req.file, 'logo');
+            // Get file URL (blob or local) or use media library URL
+            if (hasFile) {
+                if (useBlobStorage) {
+                    logoUrl = await uploadToBlob(req.file, 'logo');
+                } else {
+                    logoUrl = getFileUrl(req.file);
+                }
             } else {
-                logoUrl = getFileUrl(req.file);
+                logoUrl = mediaLibraryUrl;
             }
 
             // Update or create logo
@@ -325,8 +370,8 @@ const logoController = {
         } catch (error) {
             console.error('Error updating logo:', error);
 
-            // Clean up uploaded file on error
-            if (logoUrl) {
+            // Clean up uploaded file on error (only for newly uploaded files, not library URLs)
+            if (logoUrl && req.file) {
                 await deleteFile(logoUrl);
             } else if (req.file && !useBlobStorage) {
                 await deleteFile(getFileUrl(req.file));
@@ -355,8 +400,8 @@ const logoController = {
                 });
             }
 
-            // Delete the logo file
-            await deleteFile(logo.logoUrl);
+            // Delete the managed logo file only
+            await deleteManagedAsset(logo.logoUrl, 'logo');
 
             // Clear logo data
             logo.logoUrl = null;
@@ -380,30 +425,38 @@ const logoController = {
 
     /**
      * POST /update/favicon - Upload or update favicon (Admin), PNG or ICO, 512×512
+     * Accepts multipart file `favicon` and/or body `faviconUrl` (media library URL).
      */
     updateFavicon: async (req, res) => {
         let faviconUrl = null;
         try {
-            if (!req.file) {
+            const mediaLibraryUrl =
+                typeof req.body.faviconUrl === 'string' ? req.body.faviconUrl.trim() : '';
+            const hasFile = Boolean(req.file);
+            const hasLibraryUrl = Boolean(mediaLibraryUrl);
+
+            if (!hasFile && !hasLibraryUrl) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Favicon file is required'
+                    message: 'Favicon file or media library URL is required'
                 });
             }
 
-            const dimCheck = validateFaviconDimensions(req.file);
-            if (!dimCheck.ok) {
-                if (!useBlobStorage && req.file.path) {
-                    try {
-                        fs.unlinkSync(req.file.path);
-                    } catch (e) {
-                        /* ignore */
+            if (hasFile) {
+                const dimCheck = validateFaviconDimensions(req.file);
+                if (!dimCheck.ok) {
+                    if (!useBlobStorage && req.file.path) {
+                        try {
+                            fs.unlinkSync(req.file.path);
+                        } catch (e) {
+                            /* ignore */
+                        }
                     }
+                    return res.status(400).json({
+                        success: false,
+                        message: dimCheck.message
+                    });
                 }
-                return res.status(400).json({
-                    success: false,
-                    message: dimCheck.message
-                });
             }
 
             let logo = await Logo.findOne();
@@ -411,17 +464,21 @@ const logoController = {
                 logo = await Logo.getLogo();
             }
 
-            if (logo.faviconUrl) {
-                await deleteFile(logo.faviconUrl);
+            if (logo.faviconUrl && logo.faviconUrl !== (hasFile ? '' : mediaLibraryUrl)) {
+                await deleteManagedAsset(logo.faviconUrl, 'favicon');
             }
 
-            if (useBlobStorage) {
-                const extFromName = path.extname(req.file.originalname || '').toLowerCase();
-                const safeExt = extFromName === '.ico' ? '.ico' : '.png';
-                const versionedBasename = `favicon-${Date.now()}${safeExt}`;
-                faviconUrl = await uploadToBlob(req.file, 'favicon', versionedBasename);
+            if (hasFile) {
+                if (useBlobStorage) {
+                    const extFromName = path.extname(req.file.originalname || '').toLowerCase();
+                    const safeExt = extFromName === '.ico' ? '.ico' : '.png';
+                    const versionedBasename = `favicon-${Date.now()}${safeExt}`;
+                    faviconUrl = await uploadToBlob(req.file, 'favicon', versionedBasename);
+                } else {
+                    faviconUrl = getFileUrl(req.file);
+                }
             } else {
-                faviconUrl = getFileUrl(req.file);
+                faviconUrl = mediaLibraryUrl;
             }
 
             if (!faviconUrl) {
@@ -450,7 +507,7 @@ const logoController = {
         } catch (error) {
             console.error('Error updating favicon:', error);
 
-            if (faviconUrl) {
+            if (faviconUrl && req.file) {
                 await deleteFile(faviconUrl);
             } else if (req.file && !useBlobStorage && req.file.path) {
                 try {
@@ -486,7 +543,7 @@ const logoController = {
                 });
             }
 
-            await deleteFile(logo.faviconUrl);
+            await deleteManagedAsset(logo.faviconUrl, 'favicon');
             logo.faviconUrl = null;
             await logo.save();
 

@@ -518,7 +518,7 @@ function ensureBannerMediaDefaults(banner) {
 function ensureColorFieldsInResponse(banner) {
     ensureBannerMediaDefaults(banner);
     if (banner && banner.type === 'full' && banner.content) {
-        // Ensure color fields
+        // Ensure default layout color fields
         if (!banner.content.titleColor) {
             banner.content.titleColor = '#FFFFFF';
         }
@@ -550,6 +550,20 @@ function ensureColorFieldsInResponse(banner) {
         }
         if (!banner.content.textPosition || !['left', 'center', 'right'].includes(banner.content.textPosition)) {
             banner.content.textPosition = 'right';
+        }
+        
+        // Ensure podcast layout fields
+        if (!banner.content.layoutStyle) {
+            banner.content.layoutStyle = 'default';
+        }
+        if (!banner.content.headingAccentColor) {
+            banner.content.headingAccentColor = '#C2FC12';
+        }
+        if (!banner.content.ctaButtonColor) {
+            banner.content.ctaButtonColor = '#C2FC12';
+        }
+        if (!banner.content.ctaButtonTextColor) {
+            banner.content.ctaButtonTextColor = '#000000';
         }
     }
     return banner;

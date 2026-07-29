@@ -45,6 +45,16 @@ const bookingPackageSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    /** HTML content for the detail page widget */
+    detailPageHtml: {
+      type: String,
+      default: '',
+    },
+    /** CSS styles for the detail page widget (scoped) */
+    detailPageCss: {
+      type: String,
+      default: '',
+    },
     features: {
       type: [String],
       default: [],

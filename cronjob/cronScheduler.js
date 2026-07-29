@@ -17,7 +17,6 @@ function safeAuditLog(action, message, error) {
         // Audit logging is best-effort; never let it interfere with the cron loop.
     }
 }
-
 /**
  * Wrap a cron callback so any failure (sync or async) is caught, logged, and
  * never escapes to become an uncaughtException. Each scheduled job MUST go

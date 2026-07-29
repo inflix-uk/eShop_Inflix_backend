@@ -237,6 +237,8 @@ const bookingPackageController = {
         price,
         description,
         detailPage,
+        detailPageHtml,
+        detailPageCss,
         features,
         extras,
         image,
@@ -273,6 +275,8 @@ const bookingPackageController = {
         price: Number(price),
         description: description || '',
         detailPage: detailPage || '',
+        detailPageHtml: detailPageHtml || '',
+        detailPageCss: detailPageCss || '',
         features: normalizeFeatures(features),
         extras: normalizeExtras(extras),
         image: image || null,
@@ -324,6 +328,8 @@ const bookingPackageController = {
         price,
         description,
         detailPage,
+        detailPageHtml,
+        detailPageCss,
         features,
         extras,
         image,
@@ -349,6 +355,8 @@ const bookingPackageController = {
       if (price !== undefined) existing.price = Number(price);
       if (description !== undefined) existing.description = description;
       if (detailPage !== undefined) existing.detailPage = detailPage;
+      if (detailPageHtml !== undefined) existing.detailPageHtml = detailPageHtml;
+      if (detailPageCss !== undefined) existing.detailPageCss = detailPageCss;
       if (features !== undefined) existing.features = normalizeFeatures(features);
       if (extras !== undefined) existing.extras = normalizeExtras(extras);
       if (image !== undefined) existing.image = image;

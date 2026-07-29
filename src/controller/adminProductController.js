@@ -21,8 +21,6 @@ const updateProductService = require('../services/productService/updateProduct')
 const createProductService = require('../services/productService/createProduct');
 const importProductsService = require('../services/productService/importProducts');
 
-
-
 // Use memory storage for Vercel Blob uploads
 const storage = multer.memoryStorage();
 
