@@ -5,6 +5,7 @@ const fs = require('fs');
 const BookingPackage = require('../models/bookingPackage');
 const { BOOKING_PACKAGE_TYPES } = require('../models/bookingPackage');
 const blobStorage = require('../utils/blobStorage');
+const { toSeoSlug } = require('../utils/slugUtils');
 
 const useBlobStorage = blobStorage.isConfigured();
 
@@ -136,6 +137,74 @@ async function clearOtherHighlightBadges(exceptId) {
   await BookingPackage.updateMany(filter, { $set: { highlightBadgeEnabled: false } });
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isObjectIdString(value) {
+  return (
+    mongoose.Types.ObjectId.isValid(value) &&
+    String(new mongoose.Types.ObjectId(value)) === String(value)
+  );
+}
+
+function normalizePackageSlug(value, fallbackName) {
+  const fromValue = toSeoSlug(value);
+  if (fromValue) return fromValue;
+  return toSeoSlug(fallbackName) || null;
+}
+
+async function ensureUniquePackageSlug(baseSlug, excludeId) {
+  const base = toSeoSlug(baseSlug);
+  if (!base) return null;
+
+  let candidate = base;
+  let n = 2;
+  while (true) {
+    const filter = {
+      isdeleted: false,
+      slug: candidate,
+    };
+    if (excludeId) {
+      filter._id = { $ne: excludeId };
+    }
+    const existing = await BookingPackage.findOne(filter).select('_id').lean();
+    if (!existing) return candidate;
+    candidate = `${base}-${n}`;
+    n += 1;
+    if (n > 50) return `${base}-${Date.now()}`;
+  }
+}
+
+/** Resolve public package by Mongo id or SEO slug (also matches slugified name). */
+async function findPublicPackageByParam(param) {
+  const key = String(param || '').trim();
+  if (!key) return null;
+
+  const baseQuery = { isdeleted: false, isActive: true };
+
+  if (isObjectIdString(key)) {
+    const byId = await BookingPackage.findOne({ ...baseQuery, _id: key }).lean();
+    if (byId) return byId;
+  }
+
+  const bySlug = await BookingPackage.findOne({
+    ...baseQuery,
+    slug: new RegExp(`^${escapeRegex(key)}$`, 'i'),
+  }).lean();
+  if (bySlug) return bySlug;
+
+  const packages = await BookingPackage.find(baseQuery).lean();
+  const needle = toSeoSlug(key);
+  return (
+    packages.find((pkg) => {
+      const stored = pkg.slug ? toSeoSlug(pkg.slug) : '';
+      const fromName = toSeoSlug(pkg.name);
+      return stored === needle || fromName === needle;
+    }) || null
+  );
+}
+
 const bookingPackageController = {
   getPublicPackages: async (req, res) => {
     try {
@@ -159,7 +228,10 @@ const bookingPackageController = {
       return res.json({
         message: 'Booking packages fetched successfully',
         status: 200,
-        packages,
+        packages: packages.map((pkg) => ({
+          ...pkg,
+          slug: pkg.slug || toSeoSlug(pkg.name) || null,
+        })),
       });
     } catch (error) {
       console.error('Error fetching public booking packages:', error);
@@ -201,18 +273,19 @@ const bookingPackageController = {
   getPackageById: async (req, res) => {
     try {
       const { id } = req.params;
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({ error: 'Invalid package id', status: 400 });
-      }
-
-      const pkg = await BookingPackage.findOne({
-        _id: id,
-        isdeleted: false,
-        isActive: true,
-      }).lean();
+      const pkg = await findPublicPackageByParam(id);
 
       if (!pkg) {
         return res.status(404).json({ error: 'Package not found', status: 404 });
+      }
+
+      // Backfill missing slug from name so future URLs stay stable
+      if (!pkg.slug && pkg.name) {
+        const nextSlug = await ensureUniquePackageSlug(pkg.name, pkg._id);
+        if (nextSlug) {
+          await BookingPackage.updateOne({ _id: pkg._id }, { $set: { slug: nextSlug } });
+          pkg.slug = nextSlug;
+        }
       }
 
       return res.json({
@@ -266,9 +339,15 @@ const bookingPackageController = {
           ? durationDisplayUnit
           : 'minutes';
 
+      const packageName = String(name).trim();
+      const resolvedSlug = await ensureUniquePackageSlug(
+        normalizePackageSlug(slug, packageName),
+        null
+      );
+
       const newPackage = new BookingPackage({
-        name: String(name).trim(),
-        slug: slug ? String(slug).trim() : null,
+        name: packageName,
+        slug: resolvedSlug,
         type,
         durationMinutes: Number(durationMinutes),
         durationDisplayUnit: unit,
@@ -346,7 +425,13 @@ const bookingPackageController = {
       }
 
       if (name !== undefined) existing.name = String(name).trim();
-      if (slug !== undefined) existing.slug = slug ? String(slug).trim() : null;
+      if (slug !== undefined) {
+        existing.slug = slug
+          ? await ensureUniquePackageSlug(normalizePackageSlug(slug, existing.name), existing._id)
+          : null;
+      } else if (!existing.slug && existing.name) {
+        existing.slug = await ensureUniquePackageSlug(existing.name, existing._id);
+      }
       if (type !== undefined) existing.type = type;
       if (durationMinutes !== undefined) existing.durationMinutes = Number(durationMinutes);
       if (durationDisplayUnit === 'hours' || durationDisplayUnit === 'minutes') {
