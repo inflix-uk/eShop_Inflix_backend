@@ -523,7 +523,13 @@ const saveHomepageData = async (req, res) => {
           const file = req.files[imageField][0];
           let fileUrl;
           if (useBlobStorage) {
-            fileUrl = await uploadToBlob(file, 'homepage/blocks');
+            const isVideo =
+              (file.mimetype && String(file.mimetype).startsWith('video/')) ||
+              /\.(mp4|webm|ogv|ogg|mov)$/i.test(file.originalname || '');
+            fileUrl = await uploadToBlob(
+              file,
+              isVideo ? 'videos/homepage' : 'homepage/blocks'
+            );
           } else {
             fileUrl = getLocalUploadFileUrl(file);
           }
