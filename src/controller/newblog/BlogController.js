@@ -354,7 +354,13 @@ const createBlogPost = async (req, res) => {
           // Get the file URL for the uploaded file (use blob or local storage)
           let fileUrl;
           if (useBlobStorage) {
-            fileUrl = await uploadToBlob(file, 'blogs/blocks');
+            const isVideo =
+              (file.mimetype && String(file.mimetype).startsWith('video/')) ||
+              /\.(mp4|webm|ogv|ogg|mov)$/i.test(file.originalname || '');
+            fileUrl = await uploadToBlob(
+              file,
+              isVideo ? 'videos/blog' : 'blogs/blocks'
+            );
           } else {
             fileUrl = getFileUrl(file);
           }
@@ -514,7 +520,13 @@ const updateBlogPost = async (req, res) => {
           // Get the file URL for the uploaded file (use blob or local storage)
           let fileUrl;
           if (useBlobStorage) {
-            fileUrl = await uploadToBlob(file, 'blogs/blocks');
+            const isVideo =
+              (file.mimetype && String(file.mimetype).startsWith('video/')) ||
+              /\.(mp4|webm|ogv|ogg|mov)$/i.test(file.originalname || '');
+            fileUrl = await uploadToBlob(
+              file,
+              isVideo ? 'videos/blog' : 'blogs/blocks'
+            );
           } else {
             fileUrl = getFileUrl(file);
           }

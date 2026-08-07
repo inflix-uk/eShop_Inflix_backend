@@ -62,6 +62,110 @@ const extractTitleFromFileName = (fileName) => {
     return fileName.substring(0, lastDotIndex);
 };
 
+/** Media library: images stay top-level (banners, logo, …); videos use videos/{context}/… */
+const MEDIA_IMAGE_EXT = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i;
+const MEDIA_VIDEO_EXT = /\.(mp4|webm|ogv|ogg|mov)$/i;
+const VIDEOS_ROOT = "videos";
+const MEDIA_UPLOAD_MAX_BYTES = 80 * 1024 * 1024; // 80MB (videos; images stay smaller in practice)
+
+const isVideoFileName = (name = "") => MEDIA_VIDEO_EXT.test(String(name));
+const isImageFileName = (name = "") => MEDIA_IMAGE_EXT.test(String(name));
+
+const sanitizeMediaSubfolder = (name) =>
+    String(name || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-_]/g, "")
+        .replace(/\/+/g, "")
+        .slice(0, 64);
+
+/**
+ * Media tab key from object pathname (after MAIN_FOLDER strip).
+ * - banners/a.jpg → banners
+ * - videos/homepage/a.mp4 → videos/homepage
+ * - videos/a.mp4 → videos
+ */
+const resolveMediaLibraryFolder = (pathname) => {
+    const parts = String(pathname || "")
+        .replace(/\\/g, "/")
+        .split("/")
+        .filter(Boolean);
+    if (!parts.length) return "root";
+    if (parts[0] === VIDEOS_ROOT) {
+        if (parts.length >= 3) return `${VIDEOS_ROOT}/${parts[1]}`;
+        return VIDEOS_ROOT;
+    }
+    return parts[0];
+};
+
+const resolveMediaLibraryFileName = (pathname, folder) => {
+    const normalized = String(pathname || "").replace(/\\/g, "/");
+    const folderPrefix = `${folder}/`;
+    if (folder && normalized.startsWith(folderPrefix)) {
+        return normalized.slice(folderPrefix.length);
+    }
+    const slash = normalized.lastIndexOf("/");
+    return slash === -1 ? normalized : normalized.slice(slash + 1);
+};
+
+/**
+ * Normalize upload directory for Media library.
+ * Videos always land under videos/{context}/ so a relevant folder tab appears.
+ */
+const normalizeMediaUploadDirectory = (directory, files = []) => {
+    const dirTrim = String(directory || "")
+        .trim()
+        .replace(/^\/+|\/+$/g, "");
+    if (!dirTrim) {
+        throw new Error("Directory is required");
+    }
+
+    const hasVideo = files.some(
+        (f) =>
+            isVideoFileName(f.originalname) ||
+            String(f.mimetype || "").startsWith("video/")
+    );
+    const hasImage = files.some(
+        (f) =>
+            isImageFileName(f.originalname) ||
+            String(f.mimetype || "").startsWith("image/")
+    );
+
+    if (hasVideo && hasImage) {
+        throw new Error("Upload images and videos separately");
+    }
+
+    if (hasVideo) {
+        const parts = dirTrim.split("/").filter(Boolean);
+        let context = "general";
+        if (parts[0] === VIDEOS_ROOT) {
+            context = sanitizeMediaSubfolder(parts[1] || "general") || "general";
+        } else {
+            context = sanitizeMediaSubfolder(dirTrim) || "general";
+        }
+        return `${VIDEOS_ROOT}/${context}`;
+    }
+
+    if (dirTrim === VIDEOS_ROOT || dirTrim.startsWith(`${VIDEOS_ROOT}/`)) {
+        throw new Error("Image uploads cannot use the videos/ path");
+    }
+
+    return dirTrim;
+};
+
+const mediaLibraryFileFilter = (_req, file, cb) => {
+    const name = file.originalname || "";
+    const mime = String(file.mimetype || "");
+    if (isImageFileName(name) || mime.startsWith("image/")) {
+        return cb(null, true);
+    }
+    if (isVideoFileName(name) || mime.startsWith("video/")) {
+        return cb(null, true);
+    }
+    cb(new Error("Only image or video files are allowed"), false);
+};
+
 
 const statsController = {
 
@@ -763,11 +867,10 @@ const statsController = {
                         const pathname = (b.pathname || '').replace(/\\/g, '/').trim();
                         if (!pathname) continue;
 
-                        const slash = pathname.indexOf('/');
-                        const folder = slash === -1 ? 'root' : pathname.slice(0, slash);
-                        const fileName = slash === -1 ? pathname : pathname.slice(slash + 1);
+                        const folder = resolveMediaLibraryFolder(pathname);
+                        const fileName = resolveMediaLibraryFileName(pathname, folder);
                         if (!fileName) continue;
-                        if (folder === 'images' || folder === 'feed') continue;
+                        if (folder === 'images' || folder === 'feed' || folder.startsWith('images/') || folder.startsWith('feed/')) continue;
 
                         const meta = lookupMeta(pathname);
                         let title = meta.title;
@@ -806,89 +909,78 @@ const statsController = {
                 }
             }
 
-            // Function to recursively get all files from a directory and its subdirectories
-            const getAllFilesInDirectory = (dirPath, baseDir) => {
-                const files = [];
+            // Disk listing: group like Spaces (videos → videos/{context})
+            const folderMap = new Map();
+            const walkDiskFiles = (dirPath) => {
+                let items = [];
                 try {
-                    const items = fs.readdirSync(dirPath);
-                    
-                    items.forEach((item) => {
-                        const itemPath = path.join(dirPath, item);
-                        const stats = fs.statSync(itemPath);
-                        
-                        if (stats.isFile()) {
-                            // Get relative path from uploads root
-                            const relativePath = path.relative(baseDir, itemPath).replace(/\\/g, '/');
-                            // Ensure path includes "uploads/" prefix for proper URL construction
-                            const filePath = relativePath.startsWith('uploads/') ? relativePath : `uploads/${relativePath}`;
-                            
-                            // Construct full URL
-                            const url = `${baseUrl}/${filePath}`;
-                            
-                            // Title = filename without extension (per spec)
-                            // If title exists in DB, use it; otherwise extract from filename
-                            let title = titleMap[relativePath];
-                            if (!title) {
-                                // Extract title from filename (filename without extension)
-                                title = extractTitleFromFileName(item);
-                            }
-                            
-                            // Look up altText and _id from pre-loaded maps (O(1) lookup)
-                            const altText = altTextMap[relativePath] || null;
-                            const fileId = idMap[relativePath] || null;
-                            
-                            files.push({
-                                name: item,
-                                path: filePath,
-                                url: url,
-                                size: stats.size,
-                                title: title,
-                                altText: altText,
-                                _id: fileId
-                            });
-                        } else if (stats.isDirectory()) {
-                            // Recursively get files from subdirectories
-                            const subFiles = getAllFilesInDirectory(itemPath, baseDir);
-                            files.push(...subFiles);
-                        }
-                    });
+                    items = fs.readdirSync(dirPath);
                 } catch (err) {
                     console.error(`Error reading directory ${dirPath}:`, err);
+                    return;
                 }
-                
-                return files;
+                items.forEach((item) => {
+                    const itemPath = path.join(dirPath, item);
+                    let stats;
+                    try {
+                        stats = fs.statSync(itemPath);
+                    } catch {
+                        return;
+                    }
+                    if (stats.isDirectory()) {
+                        if (item === "images" || item === "feed") return;
+                        walkDiskFiles(itemPath);
+                        return;
+                    }
+                    if (!stats.isFile()) return;
+
+                    const relativePath = path
+                        .relative(rootDirectory, itemPath)
+                        .replace(/\\/g, "/");
+                    const folder = resolveMediaLibraryFolder(relativePath);
+                    if (
+                        folder === "images" ||
+                        folder === "feed" ||
+                        folder.startsWith("images/") ||
+                        folder.startsWith("feed/")
+                    ) {
+                        return;
+                    }
+                    const fileName = resolveMediaLibraryFileName(
+                        relativePath,
+                        folder
+                    );
+                    if (!fileName) return;
+
+                    const filePath = relativePath.startsWith("uploads/")
+                        ? relativePath
+                        : `uploads/${relativePath}`;
+                    const meta = lookupMeta(relativePath);
+                    let title = meta.title;
+                    if (!title) {
+                        title = extractTitleFromFileName(path.basename(fileName));
+                    }
+
+                    if (!folderMap.has(folder)) {
+                        folderMap.set(folder, []);
+                    }
+                    folderMap.get(folder).push({
+                        name: path.basename(fileName),
+                        path: filePath,
+                        url: `${baseUrl}/${filePath}`,
+                        size: stats.size,
+                        title,
+                        altText: meta.altText,
+                        _id: meta._id,
+                    });
+                });
             };
 
-            // Function to get directory contents (organize by top-level directories)
-        const getDirectoryContents = (directory) => {
-            let results = [];
-            const list = fs.readdirSync(directory);
+            walkDiskFiles(rootDirectory);
 
-            list.forEach((item) => {
-                const itemPath = path.join(directory, item);
-                const stats = fs.statSync(itemPath);
-
-                if (stats && stats.isDirectory()) {
-                        // Filter out "images" and "feed" directories as per spec
-                        if (item === 'images' || item === 'feed') {
-                            return; // Skip these directories
-                        }
-                        
-                        // Recursively get ALL files from this directory and subdirectories
-                        const dirContents = getAllFilesInDirectory(itemPath, rootDirectory);
-                        
-                    results.push({
-                        name: item,
-                            contents: dirContents
-                    });
-                }
-            });
-
-            return results;
-        };
-
-            // Get all files and directories starting from the root directory
-            const allContents = getDirectoryContents(rootDirectory);
+            const allContents = Array.from(folderMap.entries())
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([name, contents]) => ({ name, contents }));
 
             res.status(200).json({
                 success: true,
@@ -971,12 +1063,17 @@ const statsController = {
                 const pathname = spacesStorage.stripMainFolderFromKey(key);
                 if (!pathname) continue;
 
-                const slash = pathname.indexOf("/");
-                const folder = slash === -1 ? "root" : pathname.slice(0, slash);
-                const fileName =
-                    slash === -1 ? pathname : pathname.slice(slash + 1);
+                const folder = resolveMediaLibraryFolder(pathname);
+                const fileName = resolveMediaLibraryFileName(pathname, folder);
                 if (!fileName) continue;
-                if (folder === "images" || folder === "feed") continue;
+                if (
+                    folder === "images" ||
+                    folder === "feed" ||
+                    folder.startsWith("images/") ||
+                    folder.startsWith("feed/")
+                ) {
+                    continue;
+                }
 
                 const virtualPath = `uploads/${pathname}`;
                 const meta = lookupMeta(pathname);
@@ -1074,20 +1171,13 @@ const statsController = {
         }
     },
 
-    /** Admin Media — multipart upload to Spaces (memory → PutObject). */
+    /** Admin Media — multipart upload to Spaces (memory → PutObject). Images + videos. */
     uploadFileSpaces: async (req, res) => {
         const memoryStorage = multer.memoryStorage();
         const upload = multer({
             storage: memoryStorage,
-            limits: { fileSize: 10 * 1024 * 1024 },
-            fileFilter: function (req, file, cb) {
-                const allowedTypes = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i;
-                if (allowedTypes.test(file.originalname)) {
-                    cb(null, true);
-                } else {
-                    cb(new Error("Only image files are allowed"), false);
-                }
-            },
+            limits: { fileSize: MEDIA_UPLOAD_MAX_BYTES },
+            fileFilter: mediaLibraryFileFilter,
         }).array("files", 20);
 
         upload(req, res, async (uploadErr) => {
@@ -1109,13 +1199,6 @@ const statsController = {
                 const { directory, altText } = req.body;
                 const files = req.files;
 
-                if (!directory || String(directory).trim() === "") {
-                    return res.status(400).json({
-                        success: false,
-                        error: "Directory is required",
-                    });
-                }
-
                 if (!files || files.length === 0) {
                     return res.status(400).json({
                         success: false,
@@ -1123,8 +1206,17 @@ const statsController = {
                     });
                 }
 
-                const dirTrim = String(directory).trim();
-                const rootFolder = dirTrim.split("/")[0];
+                let dirTrim;
+                try {
+                    dirTrim = normalizeMediaUploadDirectory(directory, files);
+                } catch (dirErr) {
+                    return res.status(400).json({
+                        success: false,
+                        error: dirErr.message || "Invalid directory",
+                    });
+                }
+
+                const mediaFolder = resolveMediaLibraryFolder(`${dirTrim}/placeholder`);
                 if (!spacesStorage.isSpacesUploadPathAllowed(dirTrim)) {
                     return res.status(400).json({
                         success: false,
@@ -1143,10 +1235,12 @@ const statsController = {
                             spacesStorage.stripMainFolderFromKey(result.key);
                         const baseName = path.basename(pathname);
                         const title = extractTitleFromFileName(baseName);
+                        const libraryFolder =
+                            resolveMediaLibraryFolder(pathname) || mediaFolder;
 
                         const mediaFile = await MediaFile.create({
                             filePath: pathname,
-                            directory: rootFolder,
+                            directory: libraryFolder,
                             fileName: baseName,
                             title,
                             altText: altText ? String(altText).trim() : null,
@@ -1162,6 +1256,7 @@ const statsController = {
                             _id: mediaFile._id.toString(),
                             storage: "spaces",
                             spacesKey: result.key,
+                            directory: libraryFolder,
                         });
                     } catch (innerErr) {
                         if (keyUploaded) {
@@ -1252,11 +1347,12 @@ const statsController = {
             const finalTitle = expectedTitle;
             const pathnameOld =
                 spacesStorage.stripMainFolderFromKey(trimmedKey);
-            const keyRoot = pathnameOld.includes("/")
-                ? pathnameOld.split("/")[0]
-                : pathnameOld;
-            const dirRoot = String(directory).trim().split("/")[0];
-            if (keyRoot !== dirRoot) {
+            const libraryFolder = resolveMediaLibraryFolder(pathnameOld);
+            const dirTrimIn = String(directory).trim();
+            if (
+                libraryFolder !== dirTrimIn &&
+                pathnameOld.split("/")[0] !== dirTrimIn.split("/")[0]
+            ) {
                 return res.status(400).json({
                     success: false,
                     error: "directory does not match object path",
@@ -1272,9 +1368,13 @@ const statsController = {
                 });
 
             if (isRenaming) {
-                const dirTrim = String(directory).trim();
-                const rootFolder = dirTrim.split("/")[0];
-                if (!spacesStorage.isSpacesUploadPathAllowed(dirTrim)) {
+                const parentDir = pathnameOld.includes("/")
+                    ? pathnameOld.slice(0, pathnameOld.lastIndexOf("/"))
+                    : "";
+                const pathnameNew = parentDir
+                    ? `${parentDir}/${sanitizedNewFileName}`
+                    : sanitizedNewFileName;
+                if (!spacesStorage.isSpacesUploadPathAllowed(parentDir || libraryFolder)) {
                     return res.status(400).json({
                         success: false,
                         error: "Invalid directory for Spaces rename",
@@ -1282,19 +1382,18 @@ const statsController = {
                 }
 
                 const newKey = main
-                    ? `${main}/${rootFolder}/${sanitizedNewFileName}`
-                    : `${rootFolder}/${sanitizedNewFileName}`;
+                    ? `${main}/${pathnameNew}`
+                    : pathnameNew;
 
                 await spacesStorage.copyObject(trimmedKey, newKey);
                 await spacesStorage.deleteFile(trimmedKey);
 
-                const pathnameNew =
-                    spacesStorage.stripMainFolderFromKey(newKey);
+                const folderForDoc = resolveMediaLibraryFolder(pathnameNew);
 
                 let doc = await findMediaDoc();
                 if (doc) {
                     doc.filePath = pathnameNew;
-                    doc.directory = rootFolder;
+                    doc.directory = folderForDoc;
                     doc.fileName = sanitizedNewFileName;
                     doc.title = finalTitle;
                     if (altText !== undefined && altText !== null) {
@@ -1305,7 +1404,7 @@ const statsController = {
                 } else {
                     await MediaFile.create({
                         filePath: pathnameNew,
-                        directory: rootFolder,
+                        directory: folderForDoc,
                         fileName: sanitizedNewFileName,
                         title: finalTitle,
                         altText:
@@ -1326,7 +1425,7 @@ const statsController = {
                 } else {
                     await MediaFile.create({
                         filePath: pathnameOld,
-                        directory: String(directory).trim().split("/")[0],
+                        directory: libraryFolder,
                         fileName: oldFileName,
                         title: finalTitle,
                         altText:
@@ -1934,108 +2033,112 @@ const statsController = {
         }
     },
 
-    // Upload files to a specific directory
+    // Upload files to a specific directory (images + videos; videos → videos/{context}/)
     uploadFile: async (req, res) => {
-        // Configure multer for file uploads - dynamic destination based on directory
         const storage = multer.diskStorage({
             destination: function (req, file, cb) {
-                // Get directory from req.body (available after multer processes form data)
-                const dir = req.body.directory || 'temp';
-                const uploadsRoot = path.join(__dirname, '../uploads');
-                const targetDir = path.join(uploadsRoot, dir);
-                
-                // Create directory if it doesn't exist
-                if (!fs.existsSync(targetDir)) {
-                    fs.mkdirSync(targetDir, { recursive: true });
+                try {
+                    const dir = normalizeMediaUploadDirectory(
+                        req.body.directory || "temp",
+                        [file]
+                    );
+                    req.body.directory = dir;
+                    const uploadsRoot = path.join(__dirname, "../uploads");
+                    const targetDir = path.join(uploadsRoot, dir);
+                    if (!fs.existsSync(targetDir)) {
+                        fs.mkdirSync(targetDir, { recursive: true });
+                    }
+                    cb(null, targetDir);
+                } catch (err) {
+                    cb(err);
                 }
-                cb(null, targetDir);
             },
             filename: function (req, file, cb) {
-                // Sanitize filename: replace spaces with hyphens
                 const sanitizedOriginal = sanitizeFileName(file.originalname);
                 const fileExt = path.extname(sanitizedOriginal);
                 const baseName = path.basename(sanitizedOriginal, fileExt);
-                
-                // Check if file already exists, if so append timestamp
-                const uploadsRoot = path.join(__dirname, '../uploads');
-                const dir = req.body.directory || 'temp';
+                const uploadsRoot = path.join(__dirname, "../uploads");
+                let dir;
+                try {
+                    dir = normalizeMediaUploadDirectory(
+                        req.body.directory || "temp",
+                        [file]
+                    );
+                } catch {
+                    dir = req.body.directory || "temp";
+                }
                 const targetDir = path.join(uploadsRoot, dir);
                 let finalFileName = sanitizedOriginal;
-                
-                // Check if file exists
                 const fullPath = path.join(targetDir, sanitizedOriginal);
                 if (fs.existsSync(fullPath)) {
-                    // File exists, append timestamp to make it unique
-                    const timestamp = Date.now();
-                    finalFileName = `${baseName}_${timestamp}${fileExt}`;
+                    finalFileName = `${baseName}_${Date.now()}${fileExt}`;
                 }
-                
                 cb(null, finalFileName);
-            }
+            },
         });
 
-        const upload = multer({ 
+        const upload = multer({
             storage: storage,
-            limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-            fileFilter: function (req, file, cb) {
-                // Only allow image files
-                const allowedTypes = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i;
-                if (allowedTypes.test(file.originalname)) {
-                    cb(null, true);
-                } else {
-                    cb(new Error('Only image files are allowed'), false);
-                }
-            }
-        }).array('files', 20); // Allow up to 20 files
+            limits: { fileSize: MEDIA_UPLOAD_MAX_BYTES },
+            fileFilter: mediaLibraryFileFilter,
+        }).array("files", 20);
 
         upload(req, res, async (uploadErr) => {
             if (uploadErr) {
                 return res.status(400).json({
                     success: false,
-                    error: `File upload error: ${uploadErr.message}`
+                    error: `File upload error: ${uploadErr.message}`,
                 });
             }
 
             try {
-                // Get directory and altText from req.body (available after multer processes form data)
-                const { directory, altText } = req.body;
+                const { altText } = req.body;
                 const files = req.files;
-
-                // Validate required fields
-                if (!directory || directory.trim() === '') {
-                    return res.status(400).json({
-                        success: false,
-                        error: 'Directory is required'
-                    });
-                }
 
                 if (!files || files.length === 0) {
                     return res.status(400).json({
                         success: false,
-                        error: 'No files uploaded'
+                        error: "No files uploaded",
                     });
                 }
 
-                const uploadsRoot = path.join(__dirname, '../uploads');
+                let directory;
+                try {
+                    directory = normalizeMediaUploadDirectory(
+                        req.body.directory,
+                        files
+                    );
+                } catch (dirErr) {
+                    return res.status(400).json({
+                        success: false,
+                        error: dirErr.message || "Invalid directory",
+                    });
+                }
+
+                const uploadsRoot = path.join(__dirname, "../uploads");
                 const uploadedFiles = [];
+                const libraryFolder = resolveMediaLibraryFolder(
+                    `${directory}/placeholder`
+                );
 
-                // Process each uploaded file (already saved by multer)
                 for (const file of files) {
-                    // Get relative path for database
-                    const relativePath = path.relative(uploadsRoot, file.path).replace(/\\/g, '/');
-                    const filePath = relativePath.startsWith('uploads/') ? relativePath : `uploads/${relativePath}`;
-
-                    // Extract title from filename (filename without extension) - per spec
+                    const relativePath = path
+                        .relative(uploadsRoot, file.path)
+                        .replace(/\\/g, "/");
+                    const filePath = relativePath.startsWith("uploads/")
+                        ? relativePath
+                        : `uploads/${relativePath}`;
                     const title = extractTitleFromFileName(file.filename);
+                    const folderForDoc =
+                        resolveMediaLibraryFolder(relativePath) || libraryFolder;
 
-                    // Save file metadata to database
                     try {
                         const mediaFile = await MediaFile.create({
                             filePath: relativePath,
-                            directory: directory,
+                            directory: folderForDoc,
                             fileName: file.filename,
-                            title: title, // Title = filename without extension
-                            altText: altText ? altText.trim() : null
+                            title: title,
+                            altText: altText ? altText.trim() : null,
                         });
 
                         uploadedFiles.push({
@@ -2044,17 +2147,18 @@ const statsController = {
                             size: file.size,
                             title: title,
                             altText: altText ? altText.trim() : null,
-                            _id: mediaFile._id.toString()
+                            _id: mediaFile._id.toString(),
+                            directory: folderForDoc,
                         });
                     } catch (dbErr) {
-                        // If database save fails, still include file info but log error
-                        console.error('Error saving file metadata:', dbErr);
+                        console.error("Error saving file metadata:", dbErr);
                         uploadedFiles.push({
                             name: file.filename,
                             path: filePath,
                             size: file.size,
                             title: title,
-                            altText: altText ? altText.trim() : null
+                            altText: altText ? altText.trim() : null,
+                            directory: folderForDoc,
                         });
                     }
                 }
@@ -2062,23 +2166,20 @@ const statsController = {
                 if (uploadedFiles.length === 0) {
                     return res.status(400).json({
                         success: false,
-                        error: 'No valid image files were uploaded'
+                        error: "No valid files were uploaded",
                     });
                 }
 
                 return res.status(200).json({
                     success: true,
-                    message: 'Files uploaded successfully',
-                    data: {
-                        uploadedFiles: uploadedFiles
-                    }
+                    message: "Files uploaded successfully",
+                    data: { uploadedFiles },
                 });
-
             } catch (error) {
-                console.error('Error uploading files:', error);
+                console.error("Error uploading files:", error);
                 return res.status(500).json({
                     success: false,
-                    error: `Failed to upload files: ${error.message}`
+                    error: `Failed to upload files: ${error.message}`,
                 });
             }
         });
