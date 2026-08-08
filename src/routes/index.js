@@ -1100,9 +1100,11 @@ router.get('/get/booking/admin', ...requireAdmin, bookingController.getAdminBook
 router.get('/get/booking/admin/slots', ...requireAdmin, bookingController.getAdminSlotsForDate);
 router.get('/get/booking/admin/:id', ...requireAdmin, bookingController.getAdminBookingById);
 router.post('/create/booking/admin', ...requireAdmin, bookingController.createAdminBooking);
+router.patch('/update/booking/:id', ...requireAdmin, bookingController.updateBooking);
 router.patch('/status/booking/:id', ...requireAdmin, bookingController.updateBookingStatus);
 router.patch('/payment-status/booking/:id', ...requireAdmin, bookingController.updatePaymentStatus);
 router.post('/cancel/booking/:id', ...requireAdmin, bookingController.cancelBooking);
+router.post('/restore/booking/:id', ...requireAdmin, bookingController.restoreBooking);
 router.post('/reschedule/booking/:id', ...requireAdmin, bookingController.rescheduleBooking);
 
 // Public routes
@@ -1114,6 +1116,7 @@ router.post('/create/booking', bookingController.createBooking);
 router.post('/get/booking/user', requireAuth, bookingController.getUserBookings);
 router.get('/my/bookings', requireAuth, bookingController.getMyBookings);
 router.post('/create/booking/payment-intent', bookingPaymentController.createBookingPaymentIntent);
+router.post('/confirm/booking/payment', bookingPaymentController.confirmBookingPayment);
 router.get('/get/booking/:bookingNumber', bookingController.getBookingByNumber);
 
 // ========================================================================

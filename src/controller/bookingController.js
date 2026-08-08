@@ -384,7 +384,7 @@ const bookingController = {
 
       const skip = (Number(page) - 1) * Number(limit);
 
-      const [bookings, total] = await Promise.all([
+      let [bookings, total] = await Promise.all([
         Booking.find(filter)
           .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
           .sort({ createdAt: -1 })
@@ -393,6 +393,24 @@ const bookingController = {
           .lean(),
         Booking.countDocuments(filter),
       ]);
+
+      // Align unpaid bookings with Stripe PaymentIntent status (local webhooks often miss).
+      const { syncBookingPaymentIfNeeded } = require('../services/bookingService/confirmBooking');
+      const syncedIds = [];
+      for (const booking of bookings) {
+        if (booking.paymentStatus !== 'paid' && booking.stripePaymentIntentId) {
+          await syncBookingPaymentIfNeeded(booking);
+          syncedIds.push(booking._id);
+        }
+      }
+
+      if (syncedIds.length > 0) {
+        const refreshed = await Booking.find({ _id: { $in: syncedIds } })
+          .populate('packageId', 'name price durationMinutes durationDisplayUnit type')
+          .lean();
+        const refreshedMap = new Map(refreshed.map((b) => [String(b._id), b]));
+        bookings = bookings.map((b) => refreshedMap.get(String(b._id)) || b);
+      }
 
       return res.json({
         message: 'Bookings fetched successfully',
@@ -419,12 +437,20 @@ const bookingController = {
         return res.status(400).json({ error: 'Invalid booking id', status: 400 });
       }
 
-      const booking = await Booking.findOne({ _id: id })
+      let booking = await Booking.findOne({ _id: id })
         .populate('packageId', 'name price durationMinutes durationDisplayUnit type description image')
         .lean();
 
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      const { syncBookingPaymentIfNeeded } = require('../services/bookingService/confirmBooking');
+      if (booking.paymentStatus !== 'paid' && booking.stripePaymentIntentId) {
+        await syncBookingPaymentIfNeeded(booking);
+        booking = await Booking.findOne({ _id: id })
+          .populate('packageId', 'name price durationMinutes durationDisplayUnit type description image')
+          .lean();
       }
 
       return res.json({
@@ -563,7 +589,7 @@ const bookingController = {
   cancelBooking: async (req, res) => {
     try {
       const { id } = req.params;
-      const { cancelReason, processRefund, refundAmount } = req.body;
+      const { cancelReason } = req.body;
 
       if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).json({ error: 'Invalid booking id', status: 400 });
@@ -573,8 +599,6 @@ const bookingController = {
         bookingId: id,
         cancelReason,
         initiatedBy: 'admin',
-        processRefund: processRefund || false,
-        refundAmount: refundAmount || null,
       });
 
       if (!result.success) {
@@ -585,10 +609,42 @@ const bookingController = {
         message: 'Booking cancelled successfully',
         status: 200,
         booking: result.booking,
-        refund: result.refund,
       });
     } catch (error) {
       console.error('Error cancelling booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  restoreBooking: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const result = await bookingService.restoreBooking({
+        bookingId: id,
+        initiatedBy: 'admin',
+      });
+
+      if (!result.success) {
+        const statusCode = result.error.includes('no longer available') ? 409 : 400;
+        return res.status(statusCode).json({
+          error: result.error,
+          status: statusCode,
+          conflict: result.conflict,
+        });
+      }
+
+      return res.json({
+        message: 'Booking restored successfully',
+        status: 200,
+        booking: result.booking,
+      });
+    } catch (error) {
+      console.error('Error restoring booking:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -633,7 +689,7 @@ const bookingController = {
 
   getAdminSlotsForDate: async (req, res) => {
     try {
-      const { packageId, date } = req.query;
+      const { packageId, date, excludeBookingId } = req.query;
 
       if (!packageId || !date) {
         return res.status(400).json({ error: 'packageId and date are required', status: 400 });
@@ -643,7 +699,13 @@ const bookingController = {
         return res.status(400).json({ error: 'Invalid packageId', status: 400 });
       }
 
-      const result = await bookingService.getAvailableSlots(packageId, date);
+      if (excludeBookingId && !mongoose.Types.ObjectId.isValid(excludeBookingId)) {
+        return res.status(400).json({ error: 'Invalid excludeBookingId', status: 400 });
+      }
+
+      const result = await bookingService.getAvailableSlots(packageId, date, {
+        excludeBookingId: excludeBookingId || undefined,
+      });
 
       if (!result.success) {
         return res.status(400).json({ error: result.error, status: 400 });
@@ -656,6 +718,46 @@ const bookingController = {
       });
     } catch (error) {
       console.error('Error fetching admin slots:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  updateBooking: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { packageId, date, startTime, customer, notes, paymentStatus, status } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const result = await bookingService.updateBooking({
+        bookingId: id,
+        packageId,
+        date,
+        startTime,
+        customer,
+        notes,
+        paymentStatus,
+        status,
+      });
+
+      if (!result.success) {
+        const statusCode = result.error.includes('already booked') ? 409 : 400;
+        return res.status(statusCode).json({
+          error: result.error,
+          status: statusCode,
+          conflict: result.conflict,
+        });
+      }
+
+      return res.json({
+        message: 'Booking updated successfully',
+        status: 200,
+        booking: result.booking,
+      });
+    } catch (error) {
+      console.error('Error updating booking:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   },

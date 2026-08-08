@@ -1,5 +1,10 @@
 /**
- * Clear Stripe keys stored in MongoDB so STRIPE_* values from .env are used.
+ * Optional helper: clear Stripe keys stored in MongoDB.
+ *
+ * Preferred local approach (no DB wipe needed):
+ *   STRIPE_USE_ENV_KEYS=true in .env  → forces test keys from .env
+ *   Leave unset on production         → MongoDB / live keys
+ *
  * Run: node scripts/useEnvStripeKeys.js
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });

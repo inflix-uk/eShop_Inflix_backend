@@ -122,30 +122,40 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
     await booking.save();
     await finalizeClaimedHold(hold._id, booking._id);
 
+    const bookingResult = {
+      bookingId: booking._id,
+      bookingNumber: booking.bookingNumber,
+      packageId: booking.packageId,
+      type: booking.type,
+      customer: booking.customer,
+      date: booking.date,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      status: booking.status,
+      paymentStatus: booking.paymentStatus,
+      source: booking.source,
+      notes: booking.notes,
+      package: {
+        name: pkg.name,
+        price: pkg.price,
+        durationMinutes: pkg.durationMinutes,
+        durationDisplayUnit: pkg.durationDisplayUnit || 'minutes',
+      },
+      extras: booking.extras,
+      extrasSubtotal: booking.extrasSubtotal,
+      slotsSubtotal: booking.slotsSubtotal,
+      totalAmount: booking.totalAmount,
+    };
+
+    const { notifyBookingCreatedAdminEmail } = require('../email/bookingCreatedAdminEmailService');
+    notifyBookingCreatedAdminEmail({
+      booking: bookingResult,
+      pkg,
+    });
+
     return {
       success: true,
-      booking: {
-        bookingId: booking._id,
-        bookingNumber: booking.bookingNumber,
-        packageId: booking.packageId,
-        type: booking.type,
-        customer: booking.customer,
-        date: booking.date,
-        startTime: booking.startTime,
-        endTime: booking.endTime,
-        status: booking.status,
-        paymentStatus: booking.paymentStatus,
-        package: {
-          name: pkg.name,
-          price: pkg.price,
-          durationMinutes: pkg.durationMinutes,
-          durationDisplayUnit: pkg.durationDisplayUnit || 'minutes',
-        },
-        extras: booking.extras,
-        extrasSubtotal: booking.extrasSubtotal,
-        slotsSubtotal: booking.slotsSubtotal,
-        totalAmount: booking.totalAmount,
-      },
+      booking: bookingResult,
     };
   } catch (error) {
     console.error('Error creating booking from hold:', error);
@@ -235,26 +245,39 @@ async function createAdminBooking({ packageId, date, startTime, customer, userId
     throw error;
   }
 
+  const bookingResult = {
+    bookingId: booking._id,
+    bookingNumber: booking.bookingNumber,
+    packageId: booking.packageId,
+    type: booking.type,
+    customer: booking.customer,
+    date: booking.date,
+    startTime: booking.startTime,
+    endTime: booking.endTime,
+    status: booking.status,
+    paymentStatus: booking.paymentStatus,
+    source: booking.source,
+    notes: booking.notes,
+    package: {
+      name: pkg.name,
+      price: pkg.price,
+      durationMinutes: pkg.durationMinutes,
+      durationDisplayUnit: pkg.durationDisplayUnit || 'minutes',
+    },
+  };
+
+  const { notifyBookingCreatedAdminEmail } = require('../email/bookingCreatedAdminEmailService');
+  notifyBookingCreatedAdminEmail({
+    booking: {
+      ...bookingResult,
+      totalAmount: Number(pkg.price) || 0,
+    },
+    pkg,
+  });
+
   return {
     success: true,
-    booking: {
-      bookingId: booking._id,
-      bookingNumber: booking.bookingNumber,
-      packageId: booking.packageId,
-      type: booking.type,
-      customer: booking.customer,
-      date: booking.date,
-      startTime: booking.startTime,
-      endTime: booking.endTime,
-      status: booking.status,
-      paymentStatus: booking.paymentStatus,
-      package: {
-        name: pkg.name,
-        price: pkg.price,
-        durationMinutes: pkg.durationMinutes,
-        durationDisplayUnit: pkg.durationDisplayUnit || 'minutes',
-      },
-    },
+    booking: bookingResult,
   };
 }
 
@@ -397,6 +420,8 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
       endTime: booking.endTime,
       status: booking.status,
       paymentStatus: booking.paymentStatus,
+      source: booking.source,
+      notes: booking.notes,
       package: {
         name: pkg.name,
         price: pkg.price,
@@ -409,6 +434,25 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
       totalAmount: booking.totalAmount,
     });
 
+    const primary = bookingPayload(createdBookings[0]);
+
+    const { notifyBookingCreatedAdminEmail } = require('../email/bookingCreatedAdminEmailService');
+    notifyBookingCreatedAdminEmail({
+      booking: {
+        ...primary,
+        slotCount: createdBookings.length,
+        totalAmount,
+      },
+      pkg,
+      groupBookingNumber,
+      slots: createdBookings.map((b) => ({
+        date: b.date,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        bookingNumber: b.bookingNumber,
+      })),
+    });
+
     return {
       success: true,
       bookingGroupId,
@@ -416,7 +460,7 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
       bookings: createdBookings.map(bookingPayload),
       totalAmount,
       booking: {
-        ...bookingPayload(createdBookings[0]),
+        ...primary,
         slotCount: createdBookings.length,
       },
     };

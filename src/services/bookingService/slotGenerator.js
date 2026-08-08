@@ -13,7 +13,7 @@ const {
   isValidDateYYYYMMDD,
 } = require('./timeUtils');
 
-async function getAvailableSlots(packageId, date) {
+async function getAvailableSlots(packageId, date, options = {}) {
   if (!isValidDateYYYYMMDD(date)) {
     return { success: false, error: 'Invalid date format. Use YYYY-MM-DD', slots: [] };
   }
@@ -89,26 +89,48 @@ async function getAvailableSlots(packageId, date) {
     }
   }
 
-  const blockingIntervals = await getBlockingIntervals(pkg.type, date);
+  const blockingIntervals = await getBlockingIntervals(pkg.type, date, {
+    excludeBookingId: options.excludeBookingId || undefined,
+  });
 
-  const availableSlots = candidates.filter((slot) => {
+  const slots = candidates.map((slot) => {
     if (isTimeInPast(date, slot.startTime, minAdvanceHours, timezone)) {
-      return false;
+      return {
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        available: false,
+        unavailableReason: 'past',
+      };
     }
 
     for (const interval of blockingIntervals) {
       if (intervalsOverlap(slot.startTime, slot.endTime, interval.startTime, interval.endTime)) {
-        return false;
+        return {
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          available: false,
+          unavailableReason: 'booked',
+        };
       }
     }
 
-    return true;
+    return {
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      available: true,
+    };
   });
+
+  const availableCount = slots.filter((s) => s.available).length;
+  const bookableOrBookedCount = slots.filter((s) => s.unavailableReason !== 'past').length;
+  const fullyBooked = bookableOrBookedCount > 0 && availableCount === 0;
 
   return {
     success: true,
     error: null,
-    slots: availableSlots,
+    slots,
+    availableCount,
+    fullyBooked,
     package: {
       id: pkg._id,
       name: pkg.name,
