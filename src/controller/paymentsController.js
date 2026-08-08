@@ -161,7 +161,8 @@ const paymentsController = {
             console.log('╔════════════════════════════════════════════════════╗');
             console.log('║              Stripe Key Verification               ║');
             console.log('╠════════════════════════════════════════════════════╣');
-            console.log(`║  Source: ${keys.isFromDatabase ? 'Database' : 'Environment'}`.padEnd(54) + '║');
+            console.log(`║  Source: ${keys.source || (keys.isFromDatabase ? 'Database' : 'Environment')}`.padEnd(54) + '║');
+            console.log(`║  Mode: ${STRIPE_PUBLISHABLE_KEY?.startsWith('pk_test_') ? 'TEST' : STRIPE_PUBLISHABLE_KEY?.startsWith('pk_live_') ? 'LIVE' : 'UNKNOWN'}`.padEnd(54) + '║');
             console.log(`║  PK Account ID: ${pkAccountId}`.padEnd(54) + '║');
             console.log(`║  SK Account ID: ${skAccountId}`.padEnd(54) + '║');
             console.log(`║  Keys Match: ${keysMatch ? '✅ YES' : '❌ NO'}`.padEnd(54) + '║');

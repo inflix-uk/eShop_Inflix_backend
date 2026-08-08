@@ -8,6 +8,12 @@ const EVENT_CONFIG = {
     intro: 'We are writing to confirm that your booking has been cancelled.',
     accent: '#f44336',
   },
+  restored: {
+    subject: 'Your booking has been restored',
+    headline: 'Booking Restored',
+    intro: 'Your cancelled booking has been restored. Please find the updated details below.',
+    accent: '#4caf50',
+  },
   rescheduled: {
     subject: 'Your booking has been rescheduled',
     headline: 'Booking Rescheduled',
@@ -222,7 +228,7 @@ function isEmailEnabled() {
 }
 
 /**
- * Send booking status email to the customer (cancelled, rescheduled, no_show).
+ * Send booking status email to the customer (cancelled, restored, rescheduled, no_show).
  * @returns {Promise<{ sent: boolean, reason?: string, error?: string }>}
  */
 async function sendBookingStatusEmail({

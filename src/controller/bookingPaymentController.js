@@ -165,12 +165,20 @@ const bookingPaymentController = {
         return res.status(400).json({ error: 'Invalid bookingId', status: 400 });
       }
 
-      const booking = await Booking.findOne({ _id: bookingId, isdeleted: false })
-        .select('bookingNumber paymentStatus paymentDetails stripePaymentIntentId')
+      let booking = await Booking.findOne({ _id: bookingId, isdeleted: false })
+        .select('bookingNumber groupBookingNumber paymentStatus paymentDetails stripePaymentIntentId status')
         .lean();
 
       if (!booking) {
         return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      const { syncBookingPaymentIfNeeded } = require('../services/bookingService/confirmBooking');
+      const synced = await syncBookingPaymentIfNeeded(booking);
+      if (synced?._id) {
+        booking = await Booking.findOne({ _id: synced._id, isdeleted: false })
+          .select('bookingNumber groupBookingNumber paymentStatus paymentDetails stripePaymentIntentId status')
+          .lean();
       }
 
       let stripeStatus = null;
@@ -199,6 +207,95 @@ const bookingPaymentController = {
       });
     } catch (error) {
       console.error('Error fetching payment status:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  confirmBookingPayment: async (req, res) => {
+    try {
+      const { bookingId, bookingNumber, paymentIntentId } = req.body;
+
+      if (!paymentIntentId) {
+        return res.status(400).json({ error: 'paymentIntentId is required', status: 400 });
+      }
+
+      const stripe = await getStripeInstance();
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+      if (paymentIntent.status !== 'succeeded') {
+        return res.status(400).json({
+          error: 'Payment has not succeeded yet',
+          status: 400,
+          stripeStatus: paymentIntent.status,
+        });
+      }
+
+      let booking = null;
+      if (bookingId) {
+        if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+          return res.status(400).json({ error: 'Invalid bookingId', status: 400 });
+        }
+        booking = await Booking.findOne({ _id: bookingId, isdeleted: false });
+      } else if (bookingNumber) {
+        const { normalizeBookingNumber } = require('../services/bookingService/confirmBooking');
+        const normalized = normalizeBookingNumber(bookingNumber);
+        booking = await Booking.findOne({
+          $or: [{ bookingNumber: normalized }, { groupBookingNumber: normalized }],
+          isdeleted: false,
+        });
+      } else if (paymentIntent.metadata?.bookingId) {
+        booking = await Booking.findOne({
+          _id: paymentIntent.metadata.bookingId,
+          isdeleted: false,
+        });
+      }
+
+      if (!booking) {
+        return res.status(404).json({ error: 'Booking not found', status: 404 });
+      }
+
+      const piMatchesBooking =
+        booking.stripePaymentIntentId === paymentIntent.id ||
+        paymentIntent.metadata?.bookingId === String(booking._id) ||
+        paymentIntent.metadata?.bookingNumber === booking.bookingNumber ||
+        paymentIntent.metadata?.bookingNumber === booking.groupBookingNumber;
+
+      if (!piMatchesBooking) {
+        return res.status(400).json({
+          error: 'PaymentIntent does not belong to this booking',
+          status: 400,
+        });
+      }
+
+      const { confirmBookingPayment, syncBookingPaymentIfNeeded } = require('../services/bookingService/confirmBooking');
+      const lookupNumber = booking.groupBookingNumber || booking.bookingNumber;
+
+      let result;
+      if (booking.status === 'cancelled') {
+        const synced = await syncBookingPaymentIfNeeded(booking);
+        result = { success: true, booking: synced };
+      } else {
+        result = await confirmBookingPayment(lookupNumber, paymentIntent, {
+          paymentType: 'Card',
+        });
+      }
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error || 'Failed to confirm booking payment', status: 400 });
+      }
+
+      return res.json({
+        message: 'Booking payment confirmed successfully',
+        status: 200,
+        booking: {
+          bookingId: result.booking._id || result.booking.bookingId,
+          bookingNumber: result.booking.bookingNumber,
+          status: result.booking.status,
+          paymentStatus: result.booking.paymentStatus,
+        },
+      });
+    } catch (error) {
+      console.error('Error confirming booking payment:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   },

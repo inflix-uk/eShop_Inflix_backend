@@ -20,23 +20,32 @@ const mongoose = require('mongoose');
 const auditPlugin = require('./src/audit/mongooseAuditPlugin');
 mongoose.plugin(auditPlugin);
 
-// Verify Stripe keys match on startup
+// Verify Stripe keys match on startup (env keys only — runtime may use DB unless STRIPE_USE_ENV_KEYS)
 const verifyStripeKeys = () => {
+  const useEnv = ['true', '1', 'yes'].includes(
+    String(process.env.STRIPE_USE_ENV_KEYS || '').trim().toLowerCase()
+  );
   const pk = process.env.STRIPE_PUBLISHABLE_KEY;
   const sk = process.env.STRIPE_SECRET_KEY;
-
-  if (!pk || !sk) {
-    console.log('⚠️ Stripe keys not fully configured');
-    return;
-  }
-
-  // Extract the account identifier (17 chars after the prefix: sk_test_ or pk_test_)
-  const pkAccountId = pk.substring(8, 25);
-  const skAccountId = sk.substring(8, 25);
 
   console.log('╔════════════════════════════════════════════════════╗');
   console.log('║              Stripe Configuration Check            ║');
   console.log('╠════════════════════════════════════════════════════╣');
+  console.log(
+    `║  STRIPE_USE_ENV_KEYS: ${useEnv ? 'ON (force .env)' : 'OFF (DB preferred)'}`.padEnd(54) + '║'
+  );
+
+  if (!pk || !sk) {
+    console.log('║  ⚠️ .env Stripe keys not fully configured'.padEnd(54) + '║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    return;
+  }
+
+  const mode = pk.startsWith('pk_test_') ? 'TEST' : pk.startsWith('pk_live_') ? 'LIVE' : 'UNKNOWN';
+  const pkAccountId = pk.substring(8, 25);
+  const skAccountId = sk.substring(8, 25);
+
+  console.log(`║  .env Mode: ${mode}`.padEnd(54) + '║');
   console.log(`║  Publishable Key: ${pk.substring(0, 20)}...`.padEnd(54) + '║');
   console.log(`║  Secret Key: ${sk.substring(0, 20)}...`.padEnd(54) + '║');
   console.log(`║  PK Account ID: ${pkAccountId}`.padEnd(54) + '║');

@@ -1,8 +1,10 @@
 const { getAvailableSlots } = require('./slotGenerator');
 const { createSlotHold, createMultiSlotHold, releaseHold, releaseHolds } = require('./createSlotHold');
 const { createBookingFromHold, createBookingsFromHolds, createAdminBooking } = require('./createBooking');
-const { confirmBookingPayment, handleBookingPaymentFailed } = require('./confirmBooking');
+const { confirmBookingPayment, handleBookingPaymentFailed, syncBookingPaymentIfNeeded, syncBookingsPaymentStatus } = require('./confirmBooking');
 const { cancelBooking } = require('./cancelBooking');
+const { restoreBooking } = require('./restoreBooking');
+const { updateBooking } = require('./updateBooking');
 const { rescheduleBooking } = require('./rescheduleBooking');
 const { generateBookingNumber } = require('./generateBookingNumber');
 const { expireStalePendingBookings } = require('./expireStalePendingBookings');
@@ -19,7 +21,11 @@ module.exports = {
   createAdminBooking,
   confirmBookingPayment,
   handleBookingPaymentFailed,
+  syncBookingPaymentIfNeeded,
+  syncBookingsPaymentStatus,
   cancelBooking,
+  restoreBooking,
+  updateBooking,
   rescheduleBooking,
   generateBookingNumber,
   expireStalePendingBookings,
