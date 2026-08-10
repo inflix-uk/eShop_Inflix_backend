@@ -18,6 +18,8 @@ const { toSeoSlug, generateVariantId, variantNameToSeoSlug } = require('../../ut
  * - Rows are validated against the live reference collections (categories,
  *   tags, variant attributes) before anything is written; a typo fails that
  *   row instead of silently creating a product no category page can show.
+ *   On updates, values unchanged from the stored product are grandfathered
+ *   (orphaned categories/tags/attribute values must not strand an export).
  * - Updates MERGE: a blank cell means "leave the stored value alone", and
  *   fields the CSV cannot carry (varImgGroup, per-variant SEO, variant
  *   status/variantId, meta schemas…) are preserved, not wiped.
@@ -54,6 +56,22 @@ class ImportProductsService {
         if (!url) return null;
         const filename = String(url).split('/').pop().split('?')[0] || null;
         return { filename, path: null, url: String(url), altText: '', description: '' };
+    }
+
+    /**
+     * On update, an export round-trips the image URL it stored — rebuilding the
+     * image doc from that URL would wipe altText/description/path/filename on a
+     * file the user never touched. Reuse the stored doc whenever the incoming
+     * URL still points at it; build a fresh doc only for genuinely new URLs.
+     */
+    reuseImage(url, stored) {
+        const target = norm(url);
+        if (!target) return null;
+        const candidates = (Array.isArray(stored) ? stored : [stored]).filter(Boolean);
+        const match = candidates.find(
+            (img) => norm(img.url) === target || norm(img.path) === target
+        );
+        return match || this.toImage(target);
     }
 
     /**
@@ -137,26 +155,40 @@ class ImportProductsService {
      * non-empty errors array means the row must not be written.
      * Every check is skipped when its reference list is missing or empty, so
      * an unconfigured store degrades gracefully instead of rejecting rows.
+     *
+     * When `existing` (the matched stored product) is given, values identical
+     * to what is already stored are grandfathered — never rejected. Catalogues
+     * accumulate orphans (a category deleted after products used it, a retired
+     * attribute value); an export must always re-import over itself, so only
+     * NEW or CHANGED values have to exist in the reference lists.
      */
-    prepareProduct(p, ref) {
+    prepareProduct(p, ref, existing = null) {
         const errors = [];
         const product = { ...p };
         if (!ref) return { product, errors };
 
+        const unchanged = (incoming, stored) => hasText(stored) && low(incoming) === low(stored);
+
         // category — the edit form allows several, comma-joined.
         if (hasText(product.category) && ref.categoriesByName.size) {
-            const parts = norm(product.category).split(',').map(norm).filter(Boolean);
-            const canonical = [];
-            parts.forEach((part) => {
-                const cat = ref.categoriesByName.get(low(part));
-                if (cat) canonical.push(cat.name);
-                else errors.push(`Unknown category "${part}"`);
-            });
-            if (canonical.length === parts.length) product.category = canonical.join(',');
+            if (unchanged(product.category, existing?.category)) {
+                product.category = existing.category;
+            } else {
+                const parts = norm(product.category).split(',').map(norm).filter(Boolean);
+                const canonical = [];
+                parts.forEach((part) => {
+                    const cat = ref.categoriesByName.get(low(part));
+                    if (cat) canonical.push(cat.name);
+                    else errors.push(`Unknown category "${part}"`);
+                });
+                if (canonical.length === parts.length) product.category = canonical.join(',');
+            }
         }
 
         // subCategory — JSON string of { Category: [Sub, ...] } (site-wide convention).
-        if (hasText(product.subCategory) && ref.categoriesByName.size) {
+        if (hasText(product.subCategory) && unchanged(product.subCategory, existing?.subCategory)) {
+            product.subCategory = existing.subCategory;
+        } else if (hasText(product.subCategory) && ref.categoriesByName.size) {
             let parsed = null;
             try {
                 parsed = JSON.parse(product.subCategory);
@@ -190,21 +222,29 @@ class ImportProductsService {
         // brand — stored by display name, offered by the `brands` attribute.
         const brands = ref.attributesBySlug.get('brands');
         if (hasText(product.brand) && brands && brands.valuesByKey.size) {
-            const value = brands.valuesByKey.get(low(product.brand));
-            if (value) product.brand = value.name;
-            else errors.push(`Unknown brand "${norm(product.brand)}"`);
+            if (unchanged(product.brand, existing?.brand)) {
+                product.brand = existing.brand;
+            } else {
+                const value = brands.valuesByKey.get(low(product.brand));
+                if (value) product.brand = value.name;
+                else errors.push(`Unknown brand "${norm(product.brand)}"`);
+            }
         }
 
         // tags — comma-joined display names.
         if (hasText(product.tags) && ref.tagsByName.size) {
-            const parts = norm(product.tags).split(',').map(norm).filter(Boolean);
-            const canonical = [];
-            parts.forEach((part) => {
-                const tag = ref.tagsByName.get(low(part));
-                if (tag) canonical.push(tag);
-                else errors.push(`Unknown tag "${part}"`);
-            });
-            if (canonical.length === parts.length) product.tags = canonical.join(',');
+            if (unchanged(product.tags, existing?.tags)) {
+                product.tags = existing.tags;
+            } else {
+                const parts = norm(product.tags).split(',').map(norm).filter(Boolean);
+                const canonical = [];
+                parts.forEach((part) => {
+                    const tag = ref.tagsByName.get(low(part));
+                    if (tag) canonical.push(tag);
+                    else errors.push(`Unknown tag "${part}"`);
+                });
+                if (canonical.length === parts.length) product.tags = canonical.join(',');
+            }
         }
 
         // condition is NOT validated — the edit form allows custom conditions.
@@ -216,6 +256,11 @@ class ImportProductsService {
         ].forEach(([key, slug]) => {
             const attr = ref.attributesBySlug.get(slug);
             if (!hasItems(product[key]) || !attr || !attr.valuesByKey.size) return;
+            const storedItems = Array.isArray(existing?.[key]) ? existing[key] : [];
+            if (storedItems.length && low(product[key].join('|')) === low(storedItems.join('|'))) {
+                product[key] = storedItems;
+                return;
+            }
             const canonical = [];
             product[key].forEach((item) => {
                 const value = attr.valuesByKey.get(low(item));
@@ -226,9 +271,21 @@ class ImportProductsService {
         });
 
         // variant attributes — slug must exist, value must be one of its values.
+        // Pairs the product already stores (by value name or slug) are
+        // grandfathered, so exports keep re-importing after a value is retired.
         if (ref.attributesBySlug.size) {
+            const storedPairs = new Set();
+            (existing?.variantValues || []).forEach((variant) => {
+                (variant?.attributes || []).forEach((a) => {
+                    if (!hasText(a?.attributeSlug)) return;
+                    if (hasText(a.value)) storedPairs.add(`${low(a.attributeSlug)}=${low(a.value)}`);
+                    if (hasText(a.valueSlug)) storedPairs.add(`${low(a.attributeSlug)}=${low(a.valueSlug)}`);
+                });
+            });
+
             (product.variants || []).forEach((variant) => {
                 (variant?.attributes || []).forEach((a) => {
+                    if (storedPairs.has(`${low(a.attributeSlug)}=${low(a.value)}`)) return;
                     const { attr, value } = this.lookupValue(ref, a.attributeSlug, a.value);
                     if (!attr) errors.push(`Unknown variant attribute "${norm(a.attributeSlug)}"`);
                     else if (!value) errors.push(`Unknown value "${norm(a.value)}" for attribute "${attr.name}"`);
@@ -378,7 +435,9 @@ class ImportProductsService {
                 metaSchemas: Array.isArray(old.metaSchemas) ? old.metaSchemas : [],
                 metaImage: old.metaImage ?? null,
                 variantImages: fresh.variantImages.length
-                    ? fresh.variantImages
+                    ? (raw.imageUrls || [])
+                        .map(u => this.reuseImage(u, old.variantImages))
+                        .filter(Boolean)
                     : (Array.isArray(old.variantImages) ? old.variantImages : []),
                 Cost: fresh.Cost ?? old.Cost ?? null,
                 Price: fresh.Price ?? old.Price ?? null,
@@ -425,9 +484,13 @@ class ImportProductsService {
         if (hasItems(p.topSectionItems)) set.topSectionItems = p.topSectionItems;
         if (hasItems(p.product_Specifications)) set.product_Specifications = p.product_Specifications;
 
-        if (hasText(p.thumbnailUrl)) set.thumbnail_image = this.toImage(p.thumbnailUrl);
+        if (hasText(p.thumbnailUrl)) {
+            set.thumbnail_image = this.reuseImage(p.thumbnailUrl, existing.thumbnail_image);
+        }
         if (hasItems(p.galleryUrls)) {
-            set.Gallery_Images = p.galleryUrls.map(u => this.toImage(u)).filter(Boolean);
+            set.Gallery_Images = p.galleryUrls
+                .map(u => this.reuseImage(u, existing.Gallery_Images))
+                .filter(Boolean);
         }
 
         // Merge SEO field-by-field; metaSchemas can't ride in the CSV, so the
@@ -481,17 +544,8 @@ class ImportProductsService {
         for (const raw of list) {
             const requested = norm(raw.producturl);
             try {
-                const { product: p, errors } = this.prepareProduct(raw, ref);
-                if (errors.length) {
-                    results.failed += 1;
-                    details.push({
-                        producturl: requested || norm(raw.name) || '(no producturl)',
-                        action: 'failed',
-                        message: errors.join('; '),
-                    });
-                    continue;
-                }
-
+                // Look up the stored product FIRST: validation grandfathers
+                // values that are unchanged from what it already stores.
                 const match = requested
                     ? await Product.findOne({ producturl: requested }).lean()
                     : null;
@@ -502,6 +556,17 @@ class ImportProductsService {
                     continue;
                 }
 
+                const { product: p, errors } = this.prepareProduct(raw, ref, match);
+                if (errors.length) {
+                    results.failed += 1;
+                    details.push({
+                        producturl: requested || norm(raw.name) || '(no producturl)',
+                        action: 'failed',
+                        message: errors.join('; '),
+                    });
+                    continue;
+                }
+
                 if (match) {
                     const set = this.buildUpdateDoc(p, match, ref);
                     if (!dryRun) {
@@ -509,6 +574,18 @@ class ImportProductsService {
                     }
                     results.updated += 1;
                     details.push({ producturl: requested, action: dryRun ? 'would update' : 'updated', name: p.name });
+                    continue;
+                }
+
+                // Updates may omit the name (the stored one is kept), but a
+                // NEW product without a name would 404 on the storefront.
+                if (!hasText(p.name)) {
+                    results.failed += 1;
+                    details.push({
+                        producturl: requested || '(no producturl)',
+                        action: 'failed',
+                        message: 'New products need a name on the first row of their group',
+                    });
                     continue;
                 }
 

@@ -120,6 +120,75 @@ describe('prepareProduct validation', () => {
     });
 });
 
+describe('prepareProduct grandfather clause (unchanged stored values pass)', () => {
+    // A live product carrying orphaned reference data: categories/tags that
+    // have since been deleted from the reference collections.
+    const existing = {
+        category: 'Home-Fragrances,Brand-New',
+        subCategory: JSON.stringify({ 'Ghost-Category': ['Ghost-Sub'] }),
+        brand: 'Retired Brand',
+        tags: 'Home Fragrances,Deleted Tag',
+        comesWithItems: ['ghost-item'],
+        variantValues: [
+            { attributes: [{ attributeSlug: 'scent', value: 'Discontinued Musk', valueSlug: 'discontinued-musk' }] },
+        ],
+    };
+
+    test('an export round-trips over itself even with orphaned values', () => {
+        const { product, errors } = service.prepareProduct(
+            {
+                category: 'Home-Fragrances,Brand-New',
+                subCategory: JSON.stringify({ 'Ghost-Category': ['Ghost-Sub'] }),
+                brand: 'retired brand', // case-insensitive match
+                tags: 'Home Fragrances,Deleted Tag',
+                comesWithItems: ['ghost-item'],
+                variants: [{ attributes: [{ attributeSlug: 'scent', value: 'Discontinued Musk' }] }],
+            },
+            ref(),
+            existing
+        );
+        assert.deepEqual(errors, []);
+        // Stored spellings win over the file's casing.
+        assert.equal(product.category, 'Home-Fragrances,Brand-New');
+        assert.equal(product.brand, 'Retired Brand');
+        assert.deepEqual(product.comesWithItems, ['ghost-item']);
+    });
+
+    test('stored valueSlug also grandfathers a variant attribute pair', () => {
+        const { errors } = service.prepareProduct(
+            { variants: [{ attributes: [{ attributeSlug: 'scent', value: 'discontinued-musk' }] }] },
+            ref(),
+            existing
+        );
+        assert.deepEqual(errors, []);
+    });
+
+    test('CHANGED values still validate strictly on update', () => {
+        const { errors } = service.prepareProduct(
+            {
+                category: 'Home-Fragrances,Christmas-Deals', // changed → each part must exist
+                brand: 'Another Ghost',
+                variants: [{ attributes: [{ attributeSlug: 'scent', value: 'Motor Oil' }] }],
+            },
+            ref(),
+            existing
+        );
+        assert.ok(errors.some(e => e.includes('Unknown category "Christmas-Deals"')), errors.join('; '));
+        assert.ok(errors.some(e => e.includes('Unknown brand "Another Ghost"')), errors.join('; '));
+        assert.ok(errors.some(e => e.includes('Unknown value "Motor Oil"')), errors.join('; '));
+    });
+
+    test('creates (no existing product) still validate everything', () => {
+        const { errors } = service.prepareProduct(
+            { category: 'Brand-New', brand: 'Retired Brand' },
+            ref(),
+            null
+        );
+        assert.ok(errors.some(e => e.includes('Unknown category "Brand-New"')));
+        assert.ok(errors.some(e => e.includes('Unknown brand "Retired Brand"')));
+    });
+});
+
 describe('buildVariant enrichment', () => {
     test('resolves display name, canonical spelling/slug and colorCode', () => {
         const variant = service.buildVariant(
@@ -307,5 +376,88 @@ describe('buildUpdateDoc merge semantics', () => {
         const set = service.buildUpdateDoc({ productType: { type: 'single' } }, existing, ref());
         assert.deepEqual(set.variantNames, []);
         assert.deepEqual(set.productType, { type: 'single' });
+    });
+});
+
+describe('image reuse on update (round-tripped exports stay lossless)', () => {
+    const storedThumb = {
+        filename: 'local-thumb.png',
+        path: '/uploads/local-thumb.png',
+        url: 'https://cdn.example.com/thumb.png',
+        altText: 'Hand-written alt',
+        description: 'Hand-written description',
+    };
+    const storedGallery = [
+        { filename: 'g1.png', path: '/uploads/g1.png', url: 'https://cdn.example.com/g1.png', altText: 'g1 alt' },
+        { filename: 'g2.png', path: '/uploads/g2.png', url: 'https://cdn.example.com/g2.png', altText: 'g2 alt' },
+    ];
+    const existing = {
+        productType: { type: 'single' },
+        thumbnail_image: storedThumb,
+        Gallery_Images: storedGallery,
+        variantValues: [
+            {
+                name: 'single',
+                SKU: 'SGL-1',
+                variantId: 'VAR-1',
+                variantImages: [{ filename: 'v1.png', path: '/uploads/v1.png', url: 'https://cdn.example.com/v1.png', altText: 'v1 alt' }],
+            },
+        ],
+    };
+
+    test('unchanged thumbnail URL keeps the stored doc (alt text, path, filename)', () => {
+        const set = service.buildUpdateDoc(
+            { thumbnailUrl: 'https://cdn.example.com/thumb.png' },
+            existing,
+            ref()
+        );
+        assert.deepEqual(set.thumbnail_image, storedThumb);
+    });
+
+    test('a genuinely new thumbnail URL builds a fresh doc', () => {
+        const set = service.buildUpdateDoc(
+            { thumbnailUrl: 'https://cdn.example.com/replacement.png' },
+            existing,
+            ref()
+        );
+        assert.equal(set.thumbnail_image.url, 'https://cdn.example.com/replacement.png');
+        assert.equal(set.thumbnail_image.altText, '');
+        assert.equal(set.thumbnail_image.path, null);
+    });
+
+    test('a URL that matches the stored PATH also reuses the stored doc', () => {
+        const set = service.buildUpdateDoc(
+            { thumbnailUrl: '/uploads/local-thumb.png' },
+            existing,
+            ref()
+        );
+        assert.deepEqual(set.thumbnail_image, storedThumb);
+    });
+
+    test('gallery mixes reused and fresh docs, in file order', () => {
+        const set = service.buildUpdateDoc(
+            { galleryUrls: ['https://cdn.example.com/g2.png', 'https://cdn.example.com/new.png'] },
+            existing,
+            ref()
+        );
+        assert.equal(set.Gallery_Images.length, 2);
+        assert.deepEqual(set.Gallery_Images[0], storedGallery[1]); // reused, reordered per file
+        assert.equal(set.Gallery_Images[1].url, 'https://cdn.example.com/new.png');
+        assert.equal(set.Gallery_Images[1].altText, '');
+    });
+
+    test('matched variant keeps its stored image doc when the URL is unchanged', () => {
+        const set = service.buildUpdateDoc(
+            {
+                variants: [
+                    { name: 'single', SKU: 'SGL-1', imageUrls: ['https://cdn.example.com/v1.png'] },
+                ],
+            },
+            existing,
+            ref()
+        );
+        const [variant] = set.variantValues;
+        assert.equal(variant.variantId, 'VAR-1');
+        assert.deepEqual(variant.variantImages, existing.variantValues[0].variantImages);
     });
 });
