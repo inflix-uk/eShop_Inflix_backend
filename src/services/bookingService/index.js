@@ -1,4 +1,4 @@
-const { getAvailableSlots } = require('./slotGenerator');
+const { getAvailableSlots, getMonthAvailability } = require('./slotGenerator');
 const { createSlotHold, createMultiSlotHold, releaseHold, releaseHolds } = require('./createSlotHold');
 const { createBookingFromHold, createBookingsFromHolds, createAdminBooking } = require('./createBooking');
 const { confirmBookingPayment, handleBookingPaymentFailed, syncBookingPaymentIfNeeded, syncBookingsPaymentStatus } = require('./confirmBooking');
@@ -12,6 +12,7 @@ const { verifyActiveHolds } = require('./verifySlotHolds');
 
 module.exports = {
   getAvailableSlots,
+  getMonthAvailability,
   createSlotHold,
   createMultiSlotHold,
   releaseHold,

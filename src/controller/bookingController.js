@@ -39,6 +39,35 @@ const bookingController = {
     }
   },
 
+  getMonthAvailability: async (req, res) => {
+    try {
+      const { packageId, month } = req.query;
+
+      if (!packageId || !month) {
+        return res.status(400).json({ error: 'packageId and month are required', status: 400 });
+      }
+
+      if (!mongoose.Types.ObjectId.isValid(packageId)) {
+        return res.status(400).json({ error: 'Invalid packageId', status: 400 });
+      }
+
+      const result = await bookingService.getMonthAvailability(packageId, month);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error, status: 400, days: {} });
+      }
+
+      return res.json({
+        message: 'Month availability fetched successfully',
+        status: 200,
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error fetching month availability:', error);
+      return res.status(500).json({ error: 'Internal server error', days: {} });
+    }
+  },
+
   createSlotHold: async (req, res) => {
     try {
       const { packageId, date, startTime, slots, sessionId, userId } = req.body;
@@ -185,7 +214,8 @@ const bookingController = {
 
   createBooking: async (req, res) => {
     try {
-      const { holdId, holdIds, customer, userId, notes, extras } = req.body;
+      const { holdId, holdIds, customer, userId, notes, extras, extraMics, guestCount, editingPackageId } =
+        req.body;
 
       if (Array.isArray(holdIds) && holdIds.length > 0) {
         const invalid = holdIds.some((id) => !mongoose.Types.ObjectId.isValid(id));
@@ -199,6 +229,9 @@ const bookingController = {
           userId,
           notes,
           extras,
+          extraMics,
+          guestCount,
+          editingPackageId,
           source: 'online',
         });
 
@@ -231,6 +264,9 @@ const bookingController = {
         userId,
         notes,
         extras,
+        extraMics,
+        guestCount,
+        editingPackageId,
         source: 'online',
       });
 

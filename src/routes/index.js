@@ -1109,6 +1109,7 @@ router.post('/reschedule/booking/:id', ...requireAdmin, bookingController.resche
 
 // Public routes
 router.get('/get/booking/slots', bookingController.getAvailableSlots);
+router.get('/get/booking/month-availability', bookingController.getMonthAvailability);
 router.post('/create/booking/hold', bookingController.createSlotHold);
 router.post('/verify/booking/holds', bookingController.verifySlotHolds);
 router.post('/release/booking/hold', bookingController.releaseSlotHold);

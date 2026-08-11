@@ -49,6 +49,18 @@ const bookingSettingsSchema = new mongoose.Schema(
       default: 60,
       min: 1,
     },
+    /** Hard ceiling on guests / mics available in the studio. */
+    studioMicCapacity: {
+      type: Number,
+      default: 5,
+      min: 1,
+    },
+    /** Extra microphone add-on rate (£ per mic per hour). */
+    extraMicPricePerHour: {
+      type: Number,
+      default: 15,
+      min: 0,
+    },
     metaTitle: {
       type: String,
       default: '',

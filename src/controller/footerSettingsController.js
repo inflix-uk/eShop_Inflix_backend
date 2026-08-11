@@ -49,6 +49,12 @@ const getDefaultFooterSettings = () => {
       creditLabel: '',
       creditUrl: ''
     },
+    sectionCustom: {
+      isEnabled: false,
+      title: '',
+      placement: 'after_useful_links',
+      links: []
+    },
     section4: {
       title: '',
       links: []
@@ -138,6 +144,22 @@ function serializeFooterSettingsForClient(settingsDoc) {
     ...defaultFooter.bottomBar,
     ...(settingsData.bottomBar || {}),
   };
+  settingsData.sectionCustom = {
+    ...defaultFooter.sectionCustom,
+    ...(settingsData.sectionCustom || {}),
+    links: Array.isArray(settingsData.sectionCustom?.links)
+      ? settingsData.sectionCustom.links
+      : defaultFooter.sectionCustom.links,
+  };
+  const allowedPlacements = [
+    'after_logo',
+    'after_useful_links',
+    'after_customer_care',
+    'after_newsletter',
+  ];
+  if (!allowedPlacements.includes(settingsData.sectionCustom.placement)) {
+    settingsData.sectionCustom.placement = defaultFooter.sectionCustom.placement;
+  }
   // Ensure legacy section5 data is never exposed to clients
   delete settingsData.section5;
 
@@ -211,10 +233,10 @@ const getFooterSettingsPublic = async (req, res) => {
  */
 const saveFooterSettings = async (req, res) => {
   try {
-    const { section1, section2, section3, section4, sectionNewsletter, bottomBar } = req.body;
+    const { section1, section2, section3, section4, sectionNewsletter, bottomBar, sectionCustom } = req.body;
     
     // Validate that at least one section is provided
-    if (!section1 && !section2 && !section3 && !section4 && !sectionNewsletter && !bottomBar) {
+    if (!section1 && !section2 && !section3 && !section4 && !sectionNewsletter && !bottomBar && !sectionCustom) {
       return res.status(400).json({
         success: false,
         message: 'At least one section must be provided'
@@ -256,7 +278,27 @@ const saveFooterSettings = async (req, res) => {
         ...(prev.bottomBar || {}),
         ...(bottomBar || {}),
       },
+      sectionCustom: {
+        ...defaults.sectionCustom,
+        ...(prev.sectionCustom || {}),
+        ...(sectionCustom || {}),
+        links: Array.isArray(sectionCustom?.links)
+          ? sectionCustom.links
+          : Array.isArray(prev.sectionCustom?.links)
+            ? prev.sectionCustom.links
+            : defaults.sectionCustom.links,
+      },
     };
+
+    const allowedPlacements = [
+      'after_logo',
+      'after_useful_links',
+      'after_customer_care',
+      'after_newsletter',
+    ];
+    if (!allowedPlacements.includes(merged.sectionCustom.placement)) {
+      merged.sectionCustom.placement = defaults.sectionCustom.placement;
+    }
 
     if (merged.section1.logo != null && typeof merged.section1.logo === 'object') {
       merged.section1.logo = {
@@ -314,7 +356,7 @@ const updateFooterSection = async (req, res) => {
     const sectionData = req.body;
     
     // Validate section name
-    const validSections = ['section1', 'section2', 'section3', 'section4', 'sectionNewsletter', 'bottomBar'];
+    const validSections = ['section1', 'section2', 'section3', 'section4', 'sectionNewsletter', 'bottomBar', 'sectionCustom'];
     if (!validSections.includes(section)) {
       return res.status(400).json({
         success: false,
@@ -346,6 +388,23 @@ const updateFooterSection = async (req, res) => {
         ...((prev.section1 && prev.section1.logo) || {}),
         ...mergedSection.logo,
       };
+    }
+
+    if (section === 'sectionCustom') {
+      const allowedPlacements = [
+        'after_logo',
+        'after_useful_links',
+        'after_customer_care',
+        'after_newsletter',
+      ];
+      if (!allowedPlacements.includes(mergedSection.placement)) {
+        mergedSection.placement = defaults.sectionCustom.placement;
+      }
+      if (!Array.isArray(mergedSection.links)) {
+        mergedSection.links = Array.isArray(prev.sectionCustom?.links)
+          ? prev.sectionCustom.links
+          : defaults.sectionCustom.links;
+      }
     }
 
     const updateQuery = { [`${section}`]: mergedSection };

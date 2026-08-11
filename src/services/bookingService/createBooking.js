@@ -7,7 +7,11 @@ const { checkOverlap } = require('./overlapValidator');
 const { addMinutesToTime, isValidTimeHHmm, isValidDateYYYYMMDD } = require('./timeUtils');
 const {
   validateExtrasAgainstPackage,
+  applyHourlyExtras,
   computeBookingTotals,
+  resolveExtraMics,
+  buildExtraMicLineItem,
+  resolveEditingAddOn,
 } = require('../../utils/bookingPricingUtils');
 const {
   claimActiveHold,
@@ -30,7 +34,17 @@ async function rollbackPartialGroupBooking(createdBookings, claimedHolds) {
   }
 }
 
-async function createBookingFromHold({ holdId, customer, userId, notes, source, extras }) {
+async function createBookingFromHold({
+  holdId,
+  customer,
+  userId,
+  notes,
+  source,
+  extras,
+  extraMics,
+  guestCount,
+  editingPackageId,
+}) {
   if (!holdId) {
     return { success: false, error: 'holdId is required' };
   }
@@ -58,7 +72,9 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
     return { success: false, error: 'Package not found or inactive' };
   }
 
-  const extraResult = validateExtrasAgainstPackage(extras, pkg.extras);
+  const extraResult = validateExtrasAgainstPackage(extras, pkg.extras, {
+    maxQuantity: guestCount,
+  });
   if (extraResult.error) {
     await releaseClaimedHold(holdId);
     return { success: false, error: extraResult.error };
@@ -88,12 +104,46 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
       return { success: false, error: 'Slot conflict detected', conflict: conflict.conflictWith };
     }
 
+    const settings = await BookingSettings.getSettings();
+    const resolvedMics = resolveExtraMics({
+      extraMics,
+      includedMics: pkg.includedMics,
+      studioMicCapacity: settings.studioMicCapacity,
+      maxGuests: pkg.maxGuests,
+    });
+    const hourlyExtras = applyHourlyExtras(extraResult.extras, 1);
+    const micLine = buildExtraMicLineItem({
+      extraMics: resolvedMics,
+      pricePerHour: settings.extraMicPricePerHour,
+      hours: 1,
+    });
+    const editingResult = await resolveEditingAddOn(editingPackageId);
+    if (editingResult.error) {
+      await releaseClaimedHold(holdId);
+      return { success: false, error: editingResult.error };
+    }
+    const bookingExtras = [
+      ...hourlyExtras.extras,
+      ...(micLine ? [micLine] : []),
+      ...(editingResult.line ? [editingResult.line] : []),
+    ];
+    const extrasWithMic =
+      hourlyExtras.extrasSubtotal +
+      (micLine ? micLine.price : 0) +
+      (editingResult.subtotal || 0);
+
     const bookingNumber = await generateBookingNumber();
     const { slotsSubtotal, extrasSubtotal, totalAmount } = computeBookingTotals(
       pkg.price,
       1,
-      extraResult.extrasSubtotal
+      extrasWithMic
     );
+
+    const guestNote =
+      guestCount != null && Number(guestCount) > 0
+        ? `Guests: ${Math.max(1, Math.floor(Number(guestCount)))}`
+        : '';
+    const combinedNotes = [notes || '', guestNote].filter(Boolean).join('\n');
 
     const booking = new Booking({
       bookingNumber,
@@ -112,8 +162,8 @@ async function createBookingFromHold({ holdId, customer, userId, notes, source, 
       paymentStatus: 'unpaid',
       holdId: hold._id,
       source: source || 'online',
-      notes: notes || '',
-      extras: extraResult.extras,
+      notes: combinedNotes,
+      extras: bookingExtras,
       extrasSubtotal,
       slotsSubtotal,
       totalAmount,
@@ -281,7 +331,17 @@ async function createAdminBooking({ packageId, date, startTime, customer, userId
   };
 }
 
-async function createBookingsFromHolds({ holdIds, customer, userId, notes, source, extras }) {
+async function createBookingsFromHolds({
+  holdIds,
+  customer,
+  userId,
+  notes,
+  source,
+  extras,
+  extraMics,
+  guestCount,
+  editingPackageId,
+}) {
   if (!Array.isArray(holdIds) || holdIds.length === 0) {
     return { success: false, error: 'holdIds array is required' };
   }
@@ -320,7 +380,9 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
       throw new Error('PACKAGE_NOT_FOUND');
     }
 
-    const extraResult = validateExtrasAgainstPackage(extras, pkg.extras);
+    const extraResult = validateExtrasAgainstPackage(extras, pkg.extras, {
+      maxQuantity: guestCount,
+    });
     if (extraResult.error) {
       await rollbackPartialGroupBooking(createdBookings, claimedHolds);
       return { success: false, error: extraResult.error };
@@ -328,11 +390,44 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
 
     const bookingGroupId = new mongoose.Types.ObjectId();
     const groupSettings = await BookingSettings.getSettings();
+    const hoursBooked = claimedHolds.length;
+    const resolvedMics = resolveExtraMics({
+      extraMics,
+      includedMics: pkg.includedMics,
+      studioMicCapacity: groupSettings.studioMicCapacity,
+      maxGuests: pkg.maxGuests,
+    });
+    const hourlyExtras = applyHourlyExtras(extraResult.extras, hoursBooked);
+    const micLine = buildExtraMicLineItem({
+      extraMics: resolvedMics,
+      pricePerHour: groupSettings.extraMicPricePerHour,
+      hours: hoursBooked,
+    });
+    const editingResult = await resolveEditingAddOn(editingPackageId);
+    if (editingResult.error) {
+      await rollbackPartialGroupBooking(createdBookings, claimedHolds);
+      return { success: false, error: editingResult.error };
+    }
+    // Editing is per episode (flat) — attach once on the group total, not × hours.
+    const bookingExtras = [
+      ...hourlyExtras.extras,
+      ...(micLine ? [micLine] : []),
+      ...(editingResult.line ? [editingResult.line] : []),
+    ];
+    const extrasWithMic =
+      hourlyExtras.extrasSubtotal +
+      (micLine ? micLine.price : 0) +
+      (editingResult.subtotal || 0);
     const { slotsSubtotal, extrasSubtotal, totalAmount } = computeBookingTotals(
       pkg.price,
-      claimedHolds.length,
-      extraResult.extrasSubtotal
+      hoursBooked,
+      extrasWithMic
     );
+    const guestNote =
+      guestCount != null && Number(guestCount) > 0
+        ? `Guests: ${Math.max(1, Math.floor(Number(guestCount)))}`
+        : '';
+    const combinedNotes = [notes || '', guestNote].filter(Boolean).join('\n');
 
     for (const hold of claimedHolds) {
       if (String(hold.packageId) !== String(packageId)) {
@@ -386,8 +481,8 @@ async function createBookingsFromHolds({ holdIds, customer, userId, notes, sourc
         groupBookingNumber:
           createdBookings.length === 0 ? bookingNumber : createdBookings[0].bookingNumber,
         source: source || 'online',
-        notes: notes || '',
-        extras: extraResult.extras,
+        notes: combinedNotes,
+        extras: bookingExtras,
         extrasSubtotal,
         slotsSubtotal: pkg.price,
         totalAmount,

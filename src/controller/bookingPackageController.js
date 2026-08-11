@@ -105,8 +105,39 @@ function normalizeExtras(extras) {
           ? Math.max(0, Number(item.price))
           : 0,
       description: item?.description ? String(item.description).trim() : '',
+      quantityEnabled: Boolean(item?.quantityEnabled),
     }))
     .filter((item) => item.title.length > 0);
+}
+
+const DEFAULT_WHAT_HAPPENS_NEXT = {
+  heading: 'What happens next',
+  listStyle: 'numbered',
+  items: [
+    'Confirmation and calendar invite by email straight away.',
+    'Free parking at the back of the studio — no app, no permit.',
+    'Arrive 5 minutes early. The room is already rigged and tested.',
+    'Leave with your raw files. Free reschedule up to 72 hrs before.',
+  ],
+};
+
+function normalizeWhatHappensNext(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const heading =
+    String(src.heading ?? DEFAULT_WHAT_HAPPENS_NEXT.heading).trim() ||
+    DEFAULT_WHAT_HAPPENS_NEXT.heading;
+  const listStyle = src.listStyle === 'bullets' ? 'bullets' : 'numbered';
+  const items = Array.isArray(src.items)
+    ? src.items
+        .map((item) => String(item || '').trim())
+        .filter((item) => item.length > 0)
+        .slice(0, 20)
+    : [];
+  return {
+    heading,
+    listStyle,
+    items: items.length > 0 ? items : [...DEFAULT_WHAT_HAPPENS_NEXT.items],
+  };
 }
 
 function normalizeHighlightBadgeText(value) {
@@ -308,12 +339,16 @@ const bookingPackageController = {
         durationMinutes,
         durationDisplayUnit,
         price,
+        includedMics,
+        subtitle,
+        maxGuests,
         description,
         detailPage,
         detailPageHtml,
         detailPageCss,
         features,
         extras,
+        whatHappensNext,
         image,
         sortOrder,
         isActive,
@@ -352,11 +387,15 @@ const bookingPackageController = {
         durationMinutes: Number(durationMinutes),
         durationDisplayUnit: unit,
         price: Number(price),
+        includedMics: Math.max(0, Number(includedMics) || 0),
+        subtitle: subtitle != null ? String(subtitle).trim() : '',
+        maxGuests: Math.min(9, Math.max(1, Number(maxGuests) || 5)),
         description: description || '',
         detailPage: detailPage || '',
         detailPageHtml: detailPageHtml || '',
         detailPageCss: detailPageCss || '',
         features: normalizeFeatures(features),
+        whatHappensNext: normalizeWhatHappensNext(whatHappensNext),
         extras: normalizeExtras(extras),
         image: image || null,
         sortOrder: sortOrder !== undefined ? Number(sortOrder) : 0,
@@ -405,12 +444,16 @@ const bookingPackageController = {
         durationMinutes,
         durationDisplayUnit,
         price,
+        includedMics,
+        subtitle,
+        maxGuests,
         description,
         detailPage,
         detailPageHtml,
         detailPageCss,
         features,
         extras,
+        whatHappensNext,
         image,
         sortOrder,
         isActive,
@@ -438,11 +481,23 @@ const bookingPackageController = {
         existing.durationDisplayUnit = durationDisplayUnit;
       }
       if (price !== undefined) existing.price = Number(price);
+      if (includedMics !== undefined) {
+        existing.includedMics = Math.max(0, Number(includedMics) || 0);
+      }
+      if (subtitle !== undefined) {
+        existing.subtitle = String(subtitle || '').trim();
+      }
+      if (maxGuests !== undefined) {
+        existing.maxGuests = Math.min(9, Math.max(1, Number(maxGuests) || 5));
+      }
       if (description !== undefined) existing.description = description;
       if (detailPage !== undefined) existing.detailPage = detailPage;
       if (detailPageHtml !== undefined) existing.detailPageHtml = detailPageHtml;
       if (detailPageCss !== undefined) existing.detailPageCss = detailPageCss;
       if (features !== undefined) existing.features = normalizeFeatures(features);
+      if (whatHappensNext !== undefined) {
+        existing.whatHappensNext = normalizeWhatHappensNext(whatHappensNext);
+      }
       if (extras !== undefined) existing.extras = normalizeExtras(extras);
       if (image !== undefined) existing.image = image;
       if (sortOrder !== undefined) existing.sortOrder = Number(sortOrder);

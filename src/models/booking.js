@@ -112,6 +112,7 @@ const bookingSchema = new mongoose.Schema(
           title: { type: String, default: '', trim: true },
           price: { type: Number, default: 0, min: 0 },
           description: { type: String, default: '', trim: true },
+          quantity: { type: Number, default: 1, min: 1 },
         },
       ],
       default: [],

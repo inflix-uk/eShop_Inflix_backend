@@ -26,6 +26,8 @@ const bookingSettingsController = {
           slotIntervalDisplayUnit: settings.slotIntervalDisplayUnit || 'minutes',
           holdDurationDisplayUnit: settings.holdDurationDisplayUnit || 'minutes',
           minAdvanceDisplayUnit: settings.minAdvanceDisplayUnit || 'hours',
+          studioMicCapacity: Number(settings.studioMicCapacity) || 5,
+          extraMicPricePerHour: Number(settings.extraMicPricePerHour) || 15,
         },
       });
     } catch (error) {
@@ -60,6 +62,8 @@ const bookingSettingsController = {
         slotIntervalDisplayUnit,
         holdDurationDisplayUnit,
         minAdvanceDisplayUnit,
+        studioMicCapacity,
+        extraMicPricePerHour,
         updatedBy,
       } = req.body;
 
@@ -83,6 +87,12 @@ const bookingSettingsController = {
       }
       if (minAdvanceDisplayUnit === 'hours' || minAdvanceDisplayUnit === 'minutes') {
         settings.minAdvanceDisplayUnit = minAdvanceDisplayUnit;
+      }
+      if (studioMicCapacity !== undefined) {
+        settings.studioMicCapacity = Math.max(1, Number(studioMicCapacity) || 5);
+      }
+      if (extraMicPricePerHour !== undefined) {
+        settings.extraMicPricePerHour = Math.max(0, Number(extraMicPricePerHour) || 0);
       }
       if (updatedBy) settings.updatedBy = updatedBy;
 

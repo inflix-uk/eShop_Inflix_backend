@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const BOOKING_PACKAGE_TYPES = ['service', 'consultation', 'studio'];
+const BOOKING_PACKAGE_TYPES = ['service', 'consultation', 'studio', 'editing'];
 
 const bookingPackageSchema = new mongoose.Schema(
   {
@@ -36,6 +36,25 @@ const bookingPackageSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    /** Microphones included with this package (studio hire). */
+    includedMics: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    /** Custom line under price on booking cards (e.g. "2 mics included, up to 5"). */
+    subtitle: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    /** Max guest chips on the booking flow (1–9). */
+    maxGuests: {
+      type: Number,
+      default: 5,
+      min: 1,
+      max: 9,
+    },
     description: {
       type: String,
       default: '',
@@ -59,6 +78,24 @@ const bookingPackageSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    /** Booking flow sidebar — "What happens next" (per package). */
+    whatHappensNext: {
+      heading: { type: String, default: 'What happens next', trim: true },
+      listStyle: {
+        type: String,
+        enum: ['numbered', 'bullets'],
+        default: 'numbered',
+      },
+      items: {
+        type: [String],
+        default: [
+          'Confirmation and calendar invite by email straight away.',
+          'Free parking at the back of the studio — no app, no permit.',
+          'Arrive 5 minutes early. The room is already rigged and tested.',
+          'Leave with your raw files. Free reschedule up to 72 hrs before.',
+        ],
+      },
+    },
     extras: {
       type: [
         {
@@ -66,6 +103,8 @@ const bookingPackageSchema = new mongoose.Schema(
           title: { type: String, default: '', trim: true },
           price: { type: Number, default: 0, min: 0 },
           description: { type: String, default: '', trim: true },
+          /** When true, storefront shows +/- quantity instead of Add toggle. */
+          quantityEnabled: { type: Boolean, default: false },
         },
       ],
       default: [],
