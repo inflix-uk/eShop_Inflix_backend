@@ -13,7 +13,11 @@ function normalizeSitemapPath(raw) {
  * Example for podcast (no shop categories):
  *   sitemapExcludePaths: ["/categories"]
  *
+ * Example to hide booking URLs on a store that does not use booking:
+ *   sitemapExcludePaths: ["/booking"]
+ *
  * Excludes the /categories index and all /categories/{slug} URLs for that store only.
+ * For /booking, storefront sitemap skips /booking and /booking/details/* when listed.
  */
 function storeSkipsSitemapCategories(store) {
   const excludes = Array.isArray(store?.sitemapExcludePaths)

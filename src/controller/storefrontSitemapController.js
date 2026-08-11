@@ -8,7 +8,11 @@ const generateSitemapProductImagesXML =
 const { getNewBlogSitemapPathSegment } = require("../utils/newBlogSitemapPath");
 const { collectSitemapProductImageUrls } = require("../utils/orderLineImageUrlServer");
 const { appendFooterPageSitemapEntries } = require("../utils/footerPageSitemapPaths");
-const { storeSkipsSitemapCategories } = require("../utils/sitemapStoreExclusions");
+const { appendBookingPackageSitemapEntries } = require("../utils/bookingPackageSitemapPaths");
+const {
+  storeSkipsSitemapCategories,
+  storeSkipsSitemapPath,
+} = require("../utils/sitemapStoreExclusions");
 
 function slugify(value) {
   return String(value || "")
@@ -193,6 +197,10 @@ const storefrontSitemapController = {
       }
 
       await appendFooterPageSitemapEntries(urls, storeId, baseUrl);
+
+      if (!storeSkipsSitemapPath(req.store, "/booking")) {
+        await appendBookingPackageSitemapEntries(urls, baseUrl);
+      }
 
       appendProductSitemapEntries(urls, products, baseUrl);
 

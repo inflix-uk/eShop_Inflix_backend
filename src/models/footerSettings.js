@@ -181,6 +181,48 @@ const footerSettingsSchema = new mongoose.Schema({
       maxlength: [500, 'Credit URL cannot exceed 500 characters']
     }
   },
+  sectionCustom: {
+    isEnabled: {
+      type: Boolean,
+      default: false
+    },
+    title: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [200, 'Custom section title cannot exceed 200 characters']
+    },
+    placement: {
+      type: String,
+      enum: [
+        'after_logo',
+        'after_useful_links',
+        'after_customer_care',
+        'after_newsletter'
+      ],
+      default: 'after_useful_links'
+    },
+    links: [{
+      text: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      link: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      isActive: {
+        type: Boolean,
+        default: true
+      },
+      order: {
+        type: Number,
+        default: 0
+      }
+    }]
+  },
   section5: {
     title: {
       type: String,

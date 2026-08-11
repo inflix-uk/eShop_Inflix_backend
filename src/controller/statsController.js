@@ -1516,9 +1516,10 @@ const statsController = {
 
             const existingSubscriber = await Newsletter.findOne({ email: trimmedEmail });
             if (existingSubscriber) {
-                return res.status(400).json({
+                return res.status(200).json({
                     message: 'Email is already subscribed',
-                    status: 400,
+                    status: 200,
+                    alreadySubscribed: true,
                 });
             }
 
