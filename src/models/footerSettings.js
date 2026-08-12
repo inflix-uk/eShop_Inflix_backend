@@ -181,7 +181,7 @@ const footerSettingsSchema = new mongoose.Schema({
       maxlength: [500, 'Credit URL cannot exceed 500 characters']
     }
   },
-  sectionCustom: {
+  sectionCustom: [{
     isEnabled: {
       type: Boolean,
       default: false
@@ -201,6 +201,10 @@ const footerSettingsSchema = new mongoose.Schema({
         'after_newsletter'
       ],
       default: 'after_useful_links'
+    },
+    order: {
+      type: Number,
+      default: 0
     },
     links: [{
       text: {
@@ -222,7 +226,7 @@ const footerSettingsSchema = new mongoose.Schema({
         default: 0
       }
     }]
-  },
+  }],
   section5: {
     title: {
       type: String,

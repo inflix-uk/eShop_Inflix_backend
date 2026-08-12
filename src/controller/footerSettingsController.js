@@ -49,12 +49,7 @@ const getDefaultFooterSettings = () => {
       creditLabel: '',
       creditUrl: ''
     },
-    sectionCustom: {
-      isEnabled: false,
-      title: '',
-      placement: 'after_useful_links',
-      links: []
-    },
+    sectionCustom: [],
     section4: {
       title: '',
       links: []
@@ -62,6 +57,57 @@ const getDefaultFooterSettings = () => {
     // section5 intentionally removed from API defaults/response
   };
 };
+
+const ALLOWED_CUSTOM_PLACEMENTS = [
+  'after_logo',
+  'after_useful_links',
+  'after_customer_care',
+  'after_newsletter',
+];
+
+/**
+ * Normalize custom footer sections to an array.
+ * Supports legacy single-object `sectionCustom` documents.
+ */
+function normalizeCustomSections(raw) {
+  const toItem = (item, index) => {
+    const links = Array.isArray(item?.links)
+      ? item.links.map((link, linkIndex) => ({
+          text: link?.text || '',
+          link: link?.link || '',
+          isActive: link?.isActive !== false,
+          order: typeof link?.order === 'number' ? link.order : linkIndex,
+        }))
+      : [];
+
+    return {
+      isEnabled: item?.isEnabled === true,
+      title: typeof item?.title === 'string' ? item.title.trim() : '',
+      placement: ALLOWED_CUSTOM_PLACEMENTS.includes(item?.placement)
+        ? item.placement
+        : 'after_useful_links',
+      order: typeof item?.order === 'number' ? item.order : index,
+      links,
+    };
+  };
+
+  if (Array.isArray(raw)) {
+    return raw.map(toItem);
+  }
+
+  // Legacy single custom section object
+  if (raw && typeof raw === 'object') {
+    const hasContent =
+      raw.isEnabled === true ||
+      Boolean(String(raw.title || '').trim()) ||
+      (Array.isArray(raw.links) && raw.links.length > 0);
+    if (hasContent) {
+      return [toItem(raw, 0)];
+    }
+  }
+
+  return [];
+}
 
 // Memory storage for Vercel Blob uploads
 const memoryStorage = multer.memoryStorage();
@@ -144,22 +190,7 @@ function serializeFooterSettingsForClient(settingsDoc) {
     ...defaultFooter.bottomBar,
     ...(settingsData.bottomBar || {}),
   };
-  settingsData.sectionCustom = {
-    ...defaultFooter.sectionCustom,
-    ...(settingsData.sectionCustom || {}),
-    links: Array.isArray(settingsData.sectionCustom?.links)
-      ? settingsData.sectionCustom.links
-      : defaultFooter.sectionCustom.links,
-  };
-  const allowedPlacements = [
-    'after_logo',
-    'after_useful_links',
-    'after_customer_care',
-    'after_newsletter',
-  ];
-  if (!allowedPlacements.includes(settingsData.sectionCustom.placement)) {
-    settingsData.sectionCustom.placement = defaultFooter.sectionCustom.placement;
-  }
+  settingsData.sectionCustom = normalizeCustomSections(settingsData.sectionCustom);
   // Ensure legacy section5 data is never exposed to clients
   delete settingsData.section5;
 
@@ -278,27 +309,10 @@ const saveFooterSettings = async (req, res) => {
         ...(prev.bottomBar || {}),
         ...(bottomBar || {}),
       },
-      sectionCustom: {
-        ...defaults.sectionCustom,
-        ...(prev.sectionCustom || {}),
-        ...(sectionCustom || {}),
-        links: Array.isArray(sectionCustom?.links)
-          ? sectionCustom.links
-          : Array.isArray(prev.sectionCustom?.links)
-            ? prev.sectionCustom.links
-            : defaults.sectionCustom.links,
-      },
+      sectionCustom: normalizeCustomSections(
+        sectionCustom !== undefined ? sectionCustom : prev.sectionCustom
+      ),
     };
-
-    const allowedPlacements = [
-      'after_logo',
-      'after_useful_links',
-      'after_customer_care',
-      'after_newsletter',
-    ];
-    if (!allowedPlacements.includes(merged.sectionCustom.placement)) {
-      merged.sectionCustom.placement = defaults.sectionCustom.placement;
-    }
 
     if (merged.section1.logo != null && typeof merged.section1.logo === 'object') {
       merged.section1.logo = {
@@ -324,12 +338,7 @@ const saveFooterSettings = async (req, res) => {
     console.log(`📋 [ADMIN ACTION] Admin ${adminId} saved footer settings at ${new Date().toISOString()}`);
     
     // Convert to plain object
-    const settingsData = settings.toObject();
-    delete settingsData._id;
-    delete settingsData.__v;
-    delete settingsData.createdAt;
-    delete settingsData.updatedAt;
-    delete settingsData.section5;
+    const settingsData = serializeFooterSettingsForClient(settings);
     
     res.status(200).json({
       success: true,
@@ -365,7 +374,17 @@ const updateFooterSection = async (req, res) => {
     }
     
     // Validate that section data is provided
-    if (!sectionData || Object.keys(sectionData).length === 0) {
+    const isCustomArrayBody = section === 'sectionCustom' && Array.isArray(sectionData);
+    const isCustomWrappedBody =
+      section === 'sectionCustom' &&
+      sectionData &&
+      typeof sectionData === 'object' &&
+      Array.isArray(sectionData.sections);
+    if (
+      !isCustomArrayBody &&
+      !isCustomWrappedBody &&
+      (!sectionData || Object.keys(sectionData).length === 0)
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Section data is required'
@@ -376,34 +395,27 @@ const updateFooterSection = async (req, res) => {
     const existing = await FooterSettings.findOne().lean();
     const prev = existing || {};
 
-    const mergedSection = {
-      ...defaults[section],
-      ...(prev[section] || {}),
-      ...sectionData,
-    };
-
-    if (section === 'section1' && mergedSection.logo != null && typeof mergedSection.logo === 'object') {
-      mergedSection.logo = {
-        ...defaults.section1.logo,
-        ...((prev.section1 && prev.section1.logo) || {}),
-        ...mergedSection.logo,
-      };
-    }
-
+    let mergedSection;
     if (section === 'sectionCustom') {
-      const allowedPlacements = [
-        'after_logo',
-        'after_useful_links',
-        'after_customer_care',
-        'after_newsletter',
-      ];
-      if (!allowedPlacements.includes(mergedSection.placement)) {
-        mergedSection.placement = defaults.sectionCustom.placement;
-      }
-      if (!Array.isArray(mergedSection.links)) {
-        mergedSection.links = Array.isArray(prev.sectionCustom?.links)
-          ? prev.sectionCustom.links
-          : defaults.sectionCustom.links;
+      const incoming = Array.isArray(sectionData)
+        ? sectionData
+        : Array.isArray(sectionData?.sections)
+          ? sectionData.sections
+          : [];
+      mergedSection = normalizeCustomSections(incoming);
+    } else {
+      mergedSection = {
+        ...defaults[section],
+        ...(prev[section] || {}),
+        ...sectionData,
+      };
+
+      if (section === 'section1' && mergedSection.logo != null && typeof mergedSection.logo === 'object') {
+        mergedSection.logo = {
+          ...defaults.section1.logo,
+          ...((prev.section1 && prev.section1.logo) || {}),
+          ...mergedSection.logo,
+        };
       }
     }
 
