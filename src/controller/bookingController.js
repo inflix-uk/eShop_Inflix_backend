@@ -652,6 +652,31 @@ const bookingController = {
     }
   },
 
+  deleteBooking: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ error: 'Invalid booking id', status: 400 });
+      }
+
+      const result = await bookingService.deleteBooking({ bookingId: id });
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error, status: 400 });
+      }
+
+      return res.json({
+        message: 'Booking deleted successfully',
+        status: 200,
+        booking: result.booking,
+      });
+    } catch (error) {
+      console.error('Error deleting booking:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
   restoreBooking: async (req, res) => {
     try {
       const { id } = req.params;

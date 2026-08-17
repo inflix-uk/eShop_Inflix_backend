@@ -4,6 +4,7 @@ const { createBookingFromHold, createBookingsFromHolds, createAdminBooking } = r
 const { confirmBookingPayment, handleBookingPaymentFailed, syncBookingPaymentIfNeeded, syncBookingsPaymentStatus } = require('./confirmBooking');
 const { cancelBooking } = require('./cancelBooking');
 const { restoreBooking } = require('./restoreBooking');
+const { deleteBooking } = require('./deleteBooking');
 const { updateBooking } = require('./updateBooking');
 const { rescheduleBooking } = require('./rescheduleBooking');
 const { generateBookingNumber } = require('./generateBookingNumber');
@@ -26,6 +27,7 @@ module.exports = {
   syncBookingsPaymentStatus,
   cancelBooking,
   restoreBooking,
+  deleteBooking,
   updateBooking,
   rescheduleBooking,
   generateBookingNumber,
