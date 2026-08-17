@@ -1104,6 +1104,7 @@ router.patch('/update/booking/:id', ...requireAdmin, bookingController.updateBoo
 router.patch('/status/booking/:id', ...requireAdmin, bookingController.updateBookingStatus);
 router.patch('/payment-status/booking/:id', ...requireAdmin, bookingController.updatePaymentStatus);
 router.post('/cancel/booking/:id', ...requireAdmin, bookingController.cancelBooking);
+router.delete('/delete/booking/:id', ...requireAdmin, bookingController.deleteBooking);
 router.post('/restore/booking/:id', ...requireAdmin, bookingController.restoreBooking);
 router.post('/reschedule/booking/:id', ...requireAdmin, bookingController.rescheduleBooking);
 
