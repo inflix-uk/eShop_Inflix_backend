@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const BOOKING_PACKAGE_TYPES = ['service', 'consultation', 'studio', 'editing'];
+const BOOKING_PRICING_MODES = ['hourly', 'fixed'];
 
 const bookingPackageSchema = new mongoose.Schema(
   {
@@ -34,6 +35,21 @@ const bookingPackageSchema = new mongoose.Schema(
     price: {
       type: Number,
       required: true,
+      min: 0,
+    },
+    /**
+     * 'hourly' — price is charged per booked hour (price × hours).
+     * 'fixed'  — price is a flat charge for the whole booking, whatever hours are picked.
+     */
+    pricingMode: {
+      type: String,
+      enum: BOOKING_PRICING_MODES,
+      default: 'hourly',
+    },
+    /** Hours a customer may book in one go. 0 means no limit. */
+    maxHours: {
+      type: Number,
+      default: 0,
       min: 0,
     },
     /** Microphones included with this package (studio hire). */
@@ -105,6 +121,9 @@ const bookingPackageSchema = new mongoose.Schema(
           description: { type: String, default: '', trim: true },
           /** When true, storefront shows +/- quantity instead of Add toggle. */
           quantityEnabled: { type: Boolean, default: false },
+          /** When true, `discountPrice` replaces `price` and `price` becomes the struck-through "was". */
+          discountEnabled: { type: Boolean, default: false },
+          discountPrice: { type: Number, default: 0, min: 0 },
         },
       ],
       default: [],
@@ -156,3 +175,4 @@ bookingPackageSchema.index({ slug: 1 }, { unique: true, partialFilterExpression:
 
 module.exports = mongoose.model('BookingPackage', bookingPackageSchema);
 module.exports.BOOKING_PACKAGE_TYPES = BOOKING_PACKAGE_TYPES;
+module.exports.BOOKING_PRICING_MODES = BOOKING_PRICING_MODES;

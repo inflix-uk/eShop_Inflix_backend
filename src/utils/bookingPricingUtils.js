@@ -6,6 +6,65 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+/** Fixed-price packages charge one flat amount instead of a per-hour rate. */
+function isFixedPricePackage(pkg) {
+  return String(pkg?.pricingMode || 'hourly') === 'fixed';
+}
+
+/**
+ * Multiplier applied to every per-hour rate (package price, extras, mics).
+ * Hourly packages bill one unit per booked hour; fixed packages bill a single unit.
+ */
+function resolveBillableUnits(pkg, slotCount) {
+  const slots = Math.max(0, Math.floor(Number(slotCount) || 0));
+  if (slots === 0) return 0;
+  return isFixedPricePackage(pkg) ? 1 : slots;
+}
+
+/** Hours cap for a package. 0 means unlimited. */
+function resolveMaxHours(pkg) {
+  return Math.max(0, Math.floor(Number(pkg?.maxHours) || 0));
+}
+
+/** Guard a requested hour count against the package's admin-configured cap. */
+function validateHoursWithinLimit(pkg, slotCount) {
+  const maxHours = resolveMaxHours(pkg);
+  const hours = Math.max(0, Math.floor(Number(slotCount) || 0));
+
+  if (maxHours > 0 && hours > maxHours) {
+    return {
+      valid: false,
+      error: `Hours limit exceeded — ${String(pkg?.name || 'this package').trim()} allows a maximum of ${maxHours} hour${
+        maxHours === 1 ? '' : 's'
+      } per booking. You selected ${hours}.`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Effective charge for a catalog extra. When an admin discount is active the
+ * discounted amount is billed and the list price becomes the "was" price.
+ */
+function resolveExtraPricing(extra) {
+  const listPrice = Math.max(0, Number(extra?.price) || 0);
+  const discountPrice = Math.max(0, Number(extra?.discountPrice) || 0);
+  const hasDiscount =
+    Boolean(extra?.discountEnabled) && listPrice > 0 && discountPrice < listPrice;
+
+  if (!hasDiscount) {
+    return { unitPrice: listPrice, originalPrice: 0, discountPercent: 0, hasDiscount: false };
+  }
+
+  return {
+    unitPrice: discountPrice,
+    originalPrice: listPrice,
+    discountPercent: Math.round(((listPrice - discountPrice) / listPrice) * 100),
+    hasDiscount: true,
+  };
+}
+
 /**
  * Resolve client-selected extras against the package catalog (by index or title).
  */
@@ -60,11 +119,15 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
       );
     }
 
+    const pricing = resolveExtraPricing(catalogEntry);
+
     normalized.push({
       image: catalogEntry.image ? String(catalogEntry.image).trim() : '',
       title: String(catalogEntry.title).trim(),
-      /** Catalog unit price (£ per hour). Line total is applied via applyHourlyExtras. */
-      price: Math.max(0, Number(catalogEntry.price) || 0),
+      /** Catalog unit price (£ per hour) after discount. Line total via applyHourlyExtras. */
+      price: pricing.unitPrice,
+      originalPrice: pricing.originalPrice,
+      discountPercent: pricing.discountPercent,
       description: catalogEntry.description ? String(catalogEntry.description).trim() : '',
       quantity,
       quantityEnabled,
@@ -82,8 +145,9 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
  * Convert catalog unit-priced extras into line totals for N booked hours.
  * Returns new extras with `price` = unit × hours and a human-readable description.
  */
-function applyHourlyExtras(extras, hours) {
+function applyHourlyExtras(extras, hours, options = {}) {
   const hrs = Math.max(0, Number(hours) || 0);
+  const fixedPrice = Boolean(options.fixedPrice);
   if (!Array.isArray(extras) || extras.length === 0) {
     return { extras: [], extrasSubtotal: 0 };
   }
@@ -93,15 +157,24 @@ function applyHourlyExtras(extras, hours) {
     const qty = Math.max(1, Math.floor(Number(e.quantity) || 1));
     const line = Math.round(unit * qty * hrs * 100) / 100;
     const qtyLabel = qty > 1 ? `${qty} × ` : '';
+    const discountPercent = Math.max(0, Math.round(Number(e.discountPercent) || 0));
+    const originalPrice = Math.max(0, Number(e.originalPrice) || 0);
+    const discountLabel =
+      discountPercent > 0 && originalPrice > unit
+        ? ` · ${discountPercent}% off (was £${originalPrice.toFixed(2)})`
+        : '';
+    let description = e.description || '';
+    if (hrs > 0) {
+      description = fixedPrice
+        ? `${qtyLabel}£${unit.toFixed(2)} fixed price${discountLabel}`
+        : `${qtyLabel}£${unit.toFixed(2)} per hour × ${hrs}${hrs === 1 ? ' hr' : ' hrs'} booked${discountLabel}`;
+    }
     return {
       image: e.image || '',
       title: e.title,
       price: line,
       quantity: qty,
-      description:
-        hrs > 0
-          ? `${qtyLabel}£${unit.toFixed(2)} per hour × ${hrs}${hrs === 1 ? ' hr' : ' hrs'} booked`
-          : e.description || '',
+      description,
     };
   });
 
@@ -130,7 +203,7 @@ function resolveExtraMics({ extraMics, includedMics, studioMicCapacity, maxGuest
   return Math.min(requested, maxExtra);
 }
 
-function buildExtraMicLineItem({ extraMics, pricePerHour, hours }) {
+function buildExtraMicLineItem({ extraMics, pricePerHour, hours, fixedPrice = false }) {
   const n = Math.max(0, Number(extraMics) || 0);
   if (n <= 0) return null;
   const rate = Math.max(0, Number(pricePerHour) || 0);
@@ -140,7 +213,9 @@ function buildExtraMicLineItem({ extraMics, pricePerHour, hours }) {
     image: '',
     title: n === 1 ? 'Extra microphone' : 'Extra microphones',
     price,
-    description: `${n} × £${rate.toFixed(2)} per hour × ${hrs}${hrs === 1 ? ' hr' : ' hrs'}`,
+    description: fixedPrice
+      ? `${n} × £${rate.toFixed(2)} fixed price`
+      : `${n} × £${rate.toFixed(2)} per hour × ${hrs}${hrs === 1 ? ' hr' : ' hrs'}`,
   };
 }
 
@@ -204,6 +279,11 @@ function amountsMatch(a, b, tolerance = 0.01) {
 
 module.exports = {
   normalizeEmail,
+  isFixedPricePackage,
+  resolveBillableUnits,
+  resolveMaxHours,
+  validateHoursWithinLimit,
+  resolveExtraPricing,
   validateExtrasAgainstPackage,
   applyHourlyExtras,
   computeExtraMicCost,

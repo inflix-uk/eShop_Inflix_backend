@@ -12,6 +12,9 @@ const {
   resolveExtraMics,
   buildExtraMicLineItem,
   resolveEditingAddOn,
+  isFixedPricePackage,
+  resolveBillableUnits,
+  validateHoursWithinLimit,
 } = require('../../utils/bookingPricingUtils');
 const {
   claimActiveHold,
@@ -105,17 +108,19 @@ async function createBookingFromHold({
     }
 
     const settings = await BookingSettings.getSettings();
+    const fixedPrice = isFixedPricePackage(pkg);
     const resolvedMics = resolveExtraMics({
       extraMics,
       includedMics: pkg.includedMics,
       studioMicCapacity: settings.studioMicCapacity,
       maxGuests: pkg.maxGuests,
     });
-    const hourlyExtras = applyHourlyExtras(extraResult.extras, 1);
+    const hourlyExtras = applyHourlyExtras(extraResult.extras, 1, { fixedPrice });
     const micLine = buildExtraMicLineItem({
       extraMics: resolvedMics,
       pricePerHour: settings.extraMicPricePerHour,
       hours: 1,
+      fixedPrice,
     });
     const editingResult = await resolveEditingAddOn(editingPackageId);
     if (editingResult.error) {
@@ -388,20 +393,30 @@ async function createBookingsFromHolds({
       return { success: false, error: extraResult.error };
     }
 
+    const hoursLimit = validateHoursWithinLimit(pkg, claimedHolds.length);
+    if (!hoursLimit.valid) {
+      await rollbackPartialGroupBooking(createdBookings, claimedHolds);
+      return { success: false, error: hoursLimit.error, maxHours: pkg.maxHours };
+    }
+
     const bookingGroupId = new mongoose.Types.ObjectId();
     const groupSettings = await BookingSettings.getSettings();
     const hoursBooked = claimedHolds.length;
+    const fixedPrice = isFixedPricePackage(pkg);
+    // Fixed-price packages bill a single unit however many hours are picked.
+    const billableUnits = resolveBillableUnits(pkg, hoursBooked);
     const resolvedMics = resolveExtraMics({
       extraMics,
       includedMics: pkg.includedMics,
       studioMicCapacity: groupSettings.studioMicCapacity,
       maxGuests: pkg.maxGuests,
     });
-    const hourlyExtras = applyHourlyExtras(extraResult.extras, hoursBooked);
+    const hourlyExtras = applyHourlyExtras(extraResult.extras, billableUnits, { fixedPrice });
     const micLine = buildExtraMicLineItem({
       extraMics: resolvedMics,
       pricePerHour: groupSettings.extraMicPricePerHour,
-      hours: hoursBooked,
+      hours: billableUnits,
+      fixedPrice,
     });
     const editingResult = await resolveEditingAddOn(editingPackageId);
     if (editingResult.error) {
@@ -420,7 +435,7 @@ async function createBookingsFromHolds({
       (editingResult.subtotal || 0);
     const { slotsSubtotal, extrasSubtotal, totalAmount } = computeBookingTotals(
       pkg.price,
-      hoursBooked,
+      billableUnits,
       extrasWithMic
     );
     const guestNote =
