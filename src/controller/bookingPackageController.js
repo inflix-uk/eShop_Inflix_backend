@@ -3,7 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const BookingPackage = require('../models/bookingPackage');
-const { BOOKING_PACKAGE_TYPES } = require('../models/bookingPackage');
+const { BOOKING_PACKAGE_TYPES, BOOKING_PRICING_MODES } = require('../models/bookingPackage');
 const blobStorage = require('../utils/blobStorage');
 const { toSeoSlug } = require('../utils/slugUtils');
 
@@ -87,6 +87,17 @@ function isValidPackageType(type) {
   return BOOKING_PACKAGE_TYPES.includes(type);
 }
 
+function normalizePricingMode(value) {
+  const mode = String(value ?? '').trim();
+  return BOOKING_PRICING_MODES.includes(mode) ? mode : 'hourly';
+}
+
+/** 0 means no limit. */
+function normalizeMaxHours(value) {
+  const hours = Math.floor(Number(value) || 0);
+  return hours > 0 ? hours : 0;
+}
+
 function normalizeFeatures(features) {
   if (!Array.isArray(features)) return [];
   return features
@@ -94,19 +105,31 @@ function normalizeFeatures(features) {
     .filter((item) => item.length > 0);
 }
 
+function normalizeMoney(value) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return 0;
+  return Math.max(0, Math.round(Number(value) * 100) / 100);
+}
+
 function normalizeExtras(extras) {
   if (!Array.isArray(extras)) return [];
   return extras
-    .map((item) => ({
-      image: item?.image ? String(item.image).trim() : '',
-      title: item?.title ? String(item.title).trim() : '',
-      price:
-        item?.price !== undefined && item?.price !== null && !Number.isNaN(Number(item.price))
-          ? Math.max(0, Number(item.price))
-          : 0,
-      description: item?.description ? String(item.description).trim() : '',
-      quantityEnabled: Boolean(item?.quantityEnabled),
-    }))
+    .map((item) => {
+      const price = normalizeMoney(item?.price);
+      const discountPrice = normalizeMoney(item?.discountPrice);
+      // A discount only holds when it actually undercuts the list price.
+      const discountEnabled =
+        Boolean(item?.discountEnabled) && price > 0 && discountPrice < price;
+
+      return {
+        image: item?.image ? String(item.image).trim() : '',
+        title: item?.title ? String(item.title).trim() : '',
+        price,
+        description: item?.description ? String(item.description).trim() : '',
+        quantityEnabled: Boolean(item?.quantityEnabled),
+        discountEnabled,
+        discountPrice: discountEnabled ? discountPrice : 0,
+      };
+    })
     .filter((item) => item.title.length > 0);
 }
 
@@ -339,6 +362,8 @@ const bookingPackageController = {
         durationMinutes,
         durationDisplayUnit,
         price,
+        pricingMode,
+        maxHours,
         includedMics,
         subtitle,
         maxGuests,
@@ -387,6 +412,8 @@ const bookingPackageController = {
         durationMinutes: Number(durationMinutes),
         durationDisplayUnit: unit,
         price: Number(price),
+        pricingMode: normalizePricingMode(pricingMode),
+        maxHours: normalizeMaxHours(maxHours),
         includedMics: Math.max(0, Number(includedMics) || 0),
         subtitle: subtitle != null ? String(subtitle).trim() : '',
         maxGuests: Math.min(9, Math.max(1, Number(maxGuests) || 5)),
@@ -444,6 +471,8 @@ const bookingPackageController = {
         durationMinutes,
         durationDisplayUnit,
         price,
+        pricingMode,
+        maxHours,
         includedMics,
         subtitle,
         maxGuests,
@@ -481,6 +510,8 @@ const bookingPackageController = {
         existing.durationDisplayUnit = durationDisplayUnit;
       }
       if (price !== undefined) existing.price = Number(price);
+      if (pricingMode !== undefined) existing.pricingMode = normalizePricingMode(pricingMode);
+      if (maxHours !== undefined) existing.maxHours = normalizeMaxHours(maxHours);
       if (includedMics !== undefined) {
         existing.includedMics = Math.max(0, Number(includedMics) || 0);
       }

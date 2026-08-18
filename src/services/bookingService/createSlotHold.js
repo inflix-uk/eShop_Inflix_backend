@@ -6,6 +6,7 @@ const { addMinutesToTime, isValidTimeHHmm, isValidDateYYYYMMDD } = require('./ti
 const { reserveWithOverlapCheck, isDuplicateKeyError } = require('./slotReservation');
 const { expireStalePendingBookings } = require('./expireStalePendingBookings');
 const { validateSlotEligibility } = require('./slotEligibility');
+const { validateHoursWithinLimit } = require('../../utils/bookingPricingUtils');
 
 async function createSlotHold({ packageId, date, startTime, sessionId, userId }) {
   if (!packageId || !date || !startTime) {
@@ -128,6 +129,11 @@ async function createMultiSlotHold({ packageId, slots, sessionId, userId }) {
 
   if (!pkg) {
     return { success: false, error: 'Package not found or inactive' };
+  }
+
+  const hoursLimit = validateHoursWithinLimit(pkg, slots.length);
+  if (!hoursLimit.valid) {
+    return { success: false, error: hoursLimit.error, maxHours: pkg.maxHours };
   }
 
   const normalizedSlots = [];
