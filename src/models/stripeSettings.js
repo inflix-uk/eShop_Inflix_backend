@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isStripeTestMode, pickKeyForMode } = require('../utils/stripeMode');
 
 const stripeSettingsSchema = new mongoose.Schema({
   secretKey: {
@@ -34,42 +35,51 @@ stripeSettingsSchema.statics.getSettings = async function() {
   return settings;
 };
 
-function useEnvStripeKeys() {
-  const flag = String(process.env.STRIPE_USE_ENV_KEYS || '').trim().toLowerCase();
-  return flag === 'true' || flag === '1' || flag === 'yes';
-}
-
 // Get active keys for payment processing.
-// Local: set STRIPE_USE_ENV_KEYS=true to force .env test keys (ignore MongoDB live keys).
-// Production: leave unset so MongoDB / live keys are used.
+// STRIPE_TEST_MODE=true  → .env sk_test_ / pk_test_ (local)
+// STRIPE_TEST_MODE=false or unset → Admin / MongoDB live keys (production)
 stripeSettingsSchema.statics.getActiveKeys = async function() {
-  const envSecret = process.env.STRIPE_SECRET_KEY || '';
-  const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY || '';
-  const envWebhook = process.env.STRIPE_WEBHOOK_SECRET || '';
+  // Nodemon does not reload .env. Override so local test-key edits apply.
+  if (isStripeTestMode()) {
+    require('dotenv').config({ override: true });
+  }
 
-  if (useEnvStripeKeys()) {
-    if (!envSecret || !envPublishable) {
+  const envSecret = String(process.env.STRIPE_SECRET_KEY || '').trim();
+  const envPublishable = String(process.env.STRIPE_PUBLISHABLE_KEY || '').trim();
+  const envWebhook = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+  const testMode = isStripeTestMode();
+
+  if (testMode) {
+    const secretKey = pickKeyForMode(envSecret, 'test');
+    const publishableKey = pickKeyForMode(envPublishable, 'test');
+    if (!secretKey || !publishableKey) {
       console.warn(
-        '[stripe] STRIPE_USE_ENV_KEYS is enabled but STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY are missing in .env'
+        '[stripe] STRIPE_TEST_MODE=true but .env is missing STRIPE_SECRET_KEY (sk_test_) and/or STRIPE_PUBLISHABLE_KEY (pk_test_)'
       );
     }
     return {
-      secretKey: envSecret,
-      publishableKey: envPublishable,
+      secretKey,
+      publishableKey,
       webhookSecret: envWebhook,
       isFromDatabase: false,
       source: 'environment',
+      mode: 'test',
     };
   }
 
   const settings = await this.getSettings();
+  const secretKey =
+    pickKeyForMode(settings.secretKey, 'live') || pickKeyForMode(envSecret, 'live');
+  const publishableKey =
+    pickKeyForMode(settings.publishableKey, 'live') || pickKeyForMode(envPublishable, 'live');
 
   return {
-    secretKey: settings.secretKey || envSecret,
-    publishableKey: settings.publishableKey || envPublishable,
+    secretKey,
+    publishableKey,
     webhookSecret: settings.webhookSecret || envWebhook,
     isFromDatabase: !!(settings.secretKey && settings.publishableKey),
     source: settings.secretKey && settings.publishableKey ? 'database' : 'environment',
+    mode: 'live',
   };
 };
 

@@ -78,15 +78,21 @@ let stripeInstance = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 // Helper function to get Stripe instance with DB keys (with fallback to env vars)
 const getStripeInstance = async () => {
-    try {
-        const keys = await StripeSettings.getActiveKeys();
-        if (keys.secretKey) {
-            return require("stripe")(keys.secretKey);
-        }
-    } catch (error) {
-        console.error('Error getting Stripe keys from DB, using env fallback:', error.message);
+    const keys = await StripeSettings.getActiveKeys();
+    if (keys.secretKey) {
+        return require("stripe")(keys.secretKey);
     }
-    return stripeInstance;
+    const envKey = String(process.env.STRIPE_SECRET_KEY || '').trim();
+    if (envKey) {
+        return require("stripe")(envKey);
+    }
+    const err = new Error(
+        keys.mode === 'test'
+            ? 'Stripe test mode is on but STRIPE_SECRET_KEY (sk_test_) is missing in .env'
+            : 'Stripe secret key is not configured'
+    );
+    err.statusCode = 503;
+    throw err;
 };
 
 // Helper function to get publishable key (for config endpoint)
@@ -162,15 +168,19 @@ const paymentsController = {
             console.log('║              Stripe Key Verification               ║');
             console.log('╠════════════════════════════════════════════════════╣');
             console.log(`║  Source: ${keys.source || (keys.isFromDatabase ? 'Database' : 'Environment')}`.padEnd(54) + '║');
-            console.log(`║  Mode: ${STRIPE_PUBLISHABLE_KEY?.startsWith('pk_test_') ? 'TEST' : STRIPE_PUBLISHABLE_KEY?.startsWith('pk_live_') ? 'LIVE' : 'UNKNOWN'}`.padEnd(54) + '║');
+            console.log(`║  Mode: ${keys.mode === 'test' || STRIPE_PUBLISHABLE_KEY?.startsWith('pk_test_') ? 'TEST' : STRIPE_PUBLISHABLE_KEY?.startsWith('pk_live_') ? 'LIVE' : 'UNKNOWN'}`.padEnd(54) + '║');
             console.log(`║  PK Account ID: ${pkAccountId}`.padEnd(54) + '║');
             console.log(`║  SK Account ID: ${skAccountId}`.padEnd(54) + '║');
             console.log(`║  Keys Match: ${keysMatch ? '✅ YES' : '❌ NO'}`.padEnd(54) + '║');
             console.log('╚════════════════════════════════════════════════════╝');
 
             if (!STRIPE_PUBLISHABLE_KEY) {
-                console.error('STRIPE_PUBLISHABLE_KEY is not set');
-                return res.status(500).json({ error: 'Stripe configuration missing' });
+                const testMode = keys.mode === 'test';
+                const message = testMode
+                  ? 'STRIPE_TEST_MODE=true but STRIPE_PUBLISHABLE_KEY / STRIPE_SECRET_KEY (pk_test_ / sk_test_) are missing in .env'
+                  : 'Stripe configuration missing';
+                console.error(message);
+                return res.status(503).json({ error: message });
             }
 
             res.send({

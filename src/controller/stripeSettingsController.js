@@ -1,4 +1,5 @@
 const StripeSettings = require('../models/stripeSettings');
+const { isStripeTestMode } = require('../utils/stripeMode');
 
 /**
  * Mask a key to only show the last 4 characters
@@ -28,6 +29,8 @@ const stripeSettingsController = {
           hasSecretKey: !!settings.secretKey,
           hasPublishableKey: !!settings.publishableKey,
           hasWebhookSecret: !!settings.webhookSecret,
+          testMode: isStripeTestMode(),
+          activeMode: isStripeTestMode() ? 'test' : 'live',
           updatedAt: settings.updatedAt,
           updatedBy: settings.updatedBy
         }
@@ -160,7 +163,8 @@ const stripeSettingsController = {
         message: 'Stripe connection successful',
         data: {
           accountId: account.id,
-          isFromDatabase: keys.isFromDatabase
+          isFromDatabase: keys.isFromDatabase,
+          mode: keys.mode || (isStripeTestMode() ? 'test' : 'live'),
         }
       });
     } catch (error) {

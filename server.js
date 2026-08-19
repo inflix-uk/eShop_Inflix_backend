@@ -7,7 +7,7 @@ const cors = require('cors');
 const prerender = require('prerender-node');
 const http = require('http');
 const { Server: SocketIOServer } = require('socket.io');
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: true });
 
 // Validate environment variables
 const environmentValidator = require('./config/environment');
@@ -20,10 +20,11 @@ const mongoose = require('mongoose');
 const auditPlugin = require('./src/audit/mongooseAuditPlugin');
 mongoose.plugin(auditPlugin);
 
-// Verify Stripe keys match on startup (env keys only — runtime may use DB unless STRIPE_USE_ENV_KEYS)
+// Verify Stripe mode on startup.
+// STRIPE_TEST_MODE=true → test keys from .env. false/unset → live keys from DB.
 const verifyStripeKeys = () => {
-  const useEnv = ['true', '1', 'yes'].includes(
-    String(process.env.STRIPE_USE_ENV_KEYS || '').trim().toLowerCase()
+  const testMode = ['true', '1', 'yes'].includes(
+    String(process.env.STRIPE_TEST_MODE || '').trim().toLowerCase()
   );
   const pk = process.env.STRIPE_PUBLISHABLE_KEY;
   const sk = process.env.STRIPE_SECRET_KEY;
@@ -32,11 +33,17 @@ const verifyStripeKeys = () => {
   console.log('║              Stripe Configuration Check            ║');
   console.log('╠════════════════════════════════════════════════════╣');
   console.log(
-    `║  STRIPE_USE_ENV_KEYS: ${useEnv ? 'ON (force .env)' : 'OFF (DB preferred)'}`.padEnd(54) + '║'
+    `║  STRIPE_TEST_MODE: ${testMode ? 'true (TEST)' : 'false/unset (LIVE)'}`.padEnd(54) + '║'
   );
 
+  if (testMode && (!pk || !sk || !pk.startsWith('pk_test_') || !sk.startsWith('sk_test_'))) {
+    console.log('║  ⚠️ Add sk_test_ / pk_test_ keys to .env'.padEnd(54) + '║');
+    console.log('╚════════════════════════════════════════════════════╝');
+    return;
+  }
+
   if (!pk || !sk) {
-    console.log('║  ⚠️ .env Stripe keys not fully configured'.padEnd(54) + '║');
+    console.log('║  ⚠️ .env Stripe keys not set (live uses Admin DB)'.padEnd(54) + '║');
     console.log('╚════════════════════════════════════════════════════╝');
     return;
   }
@@ -45,7 +52,7 @@ const verifyStripeKeys = () => {
   const pkAccountId = pk.substring(8, 25);
   const skAccountId = sk.substring(8, 25);
 
-  console.log(`║  .env Mode: ${mode}`.padEnd(54) + '║');
+  console.log(`║  .env Key Mode: ${mode}`.padEnd(54) + '║');
   console.log(`║  Publishable Key: ${pk.substring(0, 20)}...`.padEnd(54) + '║');
   console.log(`║  Secret Key: ${sk.substring(0, 20)}...`.padEnd(54) + '║');
   console.log(`║  PK Account ID: ${pkAccountId}`.padEnd(54) + '║');

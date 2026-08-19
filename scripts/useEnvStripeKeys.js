@@ -1,9 +1,9 @@
 /**
  * Optional helper: clear Stripe keys stored in MongoDB.
  *
- * Preferred local approach (no DB wipe needed):
- *   STRIPE_USE_ENV_KEYS=true in .env  → forces test keys from .env
- *   Leave unset on production         → MongoDB / live keys
+ * Preferred local approach:
+ *   STRIPE_TEST_MODE=true in .env  → uses sk_test_ / pk_test_ from .env
+ *   STRIPE_TEST_MODE=false or unset → MongoDB / live keys
  *
  * Run: node scripts/useEnvStripeKeys.js
  */

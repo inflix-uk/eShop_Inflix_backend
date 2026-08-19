@@ -4,6 +4,8 @@ const { BOOKING_PACKAGE_TYPES } = require('./bookingPackage');
 const BOOKING_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed', 'no_show'];
 const PAYMENT_STATUSES = ['unpaid', 'paid', 'failed', 'refunded'];
 const BOOKING_SOURCES = ['online', 'admin'];
+const BOOKING_MODES = ['slot', 'queue'];
+const FILE_SOURCES = ['studio', 'link'];
 
 const bookingSchema = new mongoose.Schema(
   {
@@ -35,19 +37,58 @@ const bookingSchema = new mongoose.Schema(
       email: { type: String, required: true, trim: true, lowercase: true },
       phone: { type: String, default: '', trim: true },
     },
+    /**
+     * 'slot' — studio/calendar booking that occupies a time window.
+     * 'queue' — editing order with no calendar slot (many can sit on the same day).
+     */
+    bookingMode: {
+      type: String,
+      enum: BOOKING_MODES,
+      default: 'slot',
+      index: true,
+    },
+    episodeCount: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+    episodeLengthMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    fileSource: {
+      type: String,
+      enum: FILE_SOURCES,
+    },
+    fileLink: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    fileLinkLater: {
+      type: Boolean,
+      default: false,
+    },
     date: {
       type: String,
-      required: true,
+      required: function requiredDate() {
+        return this.bookingMode !== 'queue';
+      },
       trim: true,
     },
     startTime: {
       type: String,
-      required: true,
+      required: function requiredStartTime() {
+        return this.bookingMode !== 'queue';
+      },
       trim: true,
     },
     endTime: {
       type: String,
-      required: true,
+      required: function requiredEndTime() {
+        return this.bookingMode !== 'queue';
+      },
       trim: true,
     },
     status: {
@@ -73,7 +114,6 @@ const bookingSchema = new mongoose.Schema(
     holdId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'BookingSlotHold',
-      default: null,
     },
     bookingGroupId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -147,6 +187,7 @@ const bookingSchema = new mongoose.Schema(
 );
 
 bookingSchema.index({ date: 1, startTime: 1, status: 1, type: 1 });
+// Mongo partial indexes do not support $ne/$not. Match slot bookings only.
 bookingSchema.index(
   { type: 1, date: 1, startTime: 1 },
   {
@@ -154,14 +195,26 @@ bookingSchema.index(
     partialFilterExpression: {
       status: { $in: ['pending', 'confirmed'] },
       isdeleted: false,
+      bookingMode: 'slot',
     },
-    name: 'unique_active_booking_slot',
+    name: 'unique_active_booking_slot_v2',
   }
 );
-bookingSchema.index({ holdId: 1 }, { unique: true, sparse: true });
+// Sparse unique still indexes holdId: null, so only one queue booking could exist.
+// Unique only when a real hold ObjectId is present.
+bookingSchema.index(
+  { holdId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { holdId: { $type: 'objectId' } },
+    name: 'unique_booking_holdId',
+  }
+);
 bookingSchema.index({ 'customer.email': 1 });
 
 module.exports = mongoose.model('Booking', bookingSchema);
 module.exports.BOOKING_STATUSES = BOOKING_STATUSES;
 module.exports.PAYMENT_STATUSES = PAYMENT_STATUSES;
 module.exports.BOOKING_SOURCES = BOOKING_SOURCES;
+module.exports.BOOKING_MODES = BOOKING_MODES;
+module.exports.FILE_SOURCES = FILE_SOURCES;
