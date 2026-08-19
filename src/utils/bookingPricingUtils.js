@@ -12,6 +12,17 @@ function isFixedPricePackage(pkg) {
 }
 
 /**
+ * Editing packages currently live as type=service with "editing" in the name/slug.
+ * Match both so storefront and server agree without a data migration.
+ */
+function isEditingPackage(pkg) {
+  if (String(pkg?.type || '') === 'editing') return true;
+  const slug = String(pkg?.slug || '').toLowerCase();
+  const name = String(pkg?.name || '').toLowerCase();
+  return slug.includes('editing') || /editing/.test(name);
+}
+
+/**
  * Multiplier applied to every per-hour rate (package price, extras, mics).
  * Hourly packages bill one unit per booked hour; fixed packages bill a single unit.
  */
@@ -65,6 +76,11 @@ function resolveExtraPricing(extra) {
   };
 }
 
+/** TBC is unused — extras always have a price. Zero-price extras cannot be added. */
+function isExtraPriceTbc(extra) {
+  return resolveExtraPricing(extra).unitPrice <= 0;
+}
+
 /**
  * Resolve client-selected extras against the package catalog (by index or title).
  */
@@ -106,6 +122,10 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
       return { error: `Invalid or unknown extra: ${rawTitle}` };
     }
 
+    if (isExtraPriceTbc(catalogEntry)) {
+      return { error: `${String(catalogEntry.title).trim()} is priced TBC and cannot be booked yet` };
+    }
+
     const key = String(catalogEntry.title).trim().toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -124,13 +144,15 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
     normalized.push({
       image: catalogEntry.image ? String(catalogEntry.image).trim() : '',
       title: String(catalogEntry.title).trim(),
-      /** Catalog unit price (£ per hour) after discount. Line total via applyHourlyExtras. */
+      /** Catalog unit price after discount. Line total via applyHourlyExtras / applyEditingExtras. */
       price: pricing.unitPrice,
       originalPrice: pricing.originalPrice,
       discountPercent: pricing.discountPercent,
       description: catalogEntry.description ? String(catalogEntry.description).trim() : '',
       quantity,
       quantityEnabled,
+      unitLabel: catalogEntry.unitLabel ? String(catalogEntry.unitLabel).trim() : '',
+      priceTbc: false,
     });
   }
 
@@ -175,6 +197,47 @@ function applyHourlyExtras(extras, hours, options = {}) {
       price: line,
       quantity: qty,
       description,
+    };
+  });
+
+  const extrasSubtotal = priced.reduce((sum, e) => sum + (e.price || 0), 0);
+  return { extras: priced, extrasSubtotal: Math.round(extrasSubtotal * 100) / 100 };
+}
+
+/**
+ * How many times an editing extra is billed.
+ * "per order" / "per reel" stay flat; anything else (default: per episode) × episode count.
+ */
+function resolveEditingExtraUnits(unitLabel, episodeCount, quantity = 1) {
+  const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+  const episodes = Math.max(1, Math.floor(Number(episodeCount) || 1));
+  const label = String(unitLabel || 'per episode').toLowerCase();
+  if (label.includes('order') || label.includes('reel')) return qty;
+  return qty * episodes;
+}
+
+/**
+ * Convert catalog extras into line totals for an editing (per-episode) booking.
+ */
+function applyEditingExtras(extras, episodeCount) {
+  const episodes = Math.max(1, Math.floor(Number(episodeCount) || 1));
+  if (!Array.isArray(extras) || extras.length === 0) {
+    return { extras: [], extrasSubtotal: 0 };
+  }
+
+  const priced = extras.map((e) => {
+    const unit = Math.max(0, Number(e.price) || 0);
+    const qty = Math.max(1, Math.floor(Number(e.quantity) || 1));
+    const units = resolveEditingExtraUnits(e.unitLabel, episodes, qty);
+    const line = Math.round(unit * units * 100) / 100;
+    const label = String(e.unitLabel || 'per episode').trim() || 'per episode';
+    const qtyLabel = qty > 1 ? `${qty} × ` : '';
+    return {
+      image: e.image || '',
+      title: e.title,
+      price: line,
+      quantity: qty,
+      description: `${qtyLabel}£${unit.toFixed(2)} ${label}`,
     };
   });
 
@@ -280,12 +343,16 @@ function amountsMatch(a, b, tolerance = 0.01) {
 module.exports = {
   normalizeEmail,
   isFixedPricePackage,
+  isEditingPackage,
   resolveBillableUnits,
   resolveMaxHours,
   validateHoursWithinLimit,
   resolveExtraPricing,
+  isExtraPriceTbc,
   validateExtrasAgainstPackage,
   applyHourlyExtras,
+  resolveEditingExtraUnits,
+  applyEditingExtras,
   computeExtraMicCost,
   resolveExtraMics,
   buildExtraMicLineItem,

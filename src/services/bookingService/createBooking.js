@@ -222,21 +222,81 @@ async function createBookingFromHold({
   }
 }
 
-async function createAdminBooking({ packageId, date, startTime, customer, userId, notes, paymentStatus, status }) {
-  if (!packageId || !date || !startTime) {
-    return { success: false, error: 'packageId, date, and startTime are required' };
+function slotKey(date, startTime) {
+  return `${date}|${startTime}`;
+}
+
+function normalizeAdminSlots({ slots, date, startTime }) {
+  const list = Array.isArray(slots) && slots.length > 0
+    ? slots
+    : date && startTime
+      ? [{ date, startTime }]
+      : [];
+
+  const seen = new Set();
+  const unique = [];
+  for (const item of list) {
+    const slotDate = String(item?.date || '').trim();
+    const slotStart = String(item?.startTime || '').trim();
+    const key = slotKey(slotDate, slotStart);
+    if (!slotDate || !slotStart || seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ date: slotDate, startTime: slotStart });
+  }
+
+  unique.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  return unique;
+}
+
+function adminSlotsOverlap(slots, durationMinutes) {
+  for (let i = 0; i < slots.length; i += 1) {
+    const aEnd = addMinutesToTime(slots[i].startTime, durationMinutes);
+    for (let j = i + 1; j < slots.length; j += 1) {
+      if (slots[i].date !== slots[j].date) continue;
+      const bEnd = addMinutesToTime(slots[j].startTime, durationMinutes);
+      if (slots[i].startTime < bEnd && slots[j].startTime < aEnd) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+async function rollbackAdminBookings(createdBookings) {
+  if (createdBookings.length === 0) return;
+  await Booking.updateMany(
+    { _id: { $in: createdBookings.map((b) => b._id) } },
+    { status: 'cancelled', paymentStatus: 'unpaid' }
+  );
+}
+
+async function createAdminBooking({
+  packageId,
+  date,
+  startTime,
+  slots: rawSlots,
+  customer,
+  userId,
+  notes,
+  paymentStatus,
+  status,
+}) {
+  const slots = normalizeAdminSlots({ slots: rawSlots, date, startTime });
+  if (!packageId || slots.length === 0) {
+    return { success: false, error: 'packageId and at least one date/startTime slot are required' };
   }
 
   if (!customer || !customer.name || !customer.email) {
     return { success: false, error: 'customer.name and customer.email are required' };
   }
 
-  if (!isValidDateYYYYMMDD(date)) {
-    return { success: false, error: 'Invalid date format. Use YYYY-MM-DD' };
-  }
-
-  if (!isValidTimeHHmm(startTime)) {
-    return { success: false, error: 'Invalid startTime format. Use HH:mm' };
+  for (const slot of slots) {
+    if (!isValidDateYYYYMMDD(slot.date)) {
+      return { success: false, error: 'Invalid date format. Use YYYY-MM-DD' };
+    }
+    if (!isValidTimeHHmm(slot.startTime)) {
+      return { success: false, error: 'Invalid startTime format. Use HH:mm' };
+    }
   }
 
   const pkg = await BookingPackage.findOne({
@@ -248,59 +308,112 @@ async function createAdminBooking({ packageId, date, startTime, customer, userId
     return { success: false, error: 'Package not found' };
   }
 
-  const endTime = addMinutesToTime(startTime, pkg.durationMinutes);
+  const hoursLimit = validateHoursWithinLimit(pkg, slots.length);
+  if (!hoursLimit.valid) {
+    return { success: false, error: hoursLimit.error, maxHours: pkg.maxHours };
+  }
+
+  if (adminSlotsOverlap(slots, pkg.durationMinutes)) {
+    return { success: false, error: 'Selected slots overlap. Choose non-overlapping times.' };
+  }
 
   const settings = await BookingSettings.getSettings();
-  const eligibility = await validateSlotEligibility({
-    packageId,
-    date,
-    startTime,
-    endTime,
-    type: pkg.type,
-    settings,
-    pkg,
-  });
+  const bookingStatus = status || 'confirmed';
+  const payStatus = paymentStatus || 'paid';
+  const billableUnits = resolveBillableUnits(pkg, slots.length);
+  const { slotsSubtotal, extrasSubtotal, totalAmount } = computeBookingTotals(
+    pkg.price,
+    billableUnits,
+    0
+  );
 
-  if (!eligibility.valid) {
-    return { success: false, error: eligibility.error };
-  }
-
-  const conflict = await checkOverlap(pkg.type, date, startTime, endTime);
-  if (conflict.hasConflict) {
-    return { success: false, error: 'Slot is already booked', conflict: conflict.conflictWith };
-  }
-
-  const bookingNumber = await generateBookingNumber();
-
-  const booking = new Booking({
-    bookingNumber,
-    packageId,
-    type: pkg.type,
-    userId: userId || null,
-    customer: {
-      name: String(customer.name).trim(),
-      email: String(customer.email).trim().toLowerCase(),
-      phone: customer.phone ? String(customer.phone).trim() : '',
-    },
-    date,
-    startTime,
-    endTime,
-    status: status || 'confirmed',
-    paymentStatus: paymentStatus || 'paid',
-    source: 'admin',
-    notes: notes || '',
-  });
+  const createdBookings = [];
+  const bookingGroupId = slots.length > 1 ? new mongoose.Types.ObjectId() : null;
 
   try {
-    await booking.save();
+    for (const slot of slots) {
+      const endTime = addMinutesToTime(slot.startTime, pkg.durationMinutes);
+      const eligibility = await validateSlotEligibility({
+        packageId,
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime,
+        type: pkg.type,
+        settings,
+        pkg,
+      });
+
+      if (!eligibility.valid) {
+        await rollbackAdminBookings(createdBookings);
+        return { success: false, error: eligibility.error };
+      }
+
+      const conflict = await checkOverlap(pkg.type, slot.date, slot.startTime, endTime, {
+        excludeBookingIds: createdBookings.map((b) => b._id),
+      });
+      if (conflict.hasConflict) {
+        await rollbackAdminBookings(createdBookings);
+        return {
+          success: false,
+          error: `Slot ${slot.date} ${slot.startTime} is already booked`,
+          conflict: conflict.conflictWith,
+        };
+      }
+
+      const bookingNumber = await generateBookingNumber();
+      const booking = new Booking({
+        bookingNumber,
+        packageId,
+        type: pkg.type,
+        userId: userId || null,
+        customer: {
+          name: String(customer.name).trim(),
+          email: String(customer.email).trim().toLowerCase(),
+          phone: customer.phone ? String(customer.phone).trim() : '',
+        },
+        date: slot.date,
+        startTime: slot.startTime,
+        endTime,
+        status: bookingStatus,
+        paymentStatus: payStatus,
+        source: 'admin',
+        notes: notes || '',
+        extras: [],
+        extrasSubtotal,
+        slotsSubtotal: pkg.price,
+        totalAmount,
+        ...(bookingGroupId
+          ? {
+              bookingGroupId,
+              groupBookingNumber:
+                createdBookings.length === 0 ? bookingNumber : createdBookings[0].bookingNumber,
+            }
+          : {}),
+      });
+
+      await booking.save();
+      createdBookings.push(booking);
+    }
   } catch (error) {
+    await rollbackAdminBookings(createdBookings);
     if (isDuplicateKeyError(error)) {
       return { success: false, error: 'Slot is already booked' };
     }
     throw error;
   }
 
-  const bookingResult = {
+  const groupBookingNumber = createdBookings[0].bookingNumber;
+  if (createdBookings.length > 1) {
+    await Booking.updateMany(
+      { _id: { $in: createdBookings.map((b) => b._id) } },
+      { groupBookingNumber }
+    );
+    createdBookings.forEach((b) => {
+      b.groupBookingNumber = groupBookingNumber;
+    });
+  }
+
+  const toPayload = (booking) => ({
     bookingId: booking._id,
     bookingNumber: booking.bookingNumber,
     packageId: booking.packageId,
@@ -319,20 +432,34 @@ async function createAdminBooking({ packageId, date, startTime, customer, userId
       durationMinutes: pkg.durationMinutes,
       durationDisplayUnit: pkg.durationDisplayUnit || 'minutes',
     },
-  };
+  });
 
+  const primary = toPayload(createdBookings[0]);
   const { notifyBookingCreatedAdminEmail } = require('../email/bookingCreatedAdminEmailService');
   notifyBookingCreatedAdminEmail({
     booking: {
-      ...bookingResult,
-      totalAmount: Number(pkg.price) || 0,
+      ...primary,
+      slotCount: createdBookings.length,
+      totalAmount,
     },
     pkg,
+    groupBookingNumber: createdBookings.length > 1 ? groupBookingNumber : undefined,
+    slots: createdBookings.map((b) => ({
+      date: b.date,
+      startTime: b.startTime,
+      endTime: b.endTime,
+      bookingNumber: b.bookingNumber,
+    })),
   });
 
   return {
     success: true,
-    booking: bookingResult,
+    booking: {
+      ...primary,
+      slotCount: createdBookings.length,
+    },
+    bookings: createdBookings.map(toPayload),
+    ...(createdBookings.length > 1 ? { bookingGroupId, groupBookingNumber } : {}),
   };
 }
 

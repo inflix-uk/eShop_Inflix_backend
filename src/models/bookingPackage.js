@@ -52,6 +52,15 @@ const bookingPackageSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    /**
+     * Editing packages only: working days until the finished episode is delivered.
+     * 0 means the turnaround line is hidden.
+     */
+    turnaroundDays: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     /** Microphones included with this package (studio hire). */
     includedMics: {
       type: Number,
@@ -124,6 +133,10 @@ const bookingPackageSchema = new mongoose.Schema(
           /** When true, `discountPrice` replaces `price` and `price` becomes the struck-through "was". */
           discountEnabled: { type: Boolean, default: false },
           discountPrice: { type: Number, default: 0, min: 0 },
+          /** Charge unit shown under the price, e.g. "per episode", "per reel", "per order". */
+          unitLabel: { type: String, default: '', trim: true },
+          /** When true the storefront shows "Price TBC" and the add-on cannot be selected. */
+          priceTbc: { type: Boolean, default: false },
         },
       ],
       default: [],

@@ -5,18 +5,18 @@ const BookingSlotHold = require('../models/bookingSlotHold');
 const StripeSettings = require('../models/stripeSettings');
 const { amountsMatch } = require('../utils/bookingPricingUtils');
 
-let stripeInstance = require('stripe')(process.env.STRIPE_SECRET_KEY);
-
 const getStripeInstance = async () => {
-  try {
-    const keys = await StripeSettings.getActiveKeys();
-    if (keys.secretKey) {
-      return require('stripe')(keys.secretKey);
-    }
-  } catch (error) {
-    console.error('Error getting Stripe keys from DB:', error.message);
+  const keys = await StripeSettings.getActiveKeys();
+  if (!keys.secretKey) {
+    const err = new Error(
+      keys.mode === 'test'
+        ? 'Stripe test mode is on but STRIPE_SECRET_KEY (sk_test_) is missing in .env'
+        : 'Stripe secret key is not configured'
+    );
+    err.statusCode = 503;
+    throw err;
   }
-  return stripeInstance;
+  return require('stripe')(keys.secretKey);
 };
 
 const bookingPaymentController = {
@@ -152,8 +152,14 @@ const bookingPaymentController = {
         currency: currencyCode,
       });
     } catch (error) {
-      console.error('Error creating booking payment intent:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      console.error('Error creating booking payment intent:', error.message);
+      const isConfigError = error.statusCode === 503 || error.type === 'StripeAuthenticationError';
+      const message = isConfigError
+        ? (error.statusCode === 503
+            ? error.message
+            : 'Stripe rejected the API key. Restart the backend after saving sk_test_ keys in .env.')
+        : (error.message || 'Internal server error');
+      return res.status(isConfigError ? 503 : 500).json({ error: message });
     }
   },
 

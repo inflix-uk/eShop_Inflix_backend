@@ -214,8 +214,55 @@ const bookingController = {
 
   createBooking: async (req, res) => {
     try {
-      const { holdId, holdIds, customer, userId, notes, extras, extraMics, guestCount, editingPackageId } =
-        req.body;
+      const {
+        holdId,
+        holdIds,
+        packageId,
+        bookingMode,
+        customer,
+        userId,
+        notes,
+        extras,
+        extraMics,
+        guestCount,
+        editingPackageId,
+        episodeCount,
+        episodeLengthMinutes,
+        fileSource,
+        fileLink,
+        fileLinkLater,
+      } = req.body;
+
+      if (bookingMode === 'queue' || (!holdId && !holdIds && packageId)) {
+        if (!mongoose.Types.ObjectId.isValid(String(packageId))) {
+          return res.status(400).json({ error: 'Invalid packageId', status: 400 });
+        }
+
+        const result = await bookingService.createEditingBooking({
+          packageId,
+          customer,
+          userId,
+          notes,
+          extras,
+          episodeCount,
+          episodeLengthMinutes,
+          fileSource,
+          fileLink,
+          fileLinkLater,
+          source: 'online',
+        });
+
+        if (!result.success) {
+          return res.status(400).json({ error: result.error, status: 400 });
+        }
+
+        return res.json({
+          message: 'Booking created successfully',
+          status: 201,
+          booking: result.booking,
+          totalAmount: result.totalAmount,
+        });
+      }
 
       if (Array.isArray(holdIds) && holdIds.length > 0) {
         const invalid = holdIds.some((id) => !mongoose.Types.ObjectId.isValid(id));
@@ -502,12 +549,13 @@ const bookingController = {
 
   createAdminBooking: async (req, res) => {
     try {
-      const { packageId, date, startTime, customer, userId, notes, paymentStatus, status } = req.body;
+      const { packageId, date, startTime, slots, customer, userId, notes, paymentStatus, status } = req.body;
 
       const result = await bookingService.createAdminBooking({
         packageId,
         date,
         startTime,
+        slots,
         customer,
         userId,
         notes,
@@ -521,9 +569,14 @@ const bookingController = {
       }
 
       return res.json({
-        message: 'Booking created successfully',
+        message:
+          Array.isArray(result.bookings) && result.bookings.length > 1
+            ? `${result.bookings.length} bookings created successfully`
+            : 'Booking created successfully',
         status: 201,
         booking: result.booking,
+        bookings: result.bookings,
+        groupBookingNumber: result.groupBookingNumber,
       });
     } catch (error) {
       console.error('Error creating admin booking:', error);

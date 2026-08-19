@@ -98,6 +98,12 @@ function normalizeMaxHours(value) {
   return hours > 0 ? hours : 0;
 }
 
+/** 0 means the turnaround line is hidden on the storefront. */
+function normalizeTurnaroundDays(value) {
+  const days = Math.floor(Number(value) || 0);
+  return days > 0 ? days : 0;
+}
+
 function normalizeFeatures(features) {
   if (!Array.isArray(features)) return [];
   return features
@@ -116,7 +122,7 @@ function normalizeExtras(extras) {
     .map((item) => {
       const price = normalizeMoney(item?.price);
       const discountPrice = normalizeMoney(item?.discountPrice);
-      // A discount only holds when it actually undercuts the list price.
+      // A discount only holds when it actually undercuts a known list price.
       const discountEnabled =
         Boolean(item?.discountEnabled) && price > 0 && discountPrice < price;
 
@@ -128,6 +134,8 @@ function normalizeExtras(extras) {
         quantityEnabled: Boolean(item?.quantityEnabled),
         discountEnabled,
         discountPrice: discountEnabled ? discountPrice : 0,
+        unitLabel: item?.unitLabel ? String(item.unitLabel).trim() : '',
+        priceTbc: false,
       };
     })
     .filter((item) => item.title.length > 0);
@@ -364,6 +372,7 @@ const bookingPackageController = {
         price,
         pricingMode,
         maxHours,
+        turnaroundDays,
         includedMics,
         subtitle,
         maxGuests,
@@ -414,6 +423,7 @@ const bookingPackageController = {
         price: Number(price),
         pricingMode: normalizePricingMode(pricingMode),
         maxHours: normalizeMaxHours(maxHours),
+        turnaroundDays: normalizeTurnaroundDays(turnaroundDays),
         includedMics: Math.max(0, Number(includedMics) || 0),
         subtitle: subtitle != null ? String(subtitle).trim() : '',
         maxGuests: Math.min(9, Math.max(1, Number(maxGuests) || 5)),
@@ -473,6 +483,7 @@ const bookingPackageController = {
         price,
         pricingMode,
         maxHours,
+        turnaroundDays,
         includedMics,
         subtitle,
         maxGuests,
@@ -512,6 +523,9 @@ const bookingPackageController = {
       if (price !== undefined) existing.price = Number(price);
       if (pricingMode !== undefined) existing.pricingMode = normalizePricingMode(pricingMode);
       if (maxHours !== undefined) existing.maxHours = normalizeMaxHours(maxHours);
+      if (turnaroundDays !== undefined) {
+        existing.turnaroundDays = normalizeTurnaroundDays(turnaroundDays);
+      }
       if (includedMics !== undefined) {
         existing.includedMics = Math.max(0, Number(includedMics) || 0);
       }
@@ -529,7 +543,10 @@ const bookingPackageController = {
       if (whatHappensNext !== undefined) {
         existing.whatHappensNext = normalizeWhatHappensNext(whatHappensNext);
       }
-      if (extras !== undefined) existing.extras = normalizeExtras(extras);
+      if (extras !== undefined) {
+        existing.set('extras', normalizeExtras(extras));
+        existing.markModified('extras');
+      }
       if (image !== undefined) existing.image = image;
       if (sortOrder !== undefined) existing.sortOrder = Number(sortOrder);
       if (isActive !== undefined) existing.isActive = Boolean(isActive);
