@@ -15,7 +15,7 @@ const SITEMAP_ORIGIN = String(process.env.FRONTEND_URL || "https://aromadesire.c
 const siteMapController = {
   createSitemap: async (req, res) => {
     try {
-      const products = await Products.find({ isdeleted: false });
+      const products = await Products.find({ isdeleted: false, status: true });
       const categories = await productCategory.find({});
       const blogs = await Blog.find({});
       const newblogs = await NewBlog.find({ publishStatus: "published" })

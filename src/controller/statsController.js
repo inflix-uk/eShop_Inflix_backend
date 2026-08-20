@@ -27,6 +27,57 @@ const multer = require('multer');
 const { getFeedUploadPath } = require('../utils/feedUploadPath');
 const { Parser } = require('json2csv');
 
+/**
+ * Force GTIN/EAN to Excel text so 13-digit codes stay intact
+ * (avoids 5.06503E+12 display that collapses distinct barcodes).
+ */
+const formatGtinForCsvCell = (value) => {
+    if (value == null) return "";
+    let raw = String(value).trim();
+    if (!raw) return "";
+    // Already Excel text formula from frontend
+    const formulaMatch = raw.match(/^="(.+)"$/);
+    if (formulaMatch) {
+        raw = formulaMatch[1];
+    }
+    raw = raw.replace(/^[\t\s]+|[\t\s]+$/g, "").replace(/\s+/g, "");
+    if (!raw) return "";
+    return `="${raw}"`;
+};
+
+const normalizeFeedProductsForCsv = (products) => {
+    if (!Array.isArray(products)) return [];
+    return products.map((row) => ({
+        ...row,
+        gtin: formatGtinForCsvCell(row?.gtin),
+    }));
+};
+
+/** Shared merchant-feed column map */
+const MERCHANT_FEED_FIELDS = [
+    { label: "id", value: "id" },
+    { label: "title", value: "title" },
+    { label: "description", value: "description" },
+    { label: "availability", value: "availability" },
+    { label: "link", value: "link" },
+    { label: "image link", value: "image_link" },
+    { label: "additional image link", value: "additional_image_link" },
+    { label: "price", value: "price" },
+    { label: "sale_price", value: "sale_price" },
+    { label: "identifier exists", value: "identifier_exists" },
+    { label: "gtin", value: "gtin" },
+    { label: "mpn", value: "mpn" },
+    { label: "brand", value: "brand" },
+    { label: "condition", value: "condition" },
+    { label: "custom_label_0", value: "custom_label_0" },
+    { label: "color", value: "color" },
+    { label: "capacity", value: "capacity" },
+    { label: "shipping", value: "shipping" },
+    { label: "tax", value: "tax" },
+    { label: "mobile link", value: "mobile_link" },
+    { label: "google_product_category", value: "google_product_category" },
+];
+
 
 // Helper function to delete all files in the directory
 const emptyDirectory = (directoryPath) => {
@@ -170,34 +221,12 @@ const mediaLibraryFileFilter = (_req, file, cb) => {
 const statsController = {
 
     uploadCSV: (req, res) => {
-        const products = req.body;
+        const products = normalizeFeedProductsForCsv(req.body);
         if (!products || !Array.isArray(products) || products.length === 0) {
             return res.status(400).json({ message: "Invalid or empty product data provided." });
         }
     
-        const fields = [
-            { label: "id", value: "id" },
-            { label: "title", value: "title" },
-            { label: "description", value: "description" },
-            { label: "availability", value: "availability" },
-            { label: "link", value: "link" },
-            { label: "image link", value: "image_link" },
-            { label: "additional image link", value: "additional_image_link" },
-            { label: "price", value: "price" },
-            { label: "sale_price", value: "sale_price" },
-            { label: "identifier exists", value: "identifier_exists" },
-            { label: "gtin", value: "gtin" },
-            { label: "mpn", value: "mpn" },
-            { label: "brand", value: "brand" },
-            { label: "condition", value: "condition" },
-            { label: "custom_label_0", value: "custom_label_0" },
-            { label: "color", value: "color" },
-            { label: "capacity", value: "capacity" },
-            { label: "shipping", value: "shipping" },
-            { label: "tax", value: "tax" },
-            { label: "mobile link", value: "mobile_link" },
-            { label: "google_product_category", value: "google_product_category" },
-        ];
+        const fields = MERCHANT_FEED_FIELDS;
     
         const json2csvParser = new Parser({ fields });
     
@@ -233,35 +262,13 @@ const statsController = {
 
     // Export ALL products (both in-stock and out-of-stock) with dynamic availability
     uploadCSVAllProducts: (req, res) => {
-        const products = req.body;
+        const products = normalizeFeedProductsForCsv(req.body);
 
         if (!products || !Array.isArray(products) || products.length === 0) {
             return res.status(400).json({ message: "Invalid or empty product data provided." });
         }
 
-        const fields = [
-            { label: "id", value: "id" },
-            { label: "title", value: "title" },
-            { label: "description", value: "description" },
-            { label: "availability", value: "availability" },
-            { label: "link", value: "link" },
-            { label: "image link", value: "image_link" },
-            { label: "additional image link", value: "additional_image_link" },
-            { label: "price", value: "price" },
-            { label: "sale_price", value: "sale_price" },
-            { label: "identifier exists", value: "identifier_exists" },
-            { label: "gtin", value: "gtin" },
-            { label: "mpn", value: "mpn" },
-            { label: "brand", value: "brand" },
-            { label: "condition", value: "condition" },
-            { label: "custom_label_0", value: "custom_label_0" },
-            { label: "color", value: "color" },
-            { label: "capacity", value: "capacity" },
-            { label: "shipping", value: "shipping" },
-            { label: "tax", value: "tax" },
-            { label: "mobile link", value: "mobile_link" },
-            { label: "google_product_category", value: "google_product_category" },
-        ];
+        const fields = MERCHANT_FEED_FIELDS;
 
         const json2csvParser = new Parser({ fields });
 
@@ -295,35 +302,13 @@ const statsController = {
     },
 
     uploadCSVWithAccessories: (req, res) => {
-        const products = req.body;
+        const products = normalizeFeedProductsForCsv(req.body);
 
         if (!products || !Array.isArray(products) || products.length === 0) {
             return res.status(400).json({ message: "Invalid or empty product data provided." });
         }
 
-        const fields = [
-            { label: "id", value: "id" },
-            { label: "title", value: "title" },
-            { label: "description", value: "description" },
-            { label: "availability", value: "availability" },
-            { label: "link", value: "link" },
-            { label: "image link", value: "image_link" },
-            { label: "additional image link", value: "additional_image_link" },
-            { label: "price", value: "price" },
-            { label: "sale_price", value: "sale_price" },
-            { label: "identifier exists", value: "identifier_exists" },
-            { label: "gtin", value: "gtin" },
-            { label: "mpn", value: "mpn" },
-            { label: "brand", value: "brand" },
-            { label: "condition", value: "condition" },
-            { label: "custom_label_0", value: "custom_label_0" },
-            { label: "color", value: "color" },
-            { label: "capacity", value: "capacity" },
-            { label: "shipping", value: "shipping" },
-            { label: "tax", value: "tax" },
-            { label: "mobile link", value: "mobile_link" },
-            { label: "google_product_category", value: "google_product_category" },
-        ];
+        const fields = MERCHANT_FEED_FIELDS;
 
         const json2csvParser = new Parser({ fields });
 

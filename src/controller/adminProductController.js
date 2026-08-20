@@ -457,12 +457,13 @@ const adminProductController = {
         try {
             const { id } = req.params;
             const { status } = req.body;
-            console.log(status);
-            
-            const updatedStatus = status === true ? true : false;
+            const updatedStatus = status === true || status === "true";
 
-            const updatedProduct = await Product.findByIdAndUpdate(id, { status: status });
-            console.log(updatedProduct)
+            const updatedProduct = await Product.findByIdAndUpdate(
+                id,
+                { status: updatedStatus, updatedAt: new Date() },
+                { new: true }
+            );
             if (!updatedProduct) {
                 return res.json({ error: 'Product not found', status: 404 });
             }

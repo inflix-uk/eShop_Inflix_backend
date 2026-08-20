@@ -169,7 +169,7 @@ const storefrontSitemapController = {
       const skipCategories = storeSkipsSitemapCategories(req.store);
 
       const [products, categories, blogs, newBlogs] = await Promise.all([
-        Products.find({ storeId, isdeleted: false })
+        Products.find({ storeId, isdeleted: false, status: true })
           .select("producturl variantValues productType updatedAt Gallery_Images meta_Image")
           .lean(),
         skipCategories
@@ -258,7 +258,7 @@ const storefrontSitemapController = {
       const storeId = req.store._id;
       const baseUrl = resolveSitemapBaseUrl(req);
 
-      const products = await Products.find({ storeId, isdeleted: false })
+      const products = await Products.find({ storeId, isdeleted: false, status: true })
         .select("producturl variantValues productType updatedAt Gallery_Images meta_Image")
         .lean();
 
