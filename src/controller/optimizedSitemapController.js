@@ -126,7 +126,7 @@ const optimizedSitemapController = {
       const productBatchSize = 200;
       
       while (allUrls.length < MAX_URLS && Date.now() - startTime < 75000) {
-        const products = await Products.find({ isdeleted: false })
+        const products = await Products.find({ isdeleted: false, status: true })
           .select("producturl productType variantValues")
           .lean()
           .skip(productSkip)

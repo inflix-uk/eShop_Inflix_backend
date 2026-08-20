@@ -180,6 +180,21 @@ class CreateProductService {
         try {
             const Seo_Meta_values = JSON.parse(Seo_Meta);
 
+            const color = String(productType_values.productColor || "").trim();
+            const attributes = [];
+            if (color) {
+                const valueSlug = color
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, "-")
+                    .replace(/^-+|-+$/g, "");
+                attributes.push({
+                    attributeName: "Color",
+                    attributeSlug: "color",
+                    value: color,
+                    valueSlug: valueSlug || color.toLowerCase(),
+                });
+            }
+
             result.variantValuesArray.push({
                 name: "single",
                 Icon: null,
@@ -190,6 +205,7 @@ class CreateProductService {
                 SKU: productType_values.productSKU || null,
                 EIN: productType_values.productEIN || null,
                 MPN: productType_values.productMPN || null,
+                attributes,
             });
 
             result.Seo_MetaObject = {

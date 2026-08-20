@@ -794,6 +794,7 @@ class UpdateProductService {
                     EIN: item.EIN || null,
                     MPN: item.MPN || null,
                     status: item.status !== undefined ? item.status : true,
+                    attributes: Array.isArray(item.attributes) ? item.attributes : [],
                 });
             });
         }
