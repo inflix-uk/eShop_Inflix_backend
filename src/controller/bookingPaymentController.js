@@ -2,22 +2,20 @@ const mongoose = require('mongoose');
 const Booking = require('../models/booking');
 const BookingPackage = require('../models/bookingPackage');
 const BookingSlotHold = require('../models/bookingSlotHold');
-const StripeSettings = require('../models/stripeSettings');
 const { amountsMatch } = require('../utils/bookingPricingUtils');
+const {
+  resolveStripeForAccount,
+  resolveStripeForPackage,
+  retrievePaymentIntentAnyAccount,
+} = require('../services/stripe/resolveStripeAccount');
 
-const getStripeInstance = async () => {
-  const keys = await StripeSettings.getActiveKeys();
-  if (!keys.secretKey) {
-    const err = new Error(
-      keys.mode === 'test'
-        ? 'Stripe test mode is on but STRIPE_SECRET_KEY (sk_test_) is missing in .env'
-        : 'Stripe secret key is not configured'
-    );
-    err.statusCode = 503;
-    throw err;
-  }
-  return require('stripe')(keys.secretKey);
-};
+/**
+ * Client for an existing booking — always the account its PaymentIntent was
+ * created on, so a package re-pointed at a different account afterwards does
+ * not orphan in-flight payments.
+ */
+const getStripeForBooking = async (booking) =>
+  resolveStripeForAccount(booking?.stripeAccountId || null);
 
 const bookingPaymentController = {
   createBookingPaymentIntent: async (req, res) => {
@@ -97,7 +95,9 @@ const bookingPaymentController = {
         });
       }
 
-      const stripe = await getStripeInstance();
+      // The package decides which Stripe account collects this payment.
+      const stripeCtx = await resolveStripeForPackage(pkg);
+      const { stripe } = stripeCtx;
       const amountInCents = Math.round(expectedAmount * 100);
       const currencyCode = currency || 'gbp';
 
@@ -109,6 +109,8 @@ const bookingPaymentController = {
           packageId: pkg._id.toString(),
           packageName: pkg.name,
           packageType: pkg.type,
+          // Lets the webhook pick the right keys without another package lookup.
+          stripeAccountId: stripeCtx.accountId || 'platform',
         },
         automatic_payment_methods: { enabled: true },
       };
@@ -132,13 +134,18 @@ const bookingPaymentController = {
       const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
 
       if (booking) {
+        const paymentFields = {
+          stripePaymentIntentId: paymentIntent.id,
+          stripeAccountId: stripeCtx.accountId || null,
+        };
         if (booking.bookingGroupId) {
           await Booking.updateMany(
             { bookingGroupId: booking.bookingGroupId, isdeleted: false },
-            { stripePaymentIntentId: paymentIntent.id }
+            paymentFields
           );
         } else {
-          booking.stripePaymentIntentId = paymentIntent.id;
+          booking.stripePaymentIntentId = paymentFields.stripePaymentIntentId;
+          booking.stripeAccountId = paymentFields.stripeAccountId;
           await booking.save();
         }
       }
@@ -150,6 +157,9 @@ const bookingPaymentController = {
         paymentIntentId: paymentIntent.id,
         amount: expectedAmount,
         currency: currencyCode,
+        // The card form must mount with the SAME account's publishable key.
+        publishableKey: stripeCtx.publishableKey,
+        stripeAccountLabel: stripeCtx.label,
       });
     } catch (error) {
       console.error('Error creating booking payment intent:', error.message);
@@ -171,8 +181,11 @@ const bookingPaymentController = {
         return res.status(400).json({ error: 'Invalid bookingId', status: 400 });
       }
 
+      const PAYMENT_FIELDS =
+        'bookingNumber groupBookingNumber paymentStatus paymentDetails stripePaymentIntentId stripeAccountId status';
+
       let booking = await Booking.findOne({ _id: bookingId, isdeleted: false })
-        .select('bookingNumber groupBookingNumber paymentStatus paymentDetails stripePaymentIntentId status')
+        .select(PAYMENT_FIELDS)
         .lean();
 
       if (!booking) {
@@ -183,7 +196,7 @@ const bookingPaymentController = {
       const synced = await syncBookingPaymentIfNeeded(booking);
       if (synced?._id) {
         booking = await Booking.findOne({ _id: synced._id, isdeleted: false })
-          .select('bookingNumber groupBookingNumber paymentStatus paymentDetails stripePaymentIntentId status')
+          .select(PAYMENT_FIELDS)
           .lean();
       }
 
@@ -191,7 +204,7 @@ const bookingPaymentController = {
 
       if (booking.stripePaymentIntentId) {
         try {
-          const stripe = await getStripeInstance();
+          const { stripe } = await getStripeForBooking(booking);
           const paymentIntent = await stripe.paymentIntents.retrieve(
             booking.stripePaymentIntentId
           );
@@ -225,17 +238,8 @@ const bookingPaymentController = {
         return res.status(400).json({ error: 'paymentIntentId is required', status: 400 });
       }
 
-      const stripe = await getStripeInstance();
-      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-      if (paymentIntent.status !== 'succeeded') {
-        return res.status(400).json({
-          error: 'Payment has not succeeded yet',
-          status: 400,
-          stripeStatus: paymentIntent.status,
-        });
-      }
-
+      // Find the booking first — it names the Stripe account whose keys can
+      // read this PaymentIntent. Without a booking we probe every account.
       let booking = null;
       if (bookingId) {
         if (!mongoose.Types.ObjectId.isValid(bookingId)) {
@@ -249,7 +253,31 @@ const bookingPaymentController = {
           $or: [{ bookingNumber: normalized }, { groupBookingNumber: normalized }],
           isdeleted: false,
         });
-      } else if (paymentIntent.metadata?.bookingId) {
+      }
+
+      const retrieved = await retrievePaymentIntentAnyAccount(
+        paymentIntentId,
+        booking?.stripeAccountId
+      );
+
+      if (!retrieved) {
+        return res.status(404).json({
+          error: 'PaymentIntent not found on any configured Stripe account',
+          status: 404,
+        });
+      }
+
+      const { paymentIntent } = retrieved;
+
+      if (paymentIntent.status !== 'succeeded') {
+        return res.status(400).json({
+          error: 'Payment has not succeeded yet',
+          status: 400,
+          stripeStatus: paymentIntent.status,
+        });
+      }
+
+      if (!booking && paymentIntent.metadata?.bookingId) {
         booking = await Booking.findOne({
           _id: paymentIntent.metadata.bookingId,
           isdeleted: false,

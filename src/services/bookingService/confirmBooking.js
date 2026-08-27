@@ -9,7 +9,21 @@ function normalizeBookingNumber(bookingNumber) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-async function getStripe() {
+/**
+ * Stripe client for a booking. Uses the account its PaymentIntent was created
+ * on when known; otherwise the platform default, then the raw env key.
+ */
+async function getStripe(booking) {
+  if (booking?.stripeAccountId) {
+    try {
+      const { resolveStripeForAccount } = require('../stripe/resolveStripeAccount');
+      const { stripe } = await resolveStripeForAccount(booking.stripeAccountId);
+      return stripe;
+    } catch (error) {
+      console.error('Error getting per-account Stripe keys:', error.message);
+    }
+  }
+
   try {
     const keys = await StripeSettings.getActiveKeys();
     if (keys.secretKey) {
@@ -199,7 +213,7 @@ async function syncBookingPaymentIfNeeded(booking) {
   }
 
   try {
-    const stripe = await getStripe();
+    const stripe = await getStripe(booking);
     const paymentIntent = await stripe.paymentIntents.retrieve(booking.stripePaymentIntentId);
 
     if (paymentIntent.status !== 'succeeded') {

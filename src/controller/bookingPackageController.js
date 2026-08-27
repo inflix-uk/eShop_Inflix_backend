@@ -191,6 +191,35 @@ function normalizeHighlightBadgeUrl(value) {
   return '';
 }
 
+/**
+ * Resolve an admin-supplied Stripe account reference.
+ * Empty / null / "platform" all mean "use the platform default".
+ * Returns { ok: true, value } or { ok: false, error }.
+ */
+async function normalizeStripeAccountId(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === 'platform' || raw === 'null' || raw === 'default') {
+    return { ok: true, value: null };
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(raw)) {
+    return { ok: false, error: 'Invalid Stripe account id' };
+  }
+
+  const StripeAccount = require('../models/stripeAccount');
+  const account = await StripeAccount.findOne({
+    _id: raw,
+    isdeleted: false,
+    isActive: true,
+  }).select('_id');
+
+  if (!account) {
+    return { ok: false, error: 'Stripe account not found or inactive' };
+  }
+
+  return { ok: true, value: account._id };
+}
+
 async function clearOtherHighlightBadges(exceptId) {
   const filter = { isdeleted: false, highlightBadgeEnabled: true };
   if (exceptId) {
@@ -390,6 +419,7 @@ const bookingPackageController = {
         highlightBadgeText,
         highlightBadgeUrl,
         bundleBenefits,
+        stripeAccountId,
       } = req.body;
 
       if (!name || !type || durationMinutes === undefined || price === undefined) {
@@ -407,6 +437,11 @@ const bookingPackageController = {
         durationDisplayUnit === 'hours' || durationDisplayUnit === 'minutes'
           ? durationDisplayUnit
           : 'minutes';
+
+      const stripeAccount = await normalizeStripeAccountId(stripeAccountId);
+      if (!stripeAccount.ok) {
+        return res.status(400).json({ error: stripeAccount.error, status: 400 });
+      }
 
       const packageName = String(name).trim();
       const resolvedSlug = await ensureUniquePackageSlug(
@@ -441,6 +476,7 @@ const bookingPackageController = {
         highlightBadgeText: normalizeHighlightBadgeText(highlightBadgeText),
         highlightBadgeUrl: normalizeHighlightBadgeUrl(highlightBadgeUrl),
         bundleBenefits: bundleBenefits || '',
+        stripeAccountId: stripeAccount.value,
       });
 
       await newPackage.save();
@@ -501,6 +537,7 @@ const bookingPackageController = {
         highlightBadgeText,
         highlightBadgeUrl,
         bundleBenefits,
+        stripeAccountId,
       } = req.body;
 
       if (type !== undefined && !isValidPackageType(type)) {
@@ -561,6 +598,13 @@ const bookingPackageController = {
       }
       if (highlightBadgeUrl !== undefined) {
         existing.highlightBadgeUrl = normalizeHighlightBadgeUrl(highlightBadgeUrl);
+      }
+      if (stripeAccountId !== undefined) {
+        const stripeAccount = await normalizeStripeAccountId(stripeAccountId);
+        if (!stripeAccount.ok) {
+          return res.status(400).json({ error: stripeAccount.error, status: 400 });
+        }
+        existing.stripeAccountId = stripeAccount.value;
       }
 
       await existing.save();

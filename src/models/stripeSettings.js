@@ -50,19 +50,33 @@ stripeSettingsSchema.statics.getActiveKeys = async function() {
   const testMode = isStripeTestMode();
 
   if (testMode) {
-    const secretKey = pickKeyForMode(envSecret, 'test');
-    const publishableKey = pickKeyForMode(envPublishable, 'test');
+    // Same rule as live mode: whatever is saved in Admin wins, as long as the
+    // keys are valid for the ACTIVE mode. Falls back to .env otherwise, so an
+    // empty/live-keyed Admin form still leaves local dev working.
+    const settings = await this.getSettings();
+    const dbSecret = pickKeyForMode(settings.secretKey, 'test');
+    const dbPublishable = pickKeyForMode(settings.publishableKey, 'test');
+    const useDatabase = !!(dbSecret && dbPublishable);
+
+    const secretKey = useDatabase ? dbSecret : pickKeyForMode(envSecret, 'test');
+    const publishableKey = useDatabase
+      ? dbPublishable
+      : pickKeyForMode(envPublishable, 'test');
+    const webhookSecret =
+      (useDatabase && settings.webhookSecret) || envWebhook || settings.webhookSecret || '';
+
     if (!secretKey || !publishableKey) {
       console.warn(
-        '[stripe] STRIPE_TEST_MODE=true but .env is missing STRIPE_SECRET_KEY (sk_test_) and/or STRIPE_PUBLISHABLE_KEY (pk_test_)'
+        '[stripe] STRIPE_TEST_MODE=true but no sk_test_/pk_test_ pair found in Admin settings or .env'
       );
     }
+
     return {
       secretKey,
       publishableKey,
-      webhookSecret: envWebhook,
-      isFromDatabase: false,
-      source: 'environment',
+      webhookSecret,
+      isFromDatabase: useDatabase,
+      source: useDatabase ? 'database' : 'environment',
       mode: 'test',
     };
   }
