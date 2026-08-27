@@ -5,6 +5,11 @@ const fs = require('fs');
 const BookingPackage = require('../models/bookingPackage');
 const { BOOKING_PACKAGE_TYPES, BOOKING_PRICING_MODES } = require('../models/bookingPackage');
 const blobStorage = require('../utils/blobStorage');
+const {
+  syncPackageInBackground,
+  syncPackageToStripe,
+  archivePackageInStripe,
+} = require('../services/stripe/syncPackageProduct');
 const { toSeoSlug } = require('../utils/slugUtils');
 
 const useBlobStorage = blobStorage.isConfigured();
@@ -484,6 +489,10 @@ const bookingPackageController = {
         await clearOtherHighlightBadges(newPackage._id);
       }
 
+      // Mirror into the Stripe product catalog. Deliberately not awaited — a
+      // Stripe outage must not fail a package that saved fine.
+      syncPackageInBackground(newPackage._id);
+
       return res.json({
         message: 'Booking package created successfully',
         status: 201,
@@ -612,6 +621,8 @@ const bookingPackageController = {
         await clearOtherHighlightBadges(existing._id);
       }
 
+      syncPackageInBackground(existing._id);
+
       return res.json({
         message: 'Booking package updated successfully',
         status: 200,
@@ -642,6 +653,9 @@ const bookingPackageController = {
       if (!updated) {
         return res.status(404).json({ error: 'Package not found', status: 404 });
       }
+
+      // Stripe products that have been used cannot be deleted — archive it.
+      archivePackageInStripe(updated).catch(() => {});
 
       return res.json({
         message: 'Booking package deleted successfully',
@@ -694,6 +708,51 @@ const bookingPackageController = {
   },
 
   handlePackageImageUpload,
+
+  /** Push one package, or every package, into the Stripe product catalog. */
+  syncPackagesToStripe: async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (id) {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+          return res.status(400).json({ error: 'Invalid package id', status: 400 });
+        }
+        const result = await syncPackageToStripe(id);
+        if (!result.ok) {
+          return res.status(400).json({ error: result.error, status: 400 });
+        }
+        return res.json({
+          message: 'Package synced to Stripe',
+          status: 200,
+          ...result,
+        });
+      }
+
+      const packages = await BookingPackage.find({ isdeleted: false })
+        .select('_id name')
+        .lean();
+
+      const results = [];
+      for (const pkg of packages) {
+        // Sequential on purpose — Stripe rate-limits bursts of writes.
+        const result = await syncPackageToStripe(pkg._id);
+        results.push({ name: pkg.name, ...result });
+      }
+
+      const synced = results.filter((r) => r.ok).length;
+      return res.json({
+        message: `Synced ${synced} of ${results.length} packages to Stripe`,
+        status: 200,
+        synced,
+        total: results.length,
+        failures: results.filter((r) => !r.ok),
+      });
+    } catch (error) {
+      console.error('Error syncing packages to Stripe:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
 
   reorderPackages: async (req, res) => {
     try {
