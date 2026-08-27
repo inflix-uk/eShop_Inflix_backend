@@ -1,5 +1,5 @@
 const StripeSettings = require('../models/stripeSettings');
-const { isStripeTestMode } = require('../utils/stripeMode');
+const { isStripeTestMode, keyKind } = require('../utils/stripeMode');
 
 /**
  * Mask a key to only show the last 4 characters
@@ -18,6 +18,10 @@ const stripeSettingsController = {
   getSettings: async (req, res) => {
     try {
       const settings = await StripeSettings.getSettings();
+      // What is ACTUALLY in force right now — in test mode the .env keys win
+      // and anything saved here is ignored, which the form must say plainly.
+      const active = await StripeSettings.getActiveKeys();
+      const mode = isStripeTestMode() ? 'test' : 'live';
 
       res.json({
         success: true,
@@ -30,7 +34,14 @@ const stripeSettingsController = {
           hasPublishableKey: !!settings.publishableKey,
           hasWebhookSecret: !!settings.webhookSecret,
           testMode: isStripeTestMode(),
-          activeMode: isStripeTestMode() ? 'test' : 'live',
+          activeMode: mode,
+          /** Mode of the keys saved here (may differ from the active mode). */
+          savedKeyMode: keyKind(settings.secretKey),
+          /** False → these saved keys are ignored right now. */
+          savedKeysInUse: !!settings.secretKey && keyKind(settings.secretKey) === mode,
+          /** 'environment' | 'database' — where the live keys come from today. */
+          effectiveSource: active.source,
+          effectiveWebhookSecretSet: !!active.webhookSecret,
           updatedAt: settings.updatedAt,
           updatedBy: settings.updatedBy
         }

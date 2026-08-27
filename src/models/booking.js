@@ -111,6 +111,16 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /**
+     * Stripe account the PaymentIntent was created on (null = platform
+     * default). Stored at intent time so later retrieve / confirm / refund
+     * calls use the same keys even if the package is re-pointed afterwards.
+     */
+    stripeAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'StripeAccount',
+      default: null,
+    },
     holdId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'BookingSlotHold',
