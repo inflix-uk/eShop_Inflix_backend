@@ -155,6 +155,33 @@ const bookingPackageSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Mirror of this package in the Stripe product catalog. */
+    stripeProductId: {
+      type: String,
+      default: null,
+    },
+    stripePriceId: {
+      type: String,
+      default: null,
+    },
+    /**
+     * Which Stripe account the product above lives on. If the package is later
+     * pointed at a different account the product must be recreated there.
+     */
+    stripeSyncedAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'StripeAccount',
+      default: null,
+    },
+    stripeSyncedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Last sync failure, surfaced in Admin. Cleared on success. */
+    stripeSyncError: {
+      type: String,
+      default: '',
+    },
     sortOrder: {
       type: Number,
       default: 0,

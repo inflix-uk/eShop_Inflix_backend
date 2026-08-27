@@ -1068,6 +1068,8 @@ router.get('/get/booking/packages/admin', ...requireAdmin, bookingPackageControl
 router.patch('/update/booking/package/:id', ...requireAdmin, bookingPackageController.updatePackage);
 router.delete('/delete/booking/package/:id', ...requireAdmin, bookingPackageController.deletePackage);
 router.patch('/reorder/booking/packages', ...requireAdmin, bookingPackageController.reorderPackages);
+router.post('/sync/booking/packages/stripe', ...requireAdmin, bookingPackageController.syncPackagesToStripe);
+router.post('/sync/booking/package/:id/stripe', ...requireAdmin, bookingPackageController.syncPackagesToStripe);
 
 router.post(
   '/create/booking/availability',
