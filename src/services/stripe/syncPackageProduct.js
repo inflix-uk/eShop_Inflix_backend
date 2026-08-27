@@ -90,13 +90,16 @@ async function syncPackageToStripe(packageId) {
   }
 
   const { stripe, accountId } = ctx;
+  // Test and live are different Stripe accounts with different product ids,
+  // and one database is shared across both, so each mode keeps its own slot.
+  const mode = ctx.mode === 'test' ? 'test' : 'live';
+  const stored = pkg.stripeCatalog?.[mode] || {};
 
   try {
     // A package moved to a different Stripe account cannot reuse the old
     // product — products do not exist across accounts.
-    const accountChanged =
-      String(pkg.stripeSyncedAccountId || '') !== String(accountId || '');
-    let productId = accountChanged ? null : pkg.stripeProductId;
+    const accountChanged = String(stored.accountId || '') !== String(accountId || '');
+    let productId = accountChanged ? null : stored.productId;
 
     const productFields = {
       name: pkg.name,
@@ -129,7 +132,7 @@ async function syncPackageToStripe(packageId) {
     // Stripe Prices are immutable: a changed amount means a new Price, with the
     // old one archived so the dashboard shows one live price per package.
     const unitAmount = toUnitAmount(pkg.price);
-    let priceId = accountChanged ? null : pkg.stripePriceId;
+    let priceId = accountChanged ? null : stored.priceId;
     let existingPrice = null;
 
     if (priceId) {
@@ -188,20 +191,26 @@ async function syncPackageToStripe(packageId) {
       }
     }
 
+    const syncedAt = new Date();
     await BookingPackage.updateOne(
       { _id: pkg._id },
       {
         $set: {
+          [`stripeCatalog.${mode}.productId`]: productId,
+          [`stripeCatalog.${mode}.priceId`]: priceId || null,
+          [`stripeCatalog.${mode}.accountId`]: accountId || null,
+          [`stripeCatalog.${mode}.syncedAt`]: syncedAt,
+          // Flat mirror of the active mode, so Admin shows what is live now.
           stripeProductId: productId,
           stripePriceId: priceId || null,
           stripeSyncedAccountId: accountId || null,
-          stripeSyncedAt: new Date(),
+          stripeSyncedAt: syncedAt,
           stripeSyncError: '',
         },
       }
     );
 
-    return { ok: true, productId, priceId, accountLabel: ctx.label };
+    return { ok: true, mode, productId, priceId, accountLabel: ctx.label };
   } catch (error) {
     return recordSyncFailure(pkg, error);
   }
@@ -212,11 +221,13 @@ async function syncPackageToStripe(packageId) {
  * ever been used cannot be deleted, so deactivating is the correct move.
  */
 async function archivePackageInStripe(pkg) {
-  if (!pkg?.stripeProductId) return { ok: true, skipped: true };
-
   try {
-    const { stripe } = await resolveStripeForPackage(pkg);
-    await stripe.products.update(pkg.stripeProductId, { active: false });
+    const ctx = await resolveStripeForPackage(pkg);
+    const mode = ctx.mode === 'test' ? 'test' : 'live';
+    const productId = pkg?.stripeCatalog?.[mode]?.productId || pkg?.stripeProductId;
+    if (!productId) return { ok: true, skipped: true };
+
+    await ctx.stripe.products.update(productId, { active: false });
     return { ok: true };
   } catch (error) {
     console.error(`[stripe] could not archive product for "${pkg?.name}":`, error.message);

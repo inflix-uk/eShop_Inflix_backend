@@ -155,7 +155,28 @@ const bookingPackageSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    /** Mirror of this package in the Stripe product catalog. */
+    /**
+     * Mirror of this package in the Stripe product catalog, tracked SEPARATELY
+     * per Stripe mode. Test and live are different Stripe accounts with
+     * different product ids, and one database is shared by local (test) and
+     * production (live) -- a single slot would make each mode clobber the
+     * other's ids and churn duplicate products on every switch.
+     */
+    stripeCatalog: {
+      test: {
+        productId: { type: String, default: null },
+        priceId: { type: String, default: null },
+        accountId: { type: mongoose.Schema.Types.ObjectId, ref: 'StripeAccount', default: null },
+        syncedAt: { type: Date, default: null },
+      },
+      live: {
+        productId: { type: String, default: null },
+        priceId: { type: String, default: null },
+        accountId: { type: mongoose.Schema.Types.ObjectId, ref: 'StripeAccount', default: null },
+        syncedAt: { type: Date, default: null },
+      },
+    },
+    /** Mirrors stripeCatalog for the CURRENTLY active mode, for Admin display. */
     stripeProductId: {
       type: String,
       default: null,
@@ -164,10 +185,6 @@ const bookingPackageSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    /**
-     * Which Stripe account the product above lives on. If the package is later
-     * pointed at a different account the product must be recreated there.
-     */
     stripeSyncedAccountId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'StripeAccount',
