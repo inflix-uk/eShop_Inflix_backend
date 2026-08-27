@@ -145,6 +145,16 @@ const bookingPackageSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    /**
+     * Stripe account that collects payment for this package.
+     * null → the platform default from StripeSettings.
+     */
+    stripeAccountId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'StripeAccount',
+      default: null,
+      index: true,
+    },
     sortOrder: {
       type: Number,
       default: 0,

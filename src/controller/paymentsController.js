@@ -154,9 +154,23 @@ const paymentsController = {
 
     config: async (req, res, next) => {
         try {
-            // Get keys from DB with fallback to env vars
-            const STRIPE_PUBLISHABLE_KEY = await getPublishableKey();
-            const keys = await StripeSettings.getActiveKeys();
+            // A booking package may collect into its own Stripe account — the card
+            // form must then mount with THAT account's publishable key. Without a
+            // packageId this stays the platform default (shop checkout path).
+            const { packageId } = req.query;
+
+            let keys;
+            let STRIPE_PUBLISHABLE_KEY;
+
+            if (packageId) {
+                const { resolveKeysForPackage } = require('../services/stripe/resolveStripeAccount');
+                keys = await resolveKeysForPackage(String(packageId));
+                STRIPE_PUBLISHABLE_KEY = keys.publishableKey;
+            } else {
+                STRIPE_PUBLISHABLE_KEY = await getPublishableKey();
+                keys = await StripeSettings.getActiveKeys();
+            }
+
             const STRIPE_SECRET_KEY = keys.secretKey;
 
             // Extract account IDs from keys for comparison (17 chars after prefix)
@@ -185,6 +199,8 @@ const paymentsController = {
 
             res.send({
               publishableKey: STRIPE_PUBLISHABLE_KEY,
+              stripeAccountId: keys.accountId || null,
+              stripeAccountLabel: keys.label || 'Platform default',
             });
           } catch (error) {
             console.error('Error getting Stripe config:', error);
@@ -1414,11 +1430,27 @@ const paymentsController = {
 
         // Setup phase — wrapped so a DB / Stripe init failure cannot become an unhandled
         // promise rejection that crashes the process. We must always respond.
-        let stripe, webhookSecret;
+        //
+        // Booking packages can each take payment into a different Stripe account, so
+        // an event may be signed by any of several signing secrets. Collect every
+        // candidate (platform default first, then each active named account).
+        let candidates;
         try {
-            stripe = await getStripeInstance();
-            const keys = await StripeSettings.getActiveKeys();
-            webhookSecret = (keys && keys.webhookSecret) || process.env.STRIPE_WEBHOOK_SECRET;
+            const { getWebhookVerificationCandidates } = require('../services/stripe/resolveStripeAccount');
+            candidates = await getWebhookVerificationCandidates();
+
+            if (candidates.length === 0) {
+                const envSecret = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+                const keys = await StripeSettings.getActiveKeys();
+                if (envSecret || keys?.webhookSecret) {
+                    candidates = [{
+                        secretKey: keys?.secretKey || process.env.STRIPE_SECRET_KEY,
+                        webhookSecret: keys?.webhookSecret || envSecret,
+                        accountId: null,
+                        label: 'Platform default',
+                    }];
+                }
+            }
         } catch (setupErr) {
             console.error('❌ Stripe webhook setup failed:', setupErr.message);
             // 503 → Stripe will retry; transient setup errors should be retried.
@@ -1428,16 +1460,37 @@ const paymentsController = {
             return;
         }
 
-        let event;
-
-        try {
-            // Verify webhook signature
-            event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-            console.log('✅ Webhook signature verified');
-        } catch (err) {
-            console.error('❌ Webhook signature verification failed:', err.message);
-            return res.status(400).send(`Webhook Error: ${err.message}`);
+        if (!candidates || candidates.length === 0) {
+            console.error('❌ Stripe webhook: no signing secret configured');
+            return res.status(503).send('Webhook not configured');
         }
+
+        let event = null;
+        let stripe = null;
+        let matchedAccount = null;
+        let lastVerifyError = null;
+
+        for (const candidate of candidates) {
+            try {
+                const candidateStripe = require('stripe')(candidate.secretKey);
+                event = candidateStripe.webhooks.constructEvent(req.body, sig, candidate.webhookSecret);
+                stripe = candidateStripe;
+                matchedAccount = candidate;
+                break;
+            } catch (err) {
+                lastVerifyError = err;
+            }
+        }
+
+        if (!event) {
+            console.error(
+                `❌ Webhook signature verification failed against ${candidates.length} account(s):`,
+                lastVerifyError?.message
+            );
+            return res.status(400).send(`Webhook Error: ${lastVerifyError?.message || 'signature mismatch'}`);
+        }
+
+        console.log(`✅ Webhook signature verified (account: ${matchedAccount.label})`);
 
         // Handle the event
         switch (event.type) {

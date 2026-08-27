@@ -121,6 +121,15 @@ router.get('/stripe/settings',                  ...requireAdmin, stripeSettingsC
 router.post('/stripe/settings',                 ...requireAdmin, stripeSettingsController.saveSettings);
 router.post('/stripe/test-connection',          ...requireAdmin, stripeSettingsController.testConnection);
 
+// Additional named Stripe accounts (booking packages can each pick one)
+const stripeAccountController = require('../controller/stripeAccountController');
+router.get('/stripe/accounts',                  ...requireAdmin, stripeAccountController.listAccounts);
+router.get('/stripe/accounts/selectable',       ...requireAdmin, stripeAccountController.listSelectable);
+router.post('/stripe/accounts',                 ...requireAdmin, stripeAccountController.createAccount);
+router.patch('/stripe/accounts/:id',            ...requireAdmin, stripeAccountController.updateAccount);
+router.delete('/stripe/accounts/:id',           ...requireAdmin, stripeAccountController.deleteAccount);
+router.post('/stripe/accounts/:id/test',        ...requireAdmin, stripeAccountController.testAccount);
+
 // ========================================================================
 // SMTP SETTINGS MANAGEMENT
 // ========================================================================
