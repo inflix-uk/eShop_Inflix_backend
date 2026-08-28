@@ -28,6 +28,11 @@ const {
 
 // Booking payment confirmation service
 const { confirmBookingPayment, handleBookingPaymentFailed } = require('../services/bookingService/confirmBooking');
+const {
+  logCheckout,
+  auditSuccess,
+  auditFailure,
+} = require('../services/audit/checkoutAudit');
 
 // Fire-and-forget logger — never throws, never blocks the caller
 const writeLog = (entry) => {
@@ -133,10 +138,13 @@ const paymentsController = {
     // the client never retries or blocks the checkout flow on logging errors.
     logCheckoutEvent: async (req, res) => {
         try {
-            const { event, paymentIntentId, orderNumber, paymentMethodType, data } = req.body || {};
+            const body = req.body || {};
+            const { event, paymentIntentId, orderNumber, paymentMethodType, data } = body;
             if (!event) {
                 return res.status(200).json({ ok: false, reason: 'missing event' });
             }
+
+            // Legacy breadcrumb trail — unchanged so existing analytics keep working.
             writeLog({
                 event: String(event).substring(0, 120),
                 source: 'frontend',
@@ -145,6 +153,58 @@ const paymentsController = {
                 paymentMethodType: paymentMethodType || undefined,
                 data: data || undefined,
             });
+
+            // Richer audit trail. The browser is the only place that can see
+            // steps the server never hears about — the customer reaching a
+            // step, Stripe rejecting a card inline, or the tab being closed.
+            //
+            // This endpoint is public (checkout is anonymous), so treat every
+            // field as untrusted: whitelist what we accept, clamp the rest,
+            // and never let a caller set outcome/severity to something that
+            // would hide a real failure elsewhere.
+            const allowedStages = require('../models/checkoutAuditLog').STAGES;
+            const allowedOutcomes = require('../models/checkoutAuditLog').OUTCOMES;
+            const allowedSeverities = require('../models/checkoutAuditLog').SEVERITIES;
+            const allowedFlows = require('../models/checkoutAuditLog').FLOWS;
+
+            const pick = (value, allowed, fallback) =>
+                allowed.includes(String(value)) ? String(value) : fallback;
+
+            const clampNumber = (v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? n : undefined;
+            };
+
+            logCheckout({
+                req,
+                source: 'frontend',
+                event: String(event).substring(0, 160),
+                stage: pick(body.stage, allowedStages, 'other'),
+                outcome: pick(body.outcome, allowedOutcomes, 'info'),
+                severity: pick(body.severity, allowedSeverities, 'info'),
+                flow: pick(body.flow, allowedFlows, 'unknown'),
+                message: body.message ? String(body.message).substring(0, 2000) : undefined,
+                checkoutSessionId: body.checkoutSessionId
+                    ? String(body.checkoutSessionId).substring(0, 120)
+                    : undefined,
+                failureReason: body.failureReason
+                    ? String(body.failureReason).substring(0, 500)
+                    : undefined,
+                paymentIntentId: paymentIntentId || undefined,
+                orderNumber: orderNumber || undefined,
+                paymentMethodType: paymentMethodType || undefined,
+                bookingNumber: body.bookingNumber ? String(body.bookingNumber).substring(0, 60) : undefined,
+                packageName: body.packageName ? String(body.packageName).substring(0, 200) : undefined,
+                customerEmail: body.customerEmail ? String(body.customerEmail).substring(0, 200) : undefined,
+                amount: clampNumber(body.amount),
+                currency: body.currency ? String(body.currency).substring(0, 10) : undefined,
+                stripeErrorCode: body.stripeErrorCode ? String(body.stripeErrorCode).substring(0, 100) : undefined,
+                stripeDeclineCode: body.stripeDeclineCode ? String(body.stripeDeclineCode).substring(0, 100) : undefined,
+                stripeErrorType: body.stripeErrorType ? String(body.stripeErrorType).substring(0, 100) : undefined,
+                durationMs: clampNumber(body.durationMs),
+                data: data || undefined,
+            });
+
             res.status(200).json({ ok: true });
         } catch (error) {
             console.error('logCheckoutEvent error:', error.message);
@@ -1462,6 +1522,15 @@ const paymentsController = {
 
         if (!candidates || candidates.length === 0) {
             console.error('❌ Stripe webhook: no signing secret configured');
+            auditFailure({
+                event: 'webhook.not_configured',
+                stage: 'webhook',
+                source: 'webhook',
+                severity: 'critical',
+                failureReason: 'No webhook signing secret configured anywhere',
+                message: 'Every Stripe event will be rejected until a signing secret is saved',
+                httpStatus: 503,
+            });
             return res.status(503).send('Webhook not configured');
         }
 
@@ -1487,10 +1556,31 @@ const paymentsController = {
                 `❌ Webhook signature verification failed against ${candidates.length} account(s):`,
                 lastVerifyError?.message
             );
+            auditFailure({
+                error: lastVerifyError,
+                event: 'webhook.signature_verification_failed',
+                stage: 'webhook',
+                source: 'webhook',
+                severity: 'critical',
+                failureReason: 'Webhook signature did not match any configured secret',
+                message: `Tried ${candidates.length} account(s) — payments will not auto-confirm`,
+                httpStatus: 400,
+                data: { accountsTried: candidates.map((c) => c.label) },
+            });
             return res.status(400).send(`Webhook Error: ${lastVerifyError?.message || 'signature mismatch'}`);
         }
 
         console.log(`✅ Webhook signature verified (account: ${matchedAccount.label})`);
+        logCheckout({
+            event: `webhook.received.${event.type}`,
+            stage: 'webhook',
+            source: 'webhook',
+            outcome: 'info',
+            message: `Verified ${event.type} on "${matchedAccount.label}"`,
+            stripeAccountLabel: matchedAccount.label,
+            paymentIntentId: event.data?.object?.id,
+            data: { eventId: event.id, livemode: event.livemode },
+        });
 
         // Handle the event
         switch (event.type) {
@@ -1559,6 +1649,21 @@ const paymentsController = {
 
                         if (bookingResult.success) {
                             console.log('✅ Booking confirmed:', bookingNumber);
+                            auditSuccess({
+                                event: 'booking.completed',
+                                stage: 'complete',
+                                flow: 'booking',
+                                source: 'webhook',
+                                message: `Booking ${bookingNumber} confirmed by Stripe webhook`,
+                                bookingNumber,
+                                paymentIntentId: paymentIntent.id,
+                                paymentIntentStatus: paymentIntent.status,
+                                paymentMethodType: paymentType,
+                                amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
+                                currency: paymentIntent.currency,
+                                customerEmail: paymentIntent.receipt_email || undefined,
+                                data: { alreadyConfirmed: bookingResult.alreadyConfirmed || false },
+                            });
                             writeLog({
                                 event: 'backend.webhook.booking_confirmed',
                                 source: 'backend',
@@ -1569,6 +1674,23 @@ const paymentsController = {
                             });
                         } else {
                             console.log('⚠️ Booking confirmation failed:', bookingNumber, bookingResult.error);
+                            auditFailure({
+                                event: 'booking.webhook_confirm_failed',
+                                stage: 'webhook',
+                                flow: 'booking',
+                                source: 'webhook',
+                                severity: 'critical',
+                                failureReason: bookingResult.error || 'Booking confirmation failed',
+                                message: bookingResult.needsRefund
+                                    ? `PAID BUT UNFULFILLED — ${bookingNumber} needs a refund`
+                                    : `PAID BUT NOT CONFIRMED — ${bookingNumber}`,
+                                bookingNumber,
+                                paymentIntentId: paymentIntent.id,
+                                paymentMethodType: paymentType,
+                                amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
+                                currency: paymentIntent.currency,
+                                data: { needsRefund: bookingResult.needsRefund || false },
+                            });
                             writeLog({
                                 event: 'backend.webhook.booking_confirmation_failed',
                                 source: 'backend',
@@ -1671,6 +1793,25 @@ const paymentsController = {
                         console.log('📅 Processing booking payment failure for:', failedBookingNumber);
                         await handleBookingPaymentFailed(failedBookingNumber, failedPayment);
                         console.log('✅ Booking marked as payment failed:', failedBookingNumber);
+                        auditFailure({
+                            event: 'booking.payment_failed',
+                            stage: 'payment_result',
+                            flow: 'booking',
+                            source: 'webhook',
+                            severity: 'warn',
+                            failureReason:
+                                failedPayment?.last_payment_error?.message || 'Card payment failed',
+                            message: `Customer's payment failed for ${failedBookingNumber}`,
+                            bookingNumber: failedBookingNumber,
+                            paymentIntentId: failedPayment?.id,
+                            paymentIntentStatus: failedPayment?.status,
+                            amount: failedPayment?.amount ? failedPayment.amount / 100 : undefined,
+                            currency: failedPayment?.currency,
+                            stripeErrorCode: failedPayment?.last_payment_error?.code,
+                            stripeDeclineCode: failedPayment?.last_payment_error?.decline_code,
+                            stripeErrorType: failedPayment?.last_payment_error?.type,
+                            customerEmail: failedPayment?.receipt_email || undefined,
+                        });
                     }
                     // Handle ORDER payment failure
                     else if (failedOrderNumber) {

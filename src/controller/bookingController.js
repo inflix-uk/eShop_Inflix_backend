@@ -1,3 +1,9 @@
+const {
+  auditStarted,
+  auditSuccess,
+  auditFailure,
+  startTimer,
+} = require('../services/audit/checkoutAudit');
 const mongoose = require('mongoose');
 const Booking = require('../models/booking');
 const BookingPackage = require('../models/bookingPackage');
@@ -69,6 +75,18 @@ const bookingController = {
   },
 
   createSlotHold: async (req, res) => {
+    const elapsed = startTimer();
+    auditStarted({
+      req,
+      event: 'booking.slot_hold.requested',
+      stage: 'slot_hold',
+      flow: 'booking',
+      message: 'Customer is reserving a time slot',
+      packageId: req.body?.packageId || undefined,
+      slots: req.body?.slots || undefined,
+      data: { date: req.body?.date, startTime: req.body?.startTime },
+    });
+
     try {
       const { packageId, date, startTime, slots, sessionId, userId } = req.body;
 
@@ -119,8 +137,24 @@ const bookingController = {
 
       if (!result.success) {
         const statusCode = result.error.includes('no longer available') ? 409 : 400;
+        auditFailure({
+          req, event: 'booking.slot_hold.failed', stage: 'slot_hold', flow: 'booking',
+          failureReason: result.error,
+          message: 'Could not hold the slot: ' + result.error,
+          severity: statusCode === 409 ? 'warn' : 'error',
+          packageId, httpStatus: statusCode, durationMs: elapsed(),
+          data: { date, startTime, conflict: result.conflict },
+        });
         return res.status(statusCode).json({ error: result.error, status: statusCode, conflict: result.conflict });
       }
+
+      auditSuccess({
+        req, event: 'booking.slot_hold.created', stage: 'slot_hold', flow: 'booking',
+        message: 'Slot held for the customer',
+        packageId, holdIds: result.hold?._id ? [String(result.hold._id)] : undefined,
+        durationMs: elapsed(),
+        data: { date, startTime, expiresAt: result.hold?.expiresAt },
+      });
 
       return res.json({
         message: 'Slot hold created successfully',
@@ -129,6 +163,14 @@ const bookingController = {
       });
     } catch (error) {
       console.error('Error creating slot hold:', error);
+      auditFailure({
+        req, error,
+        event: 'booking.slot_hold.crashed', stage: 'slot_hold', flow: 'booking',
+        severity: 'critical',
+        failureReason: 'Unhandled error creating slot hold',
+        message: error.message,
+        durationMs: elapsed(),
+      });
       return res.status(500).json({ error: 'Internal server error' });
     }
   },
@@ -213,6 +255,28 @@ const bookingController = {
   },
 
   createBooking: async (req, res) => {
+    const elapsed = startTimer();
+    auditStarted({
+      req,
+      event: 'booking.create.requested',
+      stage: 'booking_create',
+      flow: req.body?.bookingMode === 'queue' ? 'editing' : 'booking',
+      message: 'Customer submitted their details to create a booking',
+      customerEmail: req.body?.customer?.email,
+      customerName: req.body?.customer?.name,
+      customerPhone: req.body?.customer?.phone,
+      packageId: req.body?.packageId || undefined,
+      holdIds: req.body?.holdIds || (req.body?.holdId ? [req.body.holdId] : undefined),
+      guestCount: req.body?.guestCount,
+      extraMics: req.body?.extraMics,
+      extras: req.body?.extras,
+      data: {
+        bookingMode: req.body?.bookingMode,
+        episodeCount: req.body?.episodeCount,
+        editingPackageId: req.body?.editingPackageId,
+      },
+    });
+
     try {
       const {
         holdId,
@@ -253,8 +317,23 @@ const bookingController = {
         });
 
         if (!result.success) {
+          auditFailure({
+            req, event: 'booking.create.failed', stage: 'booking_create', flow: 'editing',
+            failureReason: result.error,
+            message: 'Editing booking could not be created: ' + result.error,
+            customerEmail: customer?.email, customerName: customer?.name,
+            packageId, httpStatus: 400, durationMs: elapsed(),
+          });
           return res.status(400).json({ error: result.error, status: 400 });
         }
+
+        auditSuccess({
+          req, event: 'booking.create.succeeded', stage: 'booking_create', flow: 'editing',
+          message: 'Editing booking created: ' + (result.booking?.bookingNumber || ''),
+          bookingId: result.booking?._id, bookingNumber: result.booking?.bookingNumber,
+          customerEmail: customer?.email, customerName: customer?.name,
+          packageId, amount: result.totalAmount, durationMs: elapsed(),
+        });
 
         return res.json({
           message: 'Booking created successfully',
@@ -284,8 +363,27 @@ const bookingController = {
 
         if (!result.success) {
           const statusCode = result.error.includes('conflict') ? 409 : 400;
+          auditFailure({
+            req, event: 'booking.create.failed', stage: 'booking_create', flow: 'booking',
+            failureReason: result.error,
+            message: 'Multi-slot booking failed: ' + result.error,
+            severity: statusCode === 409 ? 'warn' : 'error',
+            customerEmail: customer?.email, customerName: customer?.name,
+            holdIds, httpStatus: statusCode, durationMs: elapsed(),
+          });
           return res.status(statusCode).json({ error: result.error, status: statusCode });
         }
+
+        auditSuccess({
+          req, event: 'booking.create.succeeded', stage: 'booking_create', flow: 'booking',
+          message: 'Booking created with ' + (result.bookings?.length || 1) + ' slot(s)',
+          bookingId: result.booking?._id,
+          bookingNumber: result.groupBookingNumber || result.booking?.bookingNumber,
+          customerEmail: customer?.email, customerName: customer?.name,
+          customerPhone: customer?.phone,
+          holdIds, guestCount, extraMics, amount: result.totalAmount,
+          durationMs: elapsed(),
+        });
 
         return res.json({
           message: 'Bookings created successfully',
@@ -319,8 +417,26 @@ const bookingController = {
 
       if (!result.success) {
         const statusCode = result.error.includes('conflict') ? 409 : 400;
+        auditFailure({
+          req, event: 'booking.create.failed', stage: 'booking_create', flow: 'booking',
+          failureReason: result.error,
+          message: 'Booking failed: ' + result.error,
+          severity: statusCode === 409 ? 'warn' : 'error',
+          customerEmail: customer?.email, customerName: customer?.name,
+          holdIds: [holdId], httpStatus: statusCode, durationMs: elapsed(),
+        });
         return res.status(statusCode).json({ error: result.error, status: statusCode });
       }
+
+      auditSuccess({
+        req, event: 'booking.create.succeeded', stage: 'booking_create', flow: 'booking',
+        message: 'Booking created: ' + (result.booking?.bookingNumber || ''),
+        bookingId: result.booking?._id, bookingNumber: result.booking?.bookingNumber,
+        customerEmail: customer?.email, customerName: customer?.name,
+        customerPhone: customer?.phone,
+        holdIds: [holdId], guestCount, extraMics,
+        amount: result.booking?.totalAmount, durationMs: elapsed(),
+      });
 
       return res.json({
         message: 'Booking created successfully',
@@ -330,6 +446,15 @@ const bookingController = {
       });
     } catch (error) {
       console.error('Error creating booking:', error);
+      auditFailure({
+        req, error,
+        event: 'booking.create.crashed', stage: 'booking_create', flow: 'booking',
+        severity: 'critical',
+        failureReason: 'Unhandled error creating booking',
+        message: error.message,
+        customerEmail: req.body?.customer?.email,
+        durationMs: elapsed(),
+      });
       return res.status(500).json({ error: 'Internal server error' });
     }
   },
