@@ -76,6 +76,7 @@ const requireAdmin = require('../../middleware/requireAdmin');
 const resolvePricingScope = require('../../middleware/resolvePricingScope');
 const optionalAuth = require('../../middleware/optionalAuth');
 const paymentIntentRateLimit = require('../../middleware/paymentIntentRateLimit');
+const checkoutLogRateLimit = require('../../middleware/checkoutLogRateLimit');
 const {
   forgotPasswordRateLimit,
   resetPasswordRateLimit,
@@ -105,7 +106,7 @@ router.get('/health', healthController.getHealth);
 router.get('/config',                           paymentsController.config);
 router.post('/create-payment-intent',           paymentsController.createPaymentIntent);
 router.post('/update-payment-intent-metadata',  paymentIntentRateLimit, paymentsController.updatePaymentIntentMetadata);
-router.post('/checkout-log',                    paymentsController.logCheckoutEvent);
+router.post('/checkout-log',                    checkoutLogRateLimit, paymentsController.logCheckoutEvent);
 router.post('/update-payment-intent-amount',    paymentIntentRateLimit, paymentsController.updatePaymentIntentAmount);
 router.post('/retrieve-payment-details',        paymentIntentRateLimit, paymentsController.retrievePaymentDetails);
 router.post('/retrieve-payment-details-session',paymentIntentRateLimit, paymentsController.retrievePaymentDetailsSession);
