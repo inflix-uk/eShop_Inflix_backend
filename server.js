@@ -18,7 +18,10 @@ environmentValidator.init();
 // automatic before/after change tracking into the AuditLog collection.
 const mongoose = require('mongoose');
 const auditPlugin = require('./src/audit/mongooseAuditPlugin');
-mongoose.plugin(auditPlugin);
+// register() rather than mongoose.plugin() directly: it is idempotent, so a
+// second registration (from a script or a re-require) cannot double every hook
+// and duplicate every audit entry.
+auditPlugin.register(mongoose);
 
 // Verify Stripe mode on startup.
 // STRIPE_TEST_MODE=true → test keys from .env. false/unset → live keys from DB.
@@ -83,13 +86,32 @@ const { initVisitorSocketHandler } = require('./socket/visitorSocketHandler');
 
 // Process-level safety net — log crashes/unhandled rejections so the backend
 // stays observable even when something blows up outside of any try/catch.
+// These are the failures nobody is watching for, so they go to the audit trail
+// as well as the console. Best-effort and lazily required: a crash handler must
+// never itself throw.
+const auditProcessFailure = (action, message, error) => {
+  try {
+    require('./src/services/auditLogService').logCritical({
+      action,
+      category: 'process',
+      message,
+      error,
+      metadata: { pid: process.pid, uptimeSec: Math.round(process.uptime()) },
+    });
+  } catch (_) {
+    // Nothing left to do — the console line above is the last resort.
+  }
+};
+
 process.on('unhandledRejection', (reason) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
   console.error('💥 Unhandled promise rejection:', err);
+  auditProcessFailure('process.unhandled_rejection', 'Unhandled promise rejection', err);
 });
 
 process.on('uncaughtException', (err) => {
   console.error('💥 Uncaught exception:', err);
+  auditProcessFailure('process.uncaught_exception', 'Uncaught exception', err);
 });
 
 class Server {

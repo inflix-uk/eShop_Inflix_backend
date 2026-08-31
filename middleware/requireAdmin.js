@@ -1,4 +1,5 @@
 const requireAuth = require('./requireAuth');
+const { auditAccessDenied } = require('../src/services/audit/authAudit');
 
 function isAdminRole(role) {
   const r = String(role || '').toLowerCase();
@@ -7,6 +8,19 @@ function isAdminRole(role) {
 
 function requireAdminRole(req, res, next) {
   if (!req.user || !isAdminRole(req.user.role)) {
+    // requireAuth has already passed, so this is an authenticated account
+    // reaching for something above its level — always worth recording.
+    auditAccessDenied({
+      req,
+      action: 'auth.access.denied',
+      message: 'Admin-only route refused',
+      user: req.user,
+      metadata: {
+        reason: 'insufficient_role',
+        required: 'admin',
+        actualRole: req.user?.role || null,
+      },
+    });
     return res.status(403).json({
       success: false,
       error: 'Forbidden',

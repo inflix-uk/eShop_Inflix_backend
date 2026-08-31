@@ -1723,6 +1723,20 @@ const paymentsController = {
 
                         if (updatedOrder) {
                             console.log('✅ Order updated successfully:', orderNumber);
+                            auditSuccess({
+                                event: 'shop.order.completed',
+                                stage: 'complete',
+                                flow: 'shop',
+                                source: 'webhook',
+                                message: `Order ${orderNumber} confirmed by Stripe webhook`,
+                                orderNumber,
+                                paymentIntentId: paymentIntent.id,
+                                paymentIntentStatus: paymentIntent.status,
+                                paymentMethodType: paymentType,
+                                amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
+                                currency: paymentIntent.currency,
+                                customerEmail: paymentIntent.receipt_email || undefined,
+                            });
                             writeLog({
                                 event: 'backend.webhook.order_updated_to_pending',
                                 source: 'backend',
@@ -1735,6 +1749,23 @@ const paymentsController = {
                             // You can add email sending logic here
                         } else {
                             console.log('⚠️ No order found with orderNumber:', orderNumber);
+                            // Stripe took the money and there is nothing here to
+                            // fulfil against — the same "paid but unfulfilled"
+                            // class of problem the booking flow flags as critical.
+                            auditFailure({
+                                event: 'shop.webhook.order_not_found',
+                                stage: 'webhook',
+                                flow: 'shop',
+                                source: 'webhook',
+                                severity: 'critical',
+                                failureReason: 'No order matches the paid orderNumber',
+                                message: `PAID BUT UNFULFILLED - no order ${orderNumber} exists`,
+                                orderNumber,
+                                paymentIntentId: paymentIntent.id,
+                                paymentMethodType: paymentType,
+                                amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
+                                currency: paymentIntent.currency,
+                            });
                             writeLog({
                                 event: 'backend.webhook.order_not_found',
                                 source: 'backend',
@@ -1745,6 +1776,20 @@ const paymentsController = {
                         }
                     } else {
                         console.log('⚠️ No orderNumber in paymentIntent metadata');
+                        auditFailure({
+                            event: 'shop.webhook.unattributable_payment',
+                            stage: 'webhook',
+                            source: 'webhook',
+                            severity: 'critical',
+                            failureReason: 'Succeeded payment carries neither orderNumber nor bookingNumber',
+                            message: 'PAID BUT UNATTRIBUTABLE - nothing links this charge to an order',
+                            paymentIntentId: paymentIntent.id,
+                            paymentMethodType: paymentType,
+                            amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
+                            currency: paymentIntent.currency,
+                            customerEmail: paymentIntent.receipt_email || undefined,
+                            data: { metadataKeys: Object.keys(paymentIntent.metadata || {}) },
+                        });
                         writeLog({
                             event: 'backend.webhook.no_ordernumber_in_metadata',
                             source: 'backend',
@@ -1829,6 +1874,25 @@ const paymentsController = {
                             }
                         );
                         console.log('✅ Order marked as failed:', failedOrderNumber);
+                        auditFailure({
+                            event: 'shop.payment_failed',
+                            stage: 'payment_result',
+                            flow: 'shop',
+                            source: 'webhook',
+                            severity: 'warn',
+                            failureReason:
+                                failedPayment?.last_payment_error?.message || 'Card payment failed',
+                            message: `Customer's payment failed for order ${failedOrderNumber}`,
+                            orderNumber: failedOrderNumber,
+                            paymentIntentId: failedPayment?.id,
+                            paymentIntentStatus: failedPayment?.status,
+                            amount: failedPayment?.amount ? failedPayment.amount / 100 : undefined,
+                            currency: failedPayment?.currency,
+                            stripeErrorCode: failedPayment?.last_payment_error?.code,
+                            stripeDeclineCode: failedPayment?.last_payment_error?.decline_code,
+                            stripeErrorType: failedPayment?.last_payment_error?.type,
+                            customerEmail: failedPayment?.receipt_email || undefined,
+                        });
                     }
                 } catch (error) {
                     console.error('❌ Error processing payment_intent.payment_failed:', error);
@@ -1855,6 +1919,19 @@ const paymentsController = {
 
             default:
                 console.log(`Unhandled event type: ${event.type}`);
+                // Verified, acknowledged with a 200, and then dropped. Disputes
+                // and refunds arrive down this path today, so the fact that
+                // nothing acted on them has to be visible somewhere.
+                logCheckout({
+                    event: `webhook.unhandled.${event.type}`,
+                    stage: 'webhook',
+                    source: 'webhook',
+                    outcome: 'info',
+                    severity: 'warn',
+                    message: `Received ${event.type} but no handler acts on it`,
+                    paymentIntentId: event.data?.object?.payment_intent || event.data?.object?.id,
+                    data: { eventId: event.id, livemode: event.livemode },
+                });
         }
 
         // Return a 200 response to acknowledge receipt of the event.

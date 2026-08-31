@@ -99,6 +99,24 @@ function pick(doc, keys) {
   return out;
 }
 
+// Condense a bulkWrite op list into something safe to store: one entry per
+// operation with its filter and update, redacted and capped like any snapshot.
+function summarizeBulkOps(ops) {
+  const list = Array.isArray(ops) ? ops : [];
+  const items = list.slice(0, MAX_MANY_DOCS).map((op) => {
+    const [type] = Object.keys(op || {});
+    const body = (op && op[type]) || {};
+    return {
+      type,
+      filter: prepareDoc(body.filter),
+      update: prepareDoc(body.update),
+      document: prepareDoc(body.document),
+      upsert: body.upsert || undefined,
+    };
+  });
+  return { items, total: list.length, truncated: list.length > MAX_MANY_DOCS };
+}
+
 // Build metadata + fire the audit write. Never throws, never awaited by callers.
 function record({ modelName, op, id, before, after }) {
   try {
@@ -143,8 +161,16 @@ function record({ modelName, op, id, before, after }) {
 function recordMany({ modelName, op, before, after }) {
   try {
     const ctx = getAuditContext();
+    // A create has no "before" side, so the inserted documents drive the list;
+    // update/delete are driven by the pre-image we captured.
+    const isCreate = op === 'create';
+    const source = isCreate ? after || [] : before || [];
     const afterById = new Map((after || []).map((d) => [String(d._id), d]));
-    const items = (before || []).slice(0, MAX_MANY_DOCS).map((b) => {
+    const items = source.slice(0, MAX_MANY_DOCS).map((doc) => {
+      if (isCreate) {
+        return { id: String(doc._id), before: null, after: prepareDoc(doc) };
+      }
+      const b = doc;
       const a = afterById.get(String(b._id));
       const changed = op === 'update' ? changedKeys(b, a) : undefined;
       return {
@@ -160,12 +186,14 @@ function recordMany({ modelName, op, before, after }) {
       level: 'info',
       action: `${modelName}.${op}Many`,
       category: 'data',
-      message: `${op}Many ${modelName} — ${(before || []).length} matched`,
+      message: isCreate
+        ? `createMany ${modelName} — ${source.length} inserted`
+        : `${op}Many ${modelName} — ${source.length} matched`,
       metadata: {
         model: modelName,
         op: `${op}Many`,
-        matched: (before || []).length,
-        truncated: (before || []).length > MAX_MANY_DOCS,
+        ...(isCreate ? { inserted: source.length } : { matched: source.length }),
+        truncated: source.length > MAX_MANY_DOCS,
         items,
       },
       userId: ctx.userId,
@@ -292,4 +320,93 @@ module.exports = function auditPlugin(schema) {
     if (!before.length) return;
     recordMany({ modelName: this.model.modelName, op: 'delete', before, after: [] });
   });
+
+  // ---- Bulk inserts (Model.insertMany) ----
+  // These never touch the save / update hooks above, so without this a bulk
+  // insert lands in the database leaving no trace at all.
+  schema.post('insertMany', function postInsertManyAudit(docs) {
+    const modelName = this?.modelName;
+    if (isExcluded(modelName)) return;
+    const inserted = Array.isArray(docs) ? docs : [docs];
+    if (!inserted.length) return;
+    recordMany({
+      modelName,
+      op: 'create',
+      before: [],
+      after: inserted.map((d) => (typeof d?.toObject === 'function' ? d.toObject() : d)),
+    });
+  });
+
+  // ---- Bulk writes (Model.bulkWrite) ----
+  // The driver returns only counts, so we record the requested operations
+  // (redacted) plus the resulting counts rather than per-document diffs.
+  //
+  // Declaring parameters puts this hook in kareem's callback style: `next`
+  // MUST be called or the write hangs, so the whole body is guarded and next()
+  // runs from `finally`.
+  schema.pre('bulkWrite', function preBulkWriteAudit(next, ops) {
+    try {
+      if (!isExcluded(this?.modelName)) {
+        this.$__auditBulkOps = summarizeBulkOps(ops);
+      }
+    } catch (err) {
+      console.error('[auditPlugin] failed to capture bulkWrite ops:', err.message);
+    } finally {
+      next();
+    }
+  });
+
+  schema.post('bulkWrite', function postBulkWriteAudit(result) {
+    const modelName = this?.modelName;
+    if (isExcluded(modelName)) return;
+    const ops = this.$__auditBulkOps;
+    this.$__auditBulkOps = undefined;
+    if (!ops || !ops.items.length) return;
+    try {
+      const ctx = getAuditContext();
+      auditLogService.logDataChange({
+        level: 'info',
+        action: `${modelName}.bulkWrite`,
+        category: 'data',
+        message: `bulkWrite ${modelName} — ${ops.total} operation(s)`,
+        metadata: {
+          model: modelName,
+          op: 'bulkWrite',
+          operations: ops.total,
+          truncated: ops.truncated,
+          items: ops.items,
+          result: {
+            matched: result?.matchedCount,
+            modified: result?.modifiedCount,
+            inserted: result?.insertedCount,
+            deleted: result?.deletedCount,
+            upserted: result?.upsertedCount,
+          },
+        },
+        userId: ctx.userId,
+        userRole: ctx.userRole,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+        method: ctx.method,
+        route: ctx.route,
+      });
+    } catch (err) {
+      console.error('[auditPlugin] failed to record bulkWrite:', err.message);
+    }
+  });
+};
+
+// Register the plugin globally. Idempotent: mongoose.plugin() applies the
+// plugin once per schema compiled after the call, so registering twice would
+// attach every hook twice and duplicate every audit entry. Standalone scripts
+// and seeders (which connect with their own mongoose.connect and therefore
+// never run server.js) can get the same coverage with a single
+//   require('../src/audit/mongooseAuditPlugin').register();
+// placed BEFORE the first model require.
+let registered = false;
+module.exports.register = function registerAuditPlugin(mongooseInstance) {
+  if (registered) return false;
+  registered = true;
+  (mongooseInstance || require('mongoose')).plugin(module.exports);
+  return true;
 };

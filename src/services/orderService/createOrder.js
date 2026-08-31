@@ -43,6 +43,13 @@ const { applyServerPricesToCart } = require('../pricing/applyServerPricesToCart'
 const { computeCheckoutTotal } = require('../pricing/computeCheckoutTotal');
 const { verifyPaymentForOrder, extractPaymentIntentId } = require('../pricing/verifyPaymentForOrder');
 const { buildPricingScope } = require('../pricing/buildPricingScope');
+const {
+  auditStarted,
+  auditSuccess,
+  auditFailure,
+  auditBlocked,
+  startTimer,
+} = require('../audit/checkoutAudit');
 
 // ============================================================================
 // HELPER FUNCTIONS - Coupon Management
@@ -927,6 +934,37 @@ function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInform
  * @returns {Promise<Object>} Result object with success status and order data
  */
 const createOrderService = async (orderData, req = null) => {
+    // Shop checkout gets the same forensic trail the booking flow already has:
+    // every rejection reason is recorded, so "why did this customer not get
+    // their order?" is answerable without asking them.
+    const elapsed = startTimer();
+    const shopAudit = (fn, entry) => fn({
+        req,
+        flow: 'shop',
+        durationMs: elapsed(),
+        customerEmail: orderData?.contactInformation?.email,
+        customerName: orderData?.contactInformation?.name,
+        orderNumber: orderData?.orderNumber || undefined,
+        ...entry,
+    });
+
+    auditStarted({
+        req,
+        flow: 'shop',
+        event: 'shop.order.requested',
+        stage: 'booking_create',
+        message: 'Customer submitted an order',
+        customerEmail: orderData?.contactInformation?.email,
+        customerName: orderData?.contactInformation?.name,
+        orderNumber: orderData?.orderNumber || undefined,
+        data: {
+            itemCount: Array.isArray(orderData?.cart) ? orderData.cart.length : 0,
+            requestedStatus: orderData?.status,
+            couponCode: orderData?.coupon?.code || orderData?.coupon || undefined,
+            hasPaymentDetails: Boolean(orderData?.paymentDetails),
+        },
+    });
+
     try {
         let {
             cart,
@@ -967,6 +1005,13 @@ const createOrderService = async (orderData, req = null) => {
         // STEP 1: Validate Cart
         // ====================================================================
         if (!cart || cart.length === 0) {
+            shopAudit(auditBlocked, {
+                event: 'shop.order.blocked',
+                stage: 'details',
+                failureReason: 'Cart is empty',
+                message: 'Order rejected before pricing — the cart had no items',
+                httpStatus: 400,
+            });
             return {
                 success: false,
                 message: "Cart is empty",
@@ -1000,6 +1045,22 @@ const createOrderService = async (orderData, req = null) => {
             }));
 
             if (checkout.error === 'PRICE_MISMATCH') {
+                // The client asked to pay a different total than the server
+                // computed — the tampering signal worth keeping forever.
+                shopAudit(auditBlocked, {
+                    event: 'shop.order.blocked',
+                    stage: 'details',
+                    severity: 'warn',
+                    failureReason: 'PRICE_MISMATCH',
+                    message: 'Order blocked — client prices did not match server prices',
+                    amount: pricingResult.clientSubtotal,
+                    expectedAmount: pricingResult.serverSubtotal,
+                    httpStatus: 409,
+                    data: {
+                        subtotalDelta: pricingResult.subtotalDelta,
+                        mismatches: checkout.mismatches || [],
+                    },
+                });
                 return {
                     success: false,
                     status: 409,
@@ -1011,6 +1072,14 @@ const createOrderService = async (orderData, req = null) => {
             }
 
             if (checkout.error === 'COUPON_INVALID') {
+                shopAudit(auditBlocked, {
+                    event: 'shop.order.blocked',
+                    stage: 'details',
+                    failureReason: 'COUPON_INVALID',
+                    message: checkout.message || 'Order blocked — invalid coupon',
+                    httpStatus: 400,
+                    data: { couponCode: coupon?.code || coupon || null },
+                });
                 return {
                     success: false,
                     status: 400,
@@ -1020,6 +1089,13 @@ const createOrderService = async (orderData, req = null) => {
             }
 
             if (checkout.error === 'SHIPPING_INVALID') {
+                shopAudit(auditBlocked, {
+                    event: 'shop.order.blocked',
+                    stage: 'details',
+                    failureReason: 'SHIPPING_INVALID',
+                    message: checkout.message || 'Order blocked — invalid shipping method',
+                    httpStatus: 400,
+                });
                 return {
                     success: false,
                     status: 400,
@@ -1028,6 +1104,14 @@ const createOrderService = async (orderData, req = null) => {
                 };
             }
 
+            shopAudit(auditBlocked, {
+                event: 'shop.order.blocked',
+                stage: 'details',
+                failureReason: 'PRICING_UNRESOLVED',
+                message: 'Order blocked — one or more cart items could not be priced',
+                httpStatus: 400,
+                data: { checkoutError: checkout.error || null },
+            });
             return {
                 success: false,
                 status: 400,
@@ -1065,6 +1149,18 @@ const createOrderService = async (orderData, req = null) => {
             });
 
             if (!verification.ok) {
+                // Money did not check out: unverified, cancelled, wrong amount,
+                // already-spent intent, or someone else's payment.
+                shopAudit(auditFailure, {
+                    event: 'shop.payment.verification_failed',
+                    stage: 'payment_result',
+                    severity: 'warn',
+                    failureReason: verification.code,
+                    message: verification.message || 'Payment could not be verified',
+                    paymentIntentId: extractPaymentIntentId(paymentDetails) || undefined,
+                    expectedAmount: checkout.finalTotal,
+                    httpStatus: verification.status || 402,
+                });
                 return {
                     success: false,
                     status: verification.status || 402,
@@ -1112,6 +1208,13 @@ const createOrderService = async (orderData, req = null) => {
             order = await Order.findOne({ orderNumber: orderNumber });
 
             if (!order) {
+                shopAudit(auditFailure, {
+                    event: 'shop.order.not_found',
+                    stage: 'booking_create',
+                    failureReason: 'Order not found',
+                    message: `Checkout referenced order ${orderNumber} which does not exist`,
+                    httpStatus: 404,
+                });
                 return {
                     success: false,
                     message: "Order not found",
@@ -1127,6 +1230,14 @@ const createOrderService = async (orderData, req = null) => {
                 incomingPaymentIntentId &&
                 order.paymentDetails?.paymentIntentId === incomingPaymentIntentId
             ) {
+                shopAudit(auditSuccess, {
+                    event: 'shop.order.already_confirmed',
+                    stage: 'complete',
+                    message: `Repeat submission for ${order.orderNumber} - returned the existing order`,
+                    orderNumber: order.orderNumber,
+                    paymentIntentId: incomingPaymentIntentId,
+                    httpStatus: 200,
+                });
                 return {
                     success: true,
                     message: 'Order already confirmed',
@@ -1137,6 +1248,13 @@ const createOrderService = async (orderData, req = null) => {
             }
 
             if (order.status === 'Pending') {
+                shopAudit(auditBlocked, {
+                    event: 'shop.order.blocked',
+                    stage: 'booking_create',
+                    failureReason: 'Order is already pending',
+                    message: `Order ${order.orderNumber} is already pending — refused a second payment`,
+                    httpStatus: 400,
+                });
                 return {
                     success: false,
                     message: "Order is already pending",
@@ -1222,7 +1340,19 @@ const createOrderService = async (orderData, req = null) => {
                 console.log(`✅ Quantities reduced successfully for order ${finalOrder.orderNumber}\n`);
             } catch (error) {
                 console.error(`❌ Error reducing quantities for order ${finalOrder.orderNumber}:`, error);
-                // Log error but don't fail the order creation
+                // The order still stands, so this cannot fail the request — but
+                // stock is now out of step with what was actually sold, and
+                // that has to be visible to somebody.
+                shopAudit(auditFailure, {
+                    error,
+                    event: 'shop.inventory.reduction_failed',
+                    stage: 'complete',
+                    severity: 'critical',
+                    failureReason: 'Stock could not be reduced for a paid order',
+                    message: `PAID BUT STOCK NOT REDUCED - ${finalOrder.orderNumber} may now oversell`,
+                    orderNumber: finalOrder.orderNumber,
+                    data: { itemCount: Array.isArray(cart) ? cart.length : 0 },
+                });
             }
         }
 
@@ -1233,6 +1363,16 @@ const createOrderService = async (orderData, req = null) => {
         // Skip email generation for non-Pending orders (e.g., Failed status)
         if (finalOrder.status !== 'Pending') {
             console.log(`⏭️ Skipping email generation - Order ${finalOrder.orderNumber} status is ${finalOrder.status}`);
+
+            shopAudit(auditSuccess, {
+                event: 'shop.order.created_unpaid',
+                stage: 'booking_create',
+                message: `Order ${finalOrder.orderNumber} recorded with status ${finalOrder.status} - no payment captured`,
+                orderNumber: finalOrder.orderNumber,
+                amount: finalOrder.totalOrderValue,
+                httpStatus: 201,
+                data: { status: finalOrder.status },
+            });
 
             return {
                 success: true,
@@ -1329,6 +1469,24 @@ const createOrderService = async (orderData, req = null) => {
             console.log(`\n⏭️ Skipping confirmation emails - Order ${finalOrder.orderNumber} status is ${finalOrder.status} (not Pending)`);
         }
 
+        shopAudit(auditSuccess, {
+            // Distinct from 'shop.order.completed', which the Stripe webhook
+            // emits when the async confirmation lands — mirroring how the
+            // booking flow separates create.succeeded from completed.
+            event: 'shop.order.created',
+            stage: 'complete',
+            message: `Order ${finalOrder.orderNumber} placed and paid`,
+            orderNumber: finalOrder.orderNumber,
+            amount: finalOrder.totalOrderValue,
+            paymentIntentId: verifiedPaymentDetails?.paymentIntentId || undefined,
+            httpStatus: 201,
+            data: {
+                itemCount: totalItems,
+                couponCode: resolvedCoupon?.code || null,
+                discount: emailDiscountAmount || 0,
+            },
+        });
+
         return {
             success: true,
             message: 'Order created successfully',
@@ -1339,6 +1497,14 @@ const createOrderService = async (orderData, req = null) => {
 
     } catch (error) {
         if (error?.code === 11000 && /paymentDetails\.paymentIntentId/i.test(String(error.message))) {
+            shopAudit(auditBlocked, {
+                event: 'shop.order.duplicate_payment',
+                stage: 'payment_result',
+                severity: 'warn',
+                failureReason: 'PAYMENT_ALREADY_USED',
+                message: 'Blocked — this payment intent is already attached to another order',
+                httpStatus: 409,
+            });
             return {
                 success: false,
                 status: 409,
@@ -1347,6 +1513,15 @@ const createOrderService = async (orderData, req = null) => {
             };
         }
         console.error("Error creating order:", error);
+        shopAudit(auditFailure, {
+            error,
+            event: 'shop.order.failed',
+            stage: 'booking_create',
+            severity: 'error',
+            failureReason: 'Unhandled error while creating the order',
+            message: 'Order creation threw — the customer saw a 500',
+            httpStatus: 500,
+        });
         return {
             success: false,
             message: error?.message || "Internal server error",

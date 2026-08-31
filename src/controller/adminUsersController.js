@@ -9,6 +9,7 @@ const UserProductPrice = require("../models/userProductPrice");
 const { computeVariantKey } = require("../utils/pricingVariantKey");
 const bcrypt = require("bcrypt");
 const { toSafeUser, SENSITIVE_USER_FIELDS } = require("../utils/safeUser");
+const { auditAuthSuccess } = require("../services/audit/authAudit");
 
 let legacyUserVariantKeysEnsured = false;
 async function ensureLegacyUserProductVariantKeys() {
@@ -279,6 +280,19 @@ const adminUsersController = {
     const { id } = req.params;
     User.findByIdAndDelete(id)
       .then((user) => {
+        if (user) {
+          auditAuthSuccess({
+            req,
+            action: 'auth.account.deleted',
+            message: `Admin deleted the account ${user.email}`,
+            user: req.user,
+            metadata: {
+              targetUserId: String(user._id),
+              targetEmail: user.email,
+              targetRole: user.role,
+            },
+          });
+        }
         res.json(user);
       })
       .catch((err) => {
@@ -290,6 +304,20 @@ const adminUsersController = {
     const { status } = req.body;
     User.findByIdAndUpdate(id, { status }, { new: true })
       .then((user) => {
+        if (user) {
+          // Enabling/disabling an account decides whether someone can sign in.
+          auditAuthSuccess({
+            req,
+            action: 'auth.account.status_changed',
+            message: `Admin set the account ${user.email} to status "${status}"`,
+            user: req.user,
+            metadata: {
+              targetUserId: String(user._id),
+              targetEmail: user.email,
+              newStatus: status,
+            },
+          });
+        }
         res.json(user);
       })
       .catch((err) => {
@@ -341,6 +369,21 @@ const adminUsersController = {
       // Update user's password
       user.password = hashedPassword;
       await user.save();
+
+      // One admin setting another account's password is an account-takeover
+      // shaped action; the User.update diff alone (password redacted) does not
+      // say who did it or to whom.
+      auditAuthSuccess({
+        req,
+        action: 'auth.password_reset.by_admin',
+        message: `Admin reset the password for ${user.email}`,
+        user: req.user,
+        metadata: {
+          targetUserId: String(user._id),
+          targetEmail: user.email,
+          targetRole: user.role,
+        },
+      });
 
       res.json({
         message: "Password reset successfully",

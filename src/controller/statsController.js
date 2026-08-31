@@ -26,6 +26,7 @@ const path = require('path');
 const multer = require('multer');
 const { getFeedUploadPath } = require('../utils/feedUploadPath');
 const { Parser } = require('json2csv');
+const auditLogService = require('../services/auditLogService');
 
 /**
  * Force GTIN/EAN to Excel text so 13-digit codes stay intact
@@ -1132,6 +1133,16 @@ const statsController = {
                 });
             }
             await spacesStorage.deleteFile(trimmed);
+            // The MediaFile row below only exists for registered uploads, so
+            // without this an unregistered object could be destroyed leaving no
+            // trace anywhere. Storage deletes are irreversible — always record.
+            auditLogService.logEvent({
+                action: 'media.object_storage.deleted',
+                category: 'media',
+                req,
+                message: `Deleted object storage key ${trimmed}`,
+                metadata: { key: trimmed, storage: 'spaces' },
+            });
             const relativePath = spacesStorage.stripMainFolderFromKey(trimmed);
             try {
                 await MediaFile.findOneAndDelete({
@@ -2231,11 +2242,28 @@ const statsController = {
             try {
                 await fs.promises.unlink(fullFilePath);
             } catch (unlinkErr) {
+                auditLogService.logError({
+                    action: 'media.file.delete_failed',
+                    category: 'media',
+                    req,
+                    error: unlinkErr,
+                    message: `Failed to delete file ${relativePath}`,
+                    metadata: { filePath: relativePath, directory },
+                });
                 return res.status(500).json({
                     success: false,
                     error: `Failed to delete file: ${unlinkErr.message}`
                 });
             }
+
+            // Irreversible, and only some files have a MediaFile row to audit.
+            auditLogService.logEvent({
+                action: 'media.file.deleted',
+                category: 'media',
+                req,
+                message: `Deleted file ${relativePath}`,
+                metadata: { filePath: relativePath, directory, fileName, storage: 'local' },
+            });
 
             // Remove file metadata from database
             try {

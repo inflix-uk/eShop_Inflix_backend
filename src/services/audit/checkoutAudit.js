@@ -13,6 +13,22 @@ const MAX_STRING = 2000;
 const MAX_STACK = 4000;
 const MAX_DATA_BYTES = 16000;
 
+/**
+ * Mongoose buffers writes while the connection is down and only gives up after
+ * bufferTimeoutMS (10s). Checkout is the most latency-sensitive path in the
+ * app, so a dead database must not leave a pending timer and a retained
+ * document behind for every step of every journey. Connected or connecting is
+ * worth writing to; anything else gets a console line instead.
+ */
+function canReachDatabase() {
+  try {
+    const state = CheckoutAuditLog?.db?.readyState;
+    return state === 1 || state === 2;
+  } catch {
+    return false;
+  }
+}
+
 /** Anything that looks like a credential or card never reaches the database. */
 const REDACT_KEYS = /(secret|password|token|apikey|api_key|authorization|cookie|cvc|cvv|card_?number|pan|iban|sortcode|sort_code|account_?number)/i;
 const REDACTED = '[REDACTED]';
@@ -161,6 +177,11 @@ function logCheckout(entry = {}) {
     // Failures should never be silently filed as info.
     if (doc.outcome === 'failure' && (!doc.severity || doc.severity === 'info')) {
       doc.severity = 'error';
+    }
+
+    if (!canReachDatabase()) {
+      console.warn(`[checkoutAudit] database unavailable — dropped ${doc.event}`);
+      return;
     }
 
     CheckoutAuditLog.create(doc).catch((e) => {
