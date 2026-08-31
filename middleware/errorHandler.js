@@ -1,3 +1,5 @@
+const auditLogService = require('../src/services/auditLogService');
+
 const errorHandler = (err, req, res, next) => {
   // Log error for debugging
   if (process.env.NODE_ENV !== 'production') {
@@ -12,6 +14,21 @@ const errorHandler = (err, req, res, next) => {
 
   // Set default error status if not already set
   const status = err.status || err.statusCode || 500;
+
+  // The auditTimer already records that this request ended in a 5xx, but only
+  // the status code — the reason dies with the response. Server faults get
+  // their own entry carrying the message and stack; 4xx are the client's
+  // problem and stay out of the trail. Best-effort, never awaited.
+  if (status >= 500) {
+    auditLogService.logError({
+      action: 'http.unhandled_error',
+      category: 'error',
+      message: `Unhandled error on ${req.method} ${req.originalUrl || req.url}`,
+      req,
+      error: err,
+      metadata: { status, name: err.name },
+    });
+  }
 
   // Prepare error response
   const errorResponse = {

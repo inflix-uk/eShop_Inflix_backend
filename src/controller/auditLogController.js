@@ -1,12 +1,22 @@
+const mongoose = require('mongoose');
 const AuditLog = require('../models/auditLog');
+
+/** Parse a date query param; ignore anything unparseable rather than 500. */
+const parseDate = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 
 // GET /audit-logs
 // Filterable, paginated list. Query params:
 //   level, category, action, route (regex), minDuration, statusCode
+//   userId  - everything one account did (the "who did this" view)
+//   from/to - ISO date range over createdAt
 //   page (default 1), limit (default 50, max 200)
 const getAuditLogs = async (req, res) => {
   try {
-    const { level, category, action, route, minDuration, statusCode } = req.query;
+    const { level, category, action, route, minDuration, statusCode, userId } = req.query;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
 
@@ -17,6 +27,20 @@ const getAuditLogs = async (req, res) => {
     if (statusCode) filter.statusCode = Number(statusCode);
     if (route) filter.route = { $regex: String(route), $options: 'i' };
     if (minDuration) filter.durationMs = { $gte: Number(minDuration) };
+
+    // "What did this person do?" — the question an audit trail exists to
+    // answer. Ignore a malformed id instead of throwing a cast error.
+    if (userId && mongoose.Types.ObjectId.isValid(String(userId))) {
+      filter.userId = new mongoose.Types.ObjectId(String(userId));
+    }
+
+    const from = parseDate(req.query.from);
+    const to = parseDate(req.query.to);
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = from;
+      if (to) filter.createdAt.$lte = to;
+    }
 
     const [items, total] = await Promise.all([
       AuditLog.find(filter)

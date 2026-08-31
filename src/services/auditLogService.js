@@ -7,6 +7,26 @@ const AuditLog = require('../models/auditLog');
 const MAX_STACK = 4000; // don't store giant stacks
 const MAX_MSG = 2000;
 
+// Mongoose buffers writes while the connection is down and only gives up after
+// bufferTimeoutMS (10s by default). For a fire-and-forget logger that is the
+// wrong trade: during an outage every request would leave a pending timer and a
+// retained document behind, piling up at exactly the worst moment.
+//
+//   readyState 1 (connected)  -> write normally
+//   readyState 2 (connecting) -> let it buffer; a short blip still lands
+//   readyState 0/3 (down)     -> skip the write, leave a console line instead
+//
+// Losing entries while the database is unreachable is unavoidable — the audit
+// sink IS that database — so the goal is simply not to make the outage worse.
+function canReachDatabase() {
+  try {
+    const state = AuditLog?.db?.readyState;
+    return state === 1 || state === 2;
+  } catch {
+    return false;
+  }
+}
+
 function truncate(str, max) {
   if (typeof str !== 'string') return undefined;
   return str.length > max ? str.slice(0, max) : str;
@@ -62,17 +82,18 @@ async function write({
   userRole,
   ip,
   userAgent,
-  // When true, the entry is stored even without a route (used by data-change
-  // auditing, which is valuable even for cron / startup writes).
+  // When true, the entry is stored even without a route. Data-change auditing
+  // and every warn/error/critical entry opt in, because those are exactly the
+  // events that happen outside a request (cron, startup, DB connection loss).
   allowNoRoute = false,
 } = {}) {
   try {
     const ctx = req ? extractRequestContext(req) : {};
     const resolvedRoute = route ?? ctx.route;
 
-    // Only route-based entries are stored. Anything without a route
-    // (e.g. database.reconnect_failed, cron errors) is intentionally dropped,
-    // unless the caller explicitly opts in (allowNoRoute).
+    // Informational, route-less entries are dropped as noise. Failures never
+    // are — a cron crash or a dropped DB connection must leave a trace even
+    // though no HTTP route was involved.
     if (!resolvedRoute && !allowNoRoute) return;
 
     const doc = {
@@ -91,6 +112,13 @@ async function write({
       metadata,
       error: serializeError(error),
     };
+    if (!canReachDatabase()) {
+      console.warn(
+        `[auditLogService] database unavailable — dropped audit entry: ${doc.action || doc.category || 'unknown'}`
+      );
+      return;
+    }
+
     await AuditLog.create(doc);
   } catch (err) {
     // Never throw out of the audit path. A single console line is enough.
@@ -102,9 +130,14 @@ module.exports = {
   // Generic
   log: (opts) => write(opts),
   logInfo: (opts) => write({ ...opts, level: 'info' }),
-  logWarn: (opts) => write({ ...opts, level: 'warn' }),
-  logError: (opts) => write({ ...opts, level: 'error' }),
-  logCritical: (opts) => write({ ...opts, level: 'critical' }),
+
+  // Failure levels persist with or without a route: cron jobs, startup and the
+  // database connection itself have no `req`, and those are precisely the
+  // events nobody can afford to lose. Callers may still pass allowNoRoute:false
+  // explicitly to opt back out.
+  logWarn: (opts) => write({ allowNoRoute: true, ...opts, level: 'warn' }),
+  logError: (opts) => write({ allowNoRoute: true, ...opts, level: 'error' }),
+  logCritical: (opts) => write({ allowNoRoute: true, ...opts, level: 'critical' }),
 
   // Per-request performance entry (used by the auditTimer middleware).
   logRequest: (opts) =>

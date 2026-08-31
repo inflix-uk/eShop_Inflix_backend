@@ -7,6 +7,10 @@ const { toSafeUser, SENSITIVE_USER_FIELDS } = require('../utils/safeUser');
 const { sendLoginSuccess, clearAuthCookie } = require('../utils/authCookies');
 const { sendInvalidCredentials } = require('../utils/loginResponses');
 const { sendRegistrationRejected } = require('../utils/registrationResponses');
+const {
+    auditAuthSuccess,
+    auditAuthFailure,
+} = require('../services/audit/authAudit');
 
 const usersController = {
     registerUser: async (req, res, next) => {
@@ -15,12 +19,26 @@ const usersController = {
 
             const existingEmail = await User.findOne({ email });
             if (existingEmail) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.register.rejected',
+                    message: 'Registration rejected — email already registered',
+                    email,
+                    metadata: { reason: 'email_taken' },
+                });
                 return sendRegistrationRejected(res);
             }
 
             if (phoneNumber) {
                 const existingPhoneNumber = await User.findOne({ phoneNumber });
                 if (existingPhoneNumber) {
+                    auditAuthFailure({
+                        req,
+                        action: 'auth.register.rejected',
+                        message: 'Registration rejected — phone number already registered',
+                        email,
+                        metadata: { reason: 'phone_taken' },
+                    });
                     return sendRegistrationRejected(res);
                 }
             }
@@ -82,6 +100,14 @@ const usersController = {
                 console.error("Failed to send welcome email:", emailError);
             });
 
+            auditAuthSuccess({
+                req,
+                action: 'auth.register.success',
+                message: 'New account registered',
+                user: newUser,
+                metadata: { source: 'storefront' },
+            });
+
             return res.status(201).json({
                 success: true,
                 message: "User registered successfully",
@@ -90,6 +116,13 @@ const usersController = {
             });
         } catch (error) {
             if (error && error.code === 11000) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.register.rejected',
+                    message: 'Registration rejected — duplicate key',
+                    email: req.body?.email,
+                    metadata: { reason: 'duplicate_key' },
+                });
                 return sendRegistrationRejected(res);
             }
             console.error("Error registering user:", error);
@@ -131,6 +164,14 @@ const usersController = {
             });
 
             await newUser.save();
+
+            auditAuthSuccess({
+                req,
+                action: 'auth.register.success',
+                message: 'Account created from the admin panel',
+                user: newUser,
+                metadata: { source: 'admin' },
+            });
 
             const emailContent = `
                 <!DOCTYPE html>
@@ -196,6 +237,13 @@ const usersController = {
             const isAdmin = req.user && ['admin', 'superadmin'].includes(String(req.user.role).toLowerCase());
 
             if (!isSelf && !isAdmin) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.profile_update.denied',
+                    message: 'Profile update refused — caller owns neither the account nor an admin role',
+                    user: req.user,
+                    metadata: { reason: 'not_owner_or_admin', targetUserId: String(id) },
+                });
                 return res.status(403).json({ message: 'Forbidden', status: 403 });
             }
 
@@ -208,8 +256,26 @@ const usersController = {
 
             if (isAdmin) {
                 const { role, roleId } = req.body;
+                const previousRole = user.role;
                 if (role !== undefined) user.role = role;
                 if (roleId !== undefined) user.roleId = roleId;
+
+                // A role change is a privilege change — call it out by name
+                // rather than leaving it buried in a generic User.update diff.
+                if (role !== undefined && String(role) !== String(previousRole)) {
+                    auditAuthSuccess({
+                        req,
+                        action: 'auth.role.changed',
+                        message: `Role changed from "${previousRole}" to "${role}"`,
+                        user: req.user,
+                        metadata: {
+                            targetUserId: String(user._id),
+                            targetEmail: user.email,
+                            previousRole,
+                            newRole: role,
+                        },
+                    });
+                }
             }
 
             if (address && typeof address === 'object') {
@@ -247,14 +313,35 @@ const usersController = {
             const user = await User.findOne({ email }).populate('roleId');
 
             if (!user) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.login.failed',
+                    message: 'Login failed — no account for this email',
+                    email,
+                    metadata: { reason: 'unknown_email' },
+                });
                 return sendInvalidCredentials(res);
             }
 
             const passwordMatch = await bcrypt.compare(password, user.password);
 
             if (!passwordMatch) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.login.failed',
+                    message: 'Login failed — incorrect password',
+                    user,
+                    metadata: { reason: 'bad_password' },
+                });
                 return sendInvalidCredentials(res);
             }
+
+            auditAuthSuccess({
+                req,
+                action: 'auth.login.success',
+                message: 'Login successful',
+                user,
+            });
 
             return sendLoginSuccess(res, user, 'Login successful');
         } catch (error) {
@@ -269,20 +356,50 @@ const usersController = {
 
             const user = await User.findOne({ email }).populate('roleId');
             if (!user) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.superadmin_login.failed',
+                    message: 'Superadmin login failed — no account for this email',
+                    email,
+                    metadata: { reason: 'unknown_email' },
+                });
                 return sendInvalidCredentials(res);
             }
 
             const passwordMatch = await bcrypt.compare(password, user.password);
             if (!passwordMatch) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.superadmin_login.failed',
+                    message: 'Superadmin login failed — incorrect password',
+                    user,
+                    metadata: { reason: 'bad_password' },
+                });
                 return sendInvalidCredentials(res);
             }
 
             if (user.role !== "superadmin") {
+                // Correct credentials aimed at the superadmin door by a
+                // non-superadmin — always worth a look.
+                auditAuthFailure({
+                    req,
+                    action: 'auth.superadmin_login.denied',
+                    message: 'Valid credentials rejected at superadmin login — not a superadmin',
+                    user,
+                    metadata: { reason: 'insufficient_role', actualRole: user.role },
+                });
                 return res.status(403).json({
                     success: false,
                     message: 'Access denied: superadmin only',
                 });
             }
+
+            auditAuthSuccess({
+                req,
+                action: 'auth.superadmin_login.success',
+                message: 'Superadmin login successful',
+                user,
+            });
 
             return sendLoginSuccess(res, user, 'Superadmin login successful');
         } catch (error) {
@@ -294,6 +411,12 @@ const usersController = {
     logoutUser: async (req, res, next) => {
         try {
             clearAuthCookie(res);
+            auditAuthSuccess({
+                req,
+                action: 'auth.logout',
+                message: 'Session ended',
+                user: req.user,
+            });
             return res.json({
                 success: true,
                 message: "Logout successful",
@@ -321,6 +444,13 @@ const usersController = {
                 user.resetPasswordToken = token;
                 user.resetPasswordExpires = Date.now() + (1 * 3600000);
                 await user.save();
+
+                auditAuthSuccess({
+                    req,
+                    action: 'auth.password_reset.requested',
+                    message: 'Password reset link issued',
+                    user,
+                });
 
                 const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '');
                 const resetUrl = frontendUrl
@@ -360,6 +490,18 @@ const usersController = {
                 }
             }
 
+            if (!user) {
+                // The response is deliberately identical either way; the audit
+                // trail is where the distinction is allowed to live.
+                auditAuthFailure({
+                    req,
+                    action: 'auth.password_reset.requested_unknown',
+                    message: 'Password reset requested for an unknown email',
+                    email,
+                    metadata: { reason: 'unknown_email' },
+                });
+            }
+
             return res.status(200).json(forgotPasswordAck);
         } catch (error) {
             console.error("Error in forgotPassword:", error);
@@ -373,6 +515,12 @@ const usersController = {
             const user = await User.findOne({ resetPasswordToken: token, resetPasswordExpires: { $gt: Date.now() } });
 
             if (!user) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.password_reset.failed',
+                    message: 'Password reset rejected — invalid or expired token',
+                    metadata: { reason: 'invalid_or_expired_token' },
+                });
                 return res.status(400).json({
                     success: false,
                     message: 'Invalid or expired token',
@@ -384,6 +532,13 @@ const usersController = {
             user.resetPasswordToken = undefined;
             user.resetPasswordExpires = undefined;
             await user.save();
+
+            auditAuthSuccess({
+                req,
+                action: 'auth.password_reset.completed',
+                message: 'Password reset via emailed token',
+                user,
+            });
 
             return res.status(200).json({
                 success: true,
@@ -402,6 +557,13 @@ const usersController = {
             const { id } = req.params;
 
             if (!req.user || String(req.user.id) !== String(id)) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.password_change.denied',
+                    message: 'Password change refused — caller is not the account owner',
+                    user: req.user,
+                    metadata: { reason: 'not_owner', targetUserId: String(id) },
+                });
                 return res.status(403).json({ message: 'Forbidden', status: 403 });
             }
 
@@ -414,12 +576,26 @@ const usersController = {
             const isMatch = await bcrypt.compare(oldPassword, user.password);
 
             if (!isMatch) {
+                auditAuthFailure({
+                    req,
+                    action: 'auth.password_change.failed',
+                    message: 'Password change failed — incorrect current password',
+                    user,
+                    metadata: { reason: 'bad_old_password' },
+                });
                 return res.json({ message: 'Invalid old password', status: 400 });
             }
 
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             user.password = hashedPassword;
             await user.save();
+
+            auditAuthSuccess({
+                req,
+                action: 'auth.password_change.success',
+                message: 'Password changed by the account owner',
+                user,
+            });
 
             return res.json({ message: 'Password changed successfully', status: 201 });
         } catch (error) {
