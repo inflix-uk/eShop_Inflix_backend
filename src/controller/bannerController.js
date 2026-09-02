@@ -319,14 +319,6 @@ function validateFullBanner(data) {
     if (!data.content) {
         errors.push('content object is required for full type');
     } else {
-        if (!data.content.title || data.content.title.trim() === '') {
-            errors.push('content.title is required for full type');
-        }
-        
-        if (!data.content.subtitle || data.content.subtitle.trim() === '') {
-            errors.push('content.subtitle is required for full type');
-        }
-        
         if (!data.content.buynow || data.content.buynow.trim() === '') {
             errors.push('content.buynow is required for full type');
         }

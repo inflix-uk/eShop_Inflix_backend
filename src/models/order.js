@@ -157,6 +157,39 @@ const orderSchema = new mongoose.Schema({
             default: 'missing',
         },
     },
+    /**
+     * Snapshot at payment time. Server conversions MUST read this, not live cookies.
+     * Default denied — never assume Accept.
+     */
+    conversionConsent: {
+        analytics: { type: Boolean, default: false },
+        marketing: { type: Boolean, default: false },
+    },
+    conversionTracking: {
+        eventId: { type: String },
+        meta: {
+            status: { type: String, enum: ['pending', 'sent', 'failed', 'skipped'] },
+            error: { type: String },
+            sentAt: { type: Date },
+        },
+        ga4: {
+            status: { type: String, enum: ['pending', 'sent', 'failed', 'skipped'] },
+            mode: { type: String, enum: ['full', 'minimal'] },
+            error: { type: String },
+            sentAt: { type: Date },
+        },
+        googleAds: {
+            status: { type: String, enum: ['pending', 'sent', 'failed', 'skipped'] },
+            uploadMode: { type: String, enum: ['gclid_only', 'gclid_and_enhanced', 'enhanced_only'] },
+            error: { type: String },
+            sentAt: { type: Date },
+        },
+        openaiAds: {
+            status: { type: String, enum: ['pending', 'sent', 'failed', 'skipped'] },
+            error: { type: String },
+            sentAt: { type: Date },
+        },
+    },
     customerKey: {
         type: String,
         required: false,
