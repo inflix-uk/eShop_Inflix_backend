@@ -38,6 +38,7 @@ const {
   logMarketingAttributionTrace,
   logMarketingAttributionMissing,
 } = require('../../utils/marketingAttribution');
+const { scheduleServerConversions } = require('../conversionTracking');
 const { resolveCheckoutProductSubtotal } = require('../pricing/resolvePaymentIntentProductSubtotal');
 const { applyServerPricesToCart } = require('../pricing/applyServerPricesToCart');
 const { computeCheckoutTotal } = require('../pricing/computeCheckoutTotal');
@@ -706,6 +707,7 @@ const generateCustomerEmailHTML = async ({
   branding: brandingParam,
   /** When set, avoids a second DB read (same payload as admin new-order footer). */
   confirmationCopy: confirmationCopyPreloaded,
+  allowMarketingInvite = false,
 }) => {
     const branding = brandingParam || (await getEmailBranding());
     const fp = branding.typo_p || FALLBACK_EMAIL_TYPO_P;
@@ -851,9 +853,9 @@ const generateCustomerEmailHTML = async ({
     `;
     emailTemplate = emailTemplate.replace('{{completetotal}}', completetotal);
 
-    // Add Trustpilot structured data snippet for AFS (Automatic Feedback Service)
-    // Place in <head> section as recommended by Trustpilot documentation
-    const trustpilotScript = `
+    // Trustpilot AFS transmits email — marketing cookie consent required.
+    if (allowMarketingInvite) {
+        const trustpilotScript = `
 <script type="application/json+trustpilot">
 {
     "recipientName": "${shippingInformation.firstName} ${shippingInformation.lastName}",
@@ -861,9 +863,8 @@ const generateCustomerEmailHTML = async ({
     "referenceId": "${orderNumber}"
 }
 </script>`;
-
-    // Insert Trustpilot script in the <head> section (after <title>)
-    emailTemplate = emailTemplate.replace('</head>', `${trustpilotScript}\n</head>`);
+        emailTemplate = emailTemplate.replace('</head>', `${trustpilotScript}\n</head>`);
+    }
 
     return { html: emailTemplate, subject: confirmationCopy.subject };
 };
@@ -871,14 +872,31 @@ const generateCustomerEmailHTML = async ({
 /**
  * Apply optional marketing attribution and customerKey to an order document.
  * @param {import('mongoose').Document} orderDoc
- * @param {{ marketingAttributionRaw?: object, contactInformation?: object, isCreate: boolean }} options
+ * @param {{ marketingAttributionRaw?: object, contactInformation?: object, isCreate: boolean, conversionConsent?: object }} options
  */
-function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInformation, isCreate, orderNumber }) {
+function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInformation, isCreate, orderNumber, conversionConsent }) {
     const normalizedAttribution = normalizeMarketingAttribution(marketingAttributionRaw);
     const customerKey = buildCustomerKey({
         userId: contactInformation?.userId,
         email: contactInformation?.email,
     });
+
+    const snapshot = {
+        analytics:
+            conversionConsent?.analytics === true ||
+            marketingAttributionRaw?.consent?.analytics === true,
+        marketing:
+            conversionConsent?.marketing === true ||
+            marketingAttributionRaw?.consent?.marketing === true,
+    };
+    // Snapshot from this request (payment time). Never default to true.
+    orderDoc.conversionConsent = snapshot;
+    if (!orderDoc.conversionTracking?.eventId) {
+        orderDoc.conversionTracking = {
+            ...(orderDoc.conversionTracking ? orderDoc.conversionTracking.toObject?.() || orderDoc.conversionTracking : {}),
+            eventId: orderNumber || orderDoc.orderNumber,
+        };
+    }
 
     if (isCreate) {
         const rawPresent =
@@ -1282,6 +1300,7 @@ const createOrderService = async (orderData, req = null) => {
                 contactInformation,
                 isCreate: false,
                 orderNumber: order.orderNumber,
+                conversionConsent,
             });
 
             // Save the updated order
@@ -1309,6 +1328,7 @@ const createOrderService = async (orderData, req = null) => {
                 contactInformation,
                 isCreate: true,
                 orderNumber: newOrderNumber,
+                conversionConsent,
             });
 
             // Save the new order to the database
@@ -1403,6 +1423,7 @@ const createOrderService = async (orderData, req = null) => {
             contactInformation,
             branding: sharedEmailBranding,
             confirmationCopy,
+            allowMarketingInvite: finalOrder?.conversionConsent?.marketing === true,
         });
 
         const orderCcBcc = await getOrderConfirmationCcAndBcc();
@@ -1467,6 +1488,10 @@ const createOrderService = async (orderData, req = null) => {
             console.log(`✅ Confirmation emails sent for order ${finalOrder.orderNumber}\n`);
         } else {
             console.log(`\n⏭️ Skipping confirmation emails - Order ${finalOrder.orderNumber} status is ${finalOrder.status} (not Pending)`);
+        }
+
+        if (finalOrder && finalOrder.status === 'Pending') {
+            scheduleServerConversions(finalOrder);
         }
 
         shopAudit(auditSuccess, {

@@ -292,10 +292,7 @@ function computeAttributionStatus({
 }) {
   if (!rawPresent) return 'missing';
 
-  if (marketingConsentDenied && !safeAttributionPersisted) {
-    return 'consent_denied';
-  }
-
+  // URL click IDs (gclid etc.) and UTMs are not marketing cookies.
   if (hasUsefulAttribution({ normalized, clickIds, touches })) {
     return 'available';
   }
@@ -306,6 +303,10 @@ function computeAttributionStatus({
 
   if (hasPartialSource({ normalized, clickIds, touches })) {
     return 'partial';
+  }
+
+  if (marketingConsentDenied && !safeAttributionPersisted) {
+    return 'consent_denied';
   }
 
   return 'direct';
@@ -331,9 +332,13 @@ function normalizeMarketingAttribution(raw) {
       };
     }
 
-    const consent = normalizeConsent(raw.consent);
-    const marketingConsentDenied = consent?.marketing === false;
-    const allowCookieClickIds = consent?.marketing === true;
+    const consent = normalizeConsent(raw.consent) || {
+      analytics: false,
+      marketing: false,
+    };
+    const marketingConsentDenied = consent.marketing === false;
+    const allowCookieClickIds = consent.marketing === true;
+    const analyticsAllowed = consent.analytics === true;
 
     const firstTouch = normalizeTouch(raw.firstTouch);
     const lastTouch = normalizeTouch(raw.lastTouch);
@@ -381,12 +386,11 @@ function normalizeMarketingAttribution(raw) {
     if (consent) result.consent = consent;
 
     const sessionId = sanitizeString(raw.sessionId, MAX_LEN.sessionId);
-    const visitorId = sanitizeString(raw.visitorId, MAX_LEN.visitorId);
     if (sessionId) result.sessionId = sessionId;
-    if (visitorId) result.visitorId = visitorId;
 
-    const analyticsAllowed = consent?.analytics === true;
     if (analyticsAllowed) {
+      const visitorId = sanitizeString(raw.visitorId, MAX_LEN.visitorId);
+      if (visitorId) result.visitorId = visitorId;
       const gaClientId = sanitizeString(raw.gaClientId, MAX_LEN.visitorId);
       if (gaClientId) result.gaClientId = gaClientId;
     }
@@ -480,15 +484,15 @@ function collectMarketingAttributionIssues({
   }
 
   if (ma.attributionStatus === 'consent_denied') {
-    issues.push('marketing consent denied — click IDs and visitor data not stored');
+    issues.push('optional cookie identifiers stripped — URL click IDs are still eligible');
   }
 
   if (rawClick.gclid && !savedClick.gclid) {
-    if (consent.marketing === false) {
-      issues.push('gclid removed — marketing consent was false');
-    } else {
-      issues.push('gclid present in client payload but missing after normalize — check sanitize');
-    }
+    issues.push('gclid present in client payload but missing after normalize — check sanitize');
+  }
+
+  if (rawClick.fbp && !savedClick.fbp && consent.marketing === false) {
+    issues.push('fbp omitted — marketing consent was false (expected)');
   }
 
   const paidSearchSignal =

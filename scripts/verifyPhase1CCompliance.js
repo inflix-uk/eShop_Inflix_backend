@@ -209,12 +209,12 @@ async function run() {
     fail('Facebook channel', doc2?.marketingAttribution?.normalized?.channel);
   }
 
-  // 3. Marketing consent denied (click IDs in payload must be stripped)
+  // 3. Marketing consent denied — URL click IDs still stored (not cookies)
   const r3 = await postJson(API, basePayload({
     contactInformation: { email: `phase1c-denied-${RUN_ID}@example.com`, userId: TEST_USER_ID },
     marketingAttribution: {
       orderTouch: { source: 'google', medium: 'cpc', capturedAt: iso() },
-      clickIds: { gclid: 'must-not-store', fbclid: 'must-not-store' },
+      clickIds: { gclid: 'must-keep-gclid', fbclid: 'must-keep-fbclid', fbp: 'must-drop-fbp' },
       consent: { analytics: false, marketing: false, capturedAt: iso() },
     },
   }));
@@ -226,24 +226,27 @@ async function run() {
   }
 
   const doc3 = await fetchOrder(orderNumbers.denied);
-  const clickKeys3 = Object.keys(doc3?.marketingAttribution?.clickIds || {});
-  if (clickKeys3.length === 0) {
-    pass('Marketing denied — no click IDs stored');
+  if (doc3?.marketingAttribution?.clickIds?.gclid === 'must-keep-gclid') {
+    pass('Marketing denied — gclid stored');
   } else {
-    fail('Marketing denied — click IDs stored', JSON.stringify(doc3?.marketingAttribution?.clickIds));
+    fail('Marketing denied — gclid stored', JSON.stringify(doc3?.marketingAttribution?.clickIds));
   }
-  // UTM-only orderTouch with marketing denied: click IDs stripped, safe UTM still available.
+  if (!doc3?.marketingAttribution?.clickIds?.fbp) {
+    pass('Marketing denied — fbp stripped');
+  } else {
+    fail('Marketing denied — fbp stripped', JSON.stringify(doc3?.marketingAttribution?.clickIds));
+  }
   if (doc3?.marketingAttribution?.attributionStatus === 'available') {
-    pass('Marketing denied — UTM attributionStatus available (click IDs stripped)');
+    pass('Marketing denied — UTM+gclid attributionStatus available');
   } else {
     fail('Marketing denied — attributionStatus', doc3?.marketingAttribution?.attributionStatus);
   }
 
-  // Click-IDs-only with marketing denied → consent_denied (Phase 1A5 test 5).
+  // Click-IDs-only with marketing denied → still available (gclid_only path).
   const r3b = await postJson(API, basePayload({
     contactInformation: { email: `phase1c-denied-clickonly-${RUN_ID}@example.com`, userId: TEST_USER_ID },
     marketingAttribution: {
-      clickIds: { gclid: 'must-not-store' },
+      clickIds: { gclid: 'must-keep-gclid' },
       consent: { analytics: false, marketing: false, capturedAt: iso() },
     },
   }));
@@ -253,8 +256,9 @@ async function run() {
     fail('Click-only denied order created');
   }
   const doc3b = await fetchOrder(r3b.json.orderNumber);
-  if (doc3b?.marketingAttribution?.attributionStatus === 'consent_denied') {
-    pass('Marketing denied click-only — attributionStatus consent_denied');
+  if (doc3b?.marketingAttribution?.clickIds?.gclid === 'must-keep-gclid' &&
+      doc3b?.marketingAttribution?.attributionStatus === 'available') {
+    pass('Marketing denied click-only — gclid kept, status available');
   } else {
     fail('Marketing denied click-only — attributionStatus', doc3b?.marketingAttribution?.attributionStatus);
   }

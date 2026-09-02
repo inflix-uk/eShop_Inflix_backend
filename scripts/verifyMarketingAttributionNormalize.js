@@ -104,20 +104,25 @@ assertMatch('3 fbclid-only normalized', fbOnly.normalized, {
 if (fbOnly.normalized?.sourceMedium === 'facebook') pass('3 fbclid-only sourceMedium');
 else fail('3 fbclid-only sourceMedium', fbOnly.normalized?.sourceMedium);
 
-// 4. Consent denied — click IDs stripped, consent_denied
+// 4. Marketing denied — cookie IDs (fbc/fbp) stripped, URL click IDs kept
 const denied = normalizeMarketingAttribution({
-  clickIds: { gclid: 'must-not-store', fbclid: 'must-not-store-fb' },
+  clickIds: { gclid: 'must-keep-gclid', fbclid: 'must-keep-fbclid', fbc: 'must-drop', fbp: 'must-drop' },
   consent: { analytics: false, marketing: false, capturedAt: iso() },
 });
-if (!denied.clickIds || Object.keys(denied.clickIds).length === 0) {
-  pass('4 consent denied — click IDs stripped');
+if (denied.clickIds?.gclid === 'must-keep-gclid' && denied.clickIds?.fbclid === 'must-keep-fbclid') {
+  pass('4 marketing denied — URL click IDs kept');
 } else {
-  fail('4 consent denied — click IDs stripped', JSON.stringify(denied.clickIds));
+  fail('4 marketing denied — URL click IDs kept', JSON.stringify(denied.clickIds));
 }
-if (denied.attributionStatus === 'consent_denied') {
-  pass('4 consent denied — attributionStatus');
+if (!denied.clickIds?.fbc && !denied.clickIds?.fbp) {
+  pass('4 marketing denied — fbc/fbp stripped');
 } else {
-  fail('4 consent denied — attributionStatus', denied.attributionStatus);
+  fail('4 marketing denied — fbc/fbp stripped', JSON.stringify(denied.clickIds));
+}
+if (denied.attributionStatus === 'available') {
+  pass('4 marketing denied — attributionStatus available (gclid is not a cookie)');
+} else {
+  fail('4 marketing denied — attributionStatus', denied.attributionStatus);
 }
 
 // 5. No-overwrite guard unchanged

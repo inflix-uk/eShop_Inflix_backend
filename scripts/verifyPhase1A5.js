@@ -377,35 +377,39 @@ async function main() {
     pass('4 attributionStatus not missing', doc4?.marketingAttribution?.attributionStatus);
   } else fail('4 attributionStatus not missing');
 
-  // 5. Consent denied
+  // 5. Marketing denied — URL click IDs still persist
   const p5 = basePayload({
     contactInformation: {
       email: `phase1a5-consent-${RUN_ID}@example.com`,
       userId: TEST_USER_ID,
     },
     marketingAttribution: {
-      clickIds: { gclid: 'should-not-persist', fbclid: 'should-not-persist-fb' },
+      clickIds: { gclid: 'should-persist-gclid', fbclid: 'should-persist-fb', fbp: 'should-not-persist-fbp' },
       consent: { analytics: false, marketing: false, capturedAt: iso() },
     },
   });
   const r5 = await postJson(API, p5);
   if (r5.status === 201 && r5.json.orderNumber) {
     orderNumbers.consent = r5.json.orderNumber;
-    pass('5 POST consent denied', r5.json.orderNumber);
+    pass('5 POST marketing denied', r5.json.orderNumber);
   } else {
-    fail('5 POST consent denied', `status ${r5.status}`);
+    fail('5 POST marketing denied', `status ${r5.status}`);
   }
 
   const doc5 = await fetchOrder(orderNumbers.consent);
-  printOrderFields('Test 5 — consent denied', doc5);
-  const clickKeys5 = Object.keys(doc5?.marketingAttribution?.clickIds || {});
-  if (clickKeys5.length === 0) {
-    pass('5 click IDs not persisted');
+  printOrderFields('Test 5 — marketing denied keeps URL click IDs', doc5);
+  if (doc5?.marketingAttribution?.clickIds?.gclid === 'should-persist-gclid') {
+    pass('5 gclid persisted without marketing consent');
   } else {
-    fail('5 click IDs not persisted', JSON.stringify(doc5?.marketingAttribution?.clickIds));
+    fail('5 gclid persisted without marketing consent', JSON.stringify(doc5?.marketingAttribution?.clickIds));
   }
-  if (doc5?.marketingAttribution?.attributionStatus === 'consent_denied') {
-    pass('5 attributionStatus consent_denied');
+  if (!doc5?.marketingAttribution?.clickIds?.fbp) {
+    pass('5 fbp not persisted without marketing consent');
+  } else {
+    fail('5 fbp not persisted without marketing consent', JSON.stringify(doc5?.marketingAttribution?.clickIds));
+  }
+  if (doc5?.marketingAttribution?.attributionStatus === 'available') {
+    pass('5 attributionStatus available');
   } else {
     fail('5 attributionStatus', doc5?.marketingAttribution?.attributionStatus);
   }

@@ -37,8 +37,6 @@ function customerDisplay(order) {
  * - marketing false → keep UTM but hide click IDs
  */
 function buildConsentSafeAttribution(attr, consent) {
-  const analytics = Boolean(consent?.analytics);
-  const marketing = Boolean(consent?.marketing);
   const safe = {
     utmSource: null,
     utmMedium: null,
@@ -70,19 +68,13 @@ function buildConsentSafeAttribution(attr, consent) {
   safe.firstVisitAt = firstTouchAt;
   safe.lastVisitAt = lastTouchAt;
 
-  // Both denied → strip UTM + click IDs
-  if (!analytics && !marketing) {
-    return safe;
-  }
-
-  // Keep UTM when analytics or marketing granted
+  // URL click IDs and UTMs are first-party navigation data — always show when present.
   safe.utmSource = pickTouchFieldJs(attr, 'source') || null;
   safe.utmMedium = pickTouchFieldJs(attr, 'medium') || null;
   safe.utmCampaign = pickTouchFieldJs(attr, 'campaign') || null;
   safe.utmTerm = pickTouchFieldJs(attr, 'term') || null;
   safe.utmContent = pickTouchFieldJs(attr, 'content') || null;
 
-  // Guide §7.5: URL click IDs persist without marketing; show if present on order.
   const clickIds = attr.clickIds || {};
   safe.gclid = clickIds.gclid || null;
   safe.fbclid = clickIds.fbclid || null;
