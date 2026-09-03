@@ -1116,12 +1116,20 @@ const adminProductController = {
             const { categoryname } = req.params;
             console.log('Category query:', categoryname);
 
-            // Fetch products by category name using aggregation
+            const safeName = String(categoryname || '')
+                .trim()
+                .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            // Match category field (e.g. "Smartphones,Apple") or condition
+            // (e.g. /categories/refurbished/ → condition "Refurbished")
             const products = await Product.aggregate([
                 {
                     $match: {
-                        category: { $regex: new RegExp(categoryname, 'i') },
                         status: true,
+                        $or: [
+                            { category: { $regex: new RegExp(safeName, 'i') } },
+                            { condition: { $regex: new RegExp(`^${safeName}$`, 'i') } },
+                        ],
                     },
                 },
                 {
@@ -1200,13 +1208,13 @@ const adminProductController = {
                 },
             ]);
 
-            console.log('Products found by category:', products);
+            console.log('Products found by category:', products.length);
 
-            // If no products are found
             if (!products || products.length === 0) {
-                return res.status(404).json({
+                return res.status(201).json({
                     message: 'No products found for this category',
-                    status: 404,
+                    products: [],
+                    status: 201,
                 });
             }
 
