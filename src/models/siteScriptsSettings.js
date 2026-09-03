@@ -33,6 +33,16 @@ const siteScriptsSettingsSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    /** Google Tag Manager container ID, e.g. GTM-XXXXXXX */
+    gtmContainerId: {
+      type: String,
+      default: '',
+    },
+    /** Google Ads conversion / tracking ID, e.g. AW-XXXXXXXXX */
+    googleAdsConversionId: {
+      type: String,
+      default: '',
+    },
     /** @deprecated Merged into customScripts in API; cleared on save */
     customHeadScript: {
       type: String,

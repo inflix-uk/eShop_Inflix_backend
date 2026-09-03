@@ -79,10 +79,40 @@ function publicCustomScriptsFromDoc(doc) {
   }));
 }
 
+/** Normalize GTM-XXXX / AW-XXXX IDs; strip accidental script tags and whitespace. */
+function sanitizeTrackingId(raw, prefix) {
+  let value = String(raw ?? '').trim();
+  if (!value) return '';
+  // If admin pasted a full snippet, try to extract the ID
+  const gtmMatch = value.match(/\b(GTM-[A-Z0-9]+)\b/i);
+  const adsMatch = value.match(/\b(AW-\d+)\b/i);
+  if (prefix === 'GTM' && gtmMatch) value = gtmMatch[1];
+  if (prefix === 'AW' && adsMatch) value = adsMatch[1];
+  value = value.replace(/<[^>]*>/g, '').trim();
+  if (prefix === 'GTM') {
+    const normalized = value.toUpperCase();
+    if (/^GTM-[A-Z0-9]+$/.test(normalized)) return normalized;
+    // Allow bare suffix → prepend GTM-
+    if (/^[A-Z0-9]+$/.test(normalized) && !normalized.startsWith('GTM')) {
+      return `GTM-${normalized}`;
+    }
+    return normalized.startsWith('GTM-') ? normalized : '';
+  }
+  if (prefix === 'AW') {
+    const upper = value.toUpperCase();
+    if (/^AW-\d+$/.test(upper)) return upper;
+    if (/^\d+$/.test(value)) return `AW-${value}`;
+    return upper.startsWith('AW-') ? upper : '';
+  }
+  return value;
+}
+
 const emptyPayloadAdmin = () => ({
   semrushScript: '',
   ahrefsScript: '',
   googleSearchConsoleScript: '',
+  gtmContainerId: '',
+  googleAdsConversionId: '',
   customScripts: [],
   updatedAt: null,
 });
@@ -91,6 +121,8 @@ const emptyPayloadPublic = () => ({
   semrushScript: '',
   ahrefsScript: '',
   googleSearchConsoleScript: '',
+  gtmContainerId: '',
+  googleAdsConversionId: '',
   customScripts: [],
 });
 
@@ -98,6 +130,8 @@ const toResponse = (doc) => ({
   semrushScript: doc.semrushScript || '',
   ahrefsScript: doc.ahrefsScript || '',
   googleSearchConsoleScript: doc.googleSearchConsoleScript || '',
+  gtmContainerId: doc.gtmContainerId || '',
+  googleAdsConversionId: doc.googleAdsConversionId || '',
   customScripts: adminCustomScriptsFromDoc(doc),
   updatedAt: doc.updatedAt || null,
 });
@@ -151,6 +185,8 @@ const getSiteScriptsSettingsPublic = async (req, res) => {
         semrushScript: data.semrushScript || '',
         ahrefsScript: data.ahrefsScript || '',
         googleSearchConsoleScript: data.googleSearchConsoleScript || '',
+        gtmContainerId: data.gtmContainerId || '',
+        googleAdsConversionId: data.googleAdsConversionId || '',
         customScripts: publicCustomScriptsFromDoc(data),
       },
     });
@@ -173,10 +209,14 @@ const saveSiteScriptsSettings = async (req, res) => {
       semrushScript,
       ahrefsScript,
       googleSearchConsoleScript,
+      gtmContainerId,
+      googleAdsConversionId,
       customScripts: rawCustomScripts,
     } = req.body;
 
     const customScripts = sanitizeCustomScripts(rawCustomScripts);
+    const normalizedGtm = sanitizeTrackingId(gtmContainerId, 'GTM');
+    const normalizedAds = sanitizeTrackingId(googleAdsConversionId, 'AW');
 
     const data = await SiteScriptsSettings.findOneAndUpdate(
       {},
@@ -184,6 +224,8 @@ const saveSiteScriptsSettings = async (req, res) => {
         semrushScript: semrushScript ?? '',
         ahrefsScript: ahrefsScript ?? '',
         googleSearchConsoleScript: googleSearchConsoleScript ?? '',
+        gtmContainerId: normalizedGtm,
+        googleAdsConversionId: normalizedAds,
         customScripts,
         customHeadScript: '',
         customBodyStartScript: '',
