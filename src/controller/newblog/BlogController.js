@@ -298,6 +298,23 @@ function logBlogPostError(contextLabel, error) {
   if (error?.stack) console.error(`${contextLabel} — stack:\n`, error.stack);
 }
 
+/** Keep author/reviewer embeds small so FormData JSON.parse + Mongo save don't fail. */
+function sanitizePersonEmbed(person) {
+  if (!person || typeof person !== 'object') return null;
+  const image = String(person.image || '');
+  const safeImage =
+    image.startsWith('data:') && image.length > 200000 ? '' : image;
+  return {
+    id: person.id || person._id || undefined,
+    name: String(person.name || '').trim(),
+    email: String(person.email || '').trim(),
+    designation: String(person.designation || '').trim(),
+    role: person.role === 'reviewer' ? 'reviewer' : 'author',
+    image: safeImage,
+    bio: String(person.bio || ''),
+  };
+}
+
 /**
  * Creates a new blog post
  * @param {Request} req - Express request object
@@ -447,6 +464,13 @@ const createBlogPost = async (req, res) => {
       if (store?._id) {
         blogData.storeId = store._id;
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(blogData, 'author')) {
+      blogData.author = sanitizePersonEmbed(blogData.author);
+    }
+    if (Object.prototype.hasOwnProperty.call(blogData, 'reviewer')) {
+      blogData.reviewer = sanitizePersonEmbed(blogData.reviewer);
     }
     
     // Create a new blog post instance
@@ -637,6 +661,13 @@ const updateBlogPost = async (req, res) => {
     for (let i = 0; i < BLOCK_IMAGE_SLOT_COUNT; i++) {
       delete blogData[`blockImages_${i}`];
       delete blogData[`blockImagePath_${i}`];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(blogData, 'author')) {
+      blogData.author = sanitizePersonEmbed(blogData.author);
+    }
+    if (Object.prototype.hasOwnProperty.call(blogData, 'reviewer')) {
+      blogData.reviewer = sanitizePersonEmbed(blogData.reviewer);
     }
 
     const $set = {};

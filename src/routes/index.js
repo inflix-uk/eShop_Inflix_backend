@@ -55,6 +55,7 @@ const pricingGroupController = require('../controller/pricingGroupController');
 // ========================================================================
 const { createBlogPost, updateBlogPost, getBlogPostById, getAllBlogPosts, deleteBlogPost, handleBlogUpload, getBlogPostBySlug, getBlogPostBySlugWithoutCache, syncBlogPersonProfile } = require('../controller/newblog/BlogController');
 const { getAllCategories, getCategoryById, createCategory, updateCategory, deleteCategory, getCategoryStats } = require('../controller/newblog/BlogCategoryController');
+const blogAuthorController = require('../controller/blogAuthorController');
 
 // ========================================================================
 // FOOTER PAGES CONTROLLERS
@@ -702,6 +703,11 @@ router.delete('/newblog/blog/posts/:id', ...requireAdmin, deleteBlogPost);
 router.get('/newblog/blog/postsBySlug/:slug', getBlogPostBySlug);
 router.get('/newblog/blog/postsBySlugWithoutCache/:slug', getBlogPostBySlugWithoutCache);
 router.post('/newblog/blog/profile-sync', ...requireAdmin, syncBlogPersonProfile);
+
+router.get('/blog-authors', ...requireAdmin, blogAuthorController.listBlogAuthors);
+router.post('/blog-authors', ...requireAdmin, blogAuthorController.createBlogAuthor);
+router.put('/blog-authors/:id', ...requireAdmin, blogAuthorController.updateBlogAuthor);
+router.delete('/blog-authors/:id', ...requireAdmin, blogAuthorController.deleteBlogAuthor);
 
 router.get('/newblog/blog/categories', getAllCategories);
 router.get('/newblog/blog/categories/:id', ...requireAdmin, getCategoryById);
