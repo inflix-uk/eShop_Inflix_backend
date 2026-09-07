@@ -184,6 +184,56 @@ const updateBlogAuthor = async (req, res) => {
   }
 };
 
+function toSlug(value) {
+  return String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+/**
+ * GET /blog-authors/public/:role/:slug
+ * Public storefront author/reviewer profile (includes UI content rows/blocks).
+ */
+const getBlogAuthorPublicBySlug = async (req, res) => {
+  try {
+    const role = req.params.role === 'reviewer' ? 'reviewer' : 'author';
+    const slug = toSlug(decodeURIComponent(String(req.params.slug || '')));
+    if (!slug) {
+      return res.status(400).json({
+        success: false,
+        message: 'Slug is required',
+      });
+    }
+
+    const docs = await BlogAuthor.find({ role, isActive: true })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const match = docs.find((doc) => toSlug(doc?.name) === slug);
+    if (!match) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile not found',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: toClientAuthor(match),
+    });
+  } catch (error) {
+    console.error('[getBlogAuthorPublicBySlug]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load profile',
+      error: error.message,
+    });
+  }
+};
+
 /**
  * DELETE /blog-authors/:id  (soft delete)
  */
@@ -221,5 +271,6 @@ module.exports = {
   createBlogAuthor,
   updateBlogAuthor,
   deleteBlogAuthor,
+  getBlogAuthorPublicBySlug,
   toClientAuthor,
 };

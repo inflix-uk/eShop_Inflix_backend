@@ -704,6 +704,11 @@ router.get('/newblog/blog/postsBySlug/:slug', getBlogPostBySlug);
 router.get('/newblog/blog/postsBySlugWithoutCache/:slug', getBlogPostBySlugWithoutCache);
 router.post('/newblog/blog/profile-sync', ...requireAdmin, syncBlogPersonProfile);
 
+router.get(
+  '/blog-authors/public/:role/:slug',
+  publicCache.medium,
+  blogAuthorController.getBlogAuthorPublicBySlug
+);
 router.get('/blog-authors', ...requireAdmin, blogAuthorController.listBlogAuthors);
 router.post('/blog-authors', ...requireAdmin, blogAuthorController.createBlogAuthor);
 router.put('/blog-authors/:id', ...requireAdmin, blogAuthorController.updateBlogAuthor);
