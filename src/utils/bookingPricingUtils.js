@@ -81,6 +81,24 @@ function isExtraPriceTbc(extra) {
   return resolveExtraPricing(extra).unitPrice <= 0;
 }
 
+/** Guest-capped extras never exceed package maxGuests (1–9). */
+const GUEST_LIMITED_QTY_MAX = 9;
+/** Safety cap when an extra is not limited by guests. */
+const UNLIMITED_EXTRA_QTY_MAX = 99;
+
+function resolveExtraQuantityCap(catalogEntry, guestMax) {
+  if (Boolean(catalogEntry?.quantityUnlimited)) {
+    return UNLIMITED_EXTRA_QTY_MAX;
+  }
+  if (Boolean(catalogEntry?.quantityEnabled)) {
+    return Math.max(
+      1,
+      Math.min(GUEST_LIMITED_QTY_MAX, Math.floor(Number(guestMax) || GUEST_LIMITED_QTY_MAX))
+    );
+  }
+  return 1;
+}
+
 /**
  * Resolve client-selected extras against the package catalog (by index or title).
  */
@@ -89,9 +107,9 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
     return { extras: [], extrasSubtotal: 0 };
   }
 
-  const maxQuantity = Math.max(
+  const guestMaxQuantity = Math.max(
     1,
-    Math.min(9, Math.floor(Number(options.maxQuantity) || 9))
+    Math.min(GUEST_LIMITED_QTY_MAX, Math.floor(Number(options.maxQuantity) || GUEST_LIMITED_QTY_MAX))
   );
 
   const catalog = Array.isArray(packageExtras) ? packageExtras : [];
@@ -130,13 +148,13 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const quantityEnabled = Boolean(catalogEntry.quantityEnabled);
+    const quantityUnlimited = Boolean(catalogEntry.quantityUnlimited);
+    const quantityEnabled = Boolean(catalogEntry.quantityEnabled) && !quantityUnlimited;
+    const quantityPicker = quantityEnabled || quantityUnlimited;
     let quantity = 1;
-    if (quantityEnabled) {
-      quantity = Math.min(
-        maxQuantity,
-        Math.max(1, Math.floor(Number(item.quantity) || 1))
-      );
+    if (quantityPicker) {
+      const cap = resolveExtraQuantityCap(catalogEntry, guestMaxQuantity);
+      quantity = Math.min(cap, Math.max(1, Math.floor(Number(item.quantity) || 1)));
     }
 
     const pricing = resolveExtraPricing(catalogEntry);
@@ -151,6 +169,7 @@ function validateExtrasAgainstPackage(clientExtras, packageExtras, options = {})
       description: catalogEntry.description ? String(catalogEntry.description).trim() : '',
       quantity,
       quantityEnabled,
+      quantityUnlimited,
       unitLabel: catalogEntry.unitLabel ? String(catalogEntry.unitLabel).trim() : '',
       priceTbc: false,
     });
