@@ -136,7 +136,9 @@ function normalizeExtras(extras) {
         title: item?.title ? String(item.title).trim() : '',
         price,
         description: item?.description ? String(item.description).trim() : '',
-        quantityEnabled: Boolean(item?.quantityEnabled),
+        quantityUnlimited: Boolean(item?.quantityUnlimited),
+        quantityEnabled:
+          Boolean(item?.quantityEnabled) && !Boolean(item?.quantityUnlimited),
         discountEnabled,
         discountPrice: discountEnabled ? discountPrice : 0,
         unitLabel: item?.unitLabel ? String(item.unitLabel).trim() : '',

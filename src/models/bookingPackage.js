@@ -128,8 +128,10 @@ const bookingPackageSchema = new mongoose.Schema(
           title: { type: String, default: '', trim: true },
           price: { type: Number, default: 0, min: 0 },
           description: { type: String, default: '', trim: true },
-          /** When true, storefront shows +/- quantity instead of Add toggle. */
+          /** When true, storefront shows +/- quantity capped by selected guests. */
           quantityEnabled: { type: Boolean, default: false },
+          /** When true, storefront shows +/- quantity with no guest cap. Mutually exclusive with quantityEnabled. */
+          quantityUnlimited: { type: Boolean, default: false },
           /** When true, `discountPrice` replaces `price` and `price` becomes the struck-through "was". */
           discountEnabled: { type: Boolean, default: false },
           discountPrice: { type: Number, default: 0, min: 0 },
