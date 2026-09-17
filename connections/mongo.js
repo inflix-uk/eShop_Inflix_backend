@@ -14,7 +14,6 @@ const resolveMongoUri = () => {
             return value;
         }
     }
-
     return null;
 };
 

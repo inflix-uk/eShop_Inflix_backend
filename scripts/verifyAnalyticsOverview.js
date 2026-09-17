@@ -27,6 +27,8 @@ const {
   lineRevenue,
 } = require('../src/services/analytics/profitabilityService');
 const MarketingAdSpend = require('../src/models/marketingAdSpend');
+const MarketingOfflineOrder = require('../src/models/marketingOfflineOrder');
+const { upsertOfflineOrder } = require('../src/services/analytics/offlineOrdersService');
 const {
   REVENUE_STATUSES,
   buildBaseMatch,
@@ -134,6 +136,102 @@ function verifyTimezoneBoundaries() {
     pass('January range does not use server-local midnight boundary');
   } else {
     fail('January range does not use server-local midnight boundary', PAKISTAN_WINTER_WRONG_START);
+  }
+}
+
+async function verifyExtendedAnalyticsSections(overview) {
+  if (overview.emailAnalytics && typeof overview.emailAnalytics === 'object') {
+    pass('emailAnalytics present in overview response');
+  } else {
+    fail('emailAnalytics present in overview response');
+  }
+
+  if (overview.influencers && typeof overview.influencers === 'object') {
+    pass('influencers present in overview response');
+  } else {
+    fail('influencers present in overview response');
+  }
+
+  if (overview.offlineOrders && typeof overview.offlineOrders === 'object') {
+    pass('offlineOrders present in overview response');
+  } else {
+    fail('offlineOrders present in overview response');
+  }
+
+  if (overview.topLandingPages && typeof overview.topLandingPages === 'object') {
+    pass('topLandingPages present in overview response');
+  } else {
+    fail('topLandingPages present in overview response');
+  }
+
+  if (overview.dataQuality?.lineItemsMissingCost != null) {
+    pass('dataQuality.lineItemsMissingCost present');
+  } else {
+    fail('dataQuality.lineItemsMissingCost present');
+  }
+
+  if (overview.zextonsSections && typeof overview.zextonsSections === 'object') {
+    pass('zextonsSections metadata present');
+  } else {
+    fail('zextonsSections metadata present');
+  }
+
+  const ea = overview.emailAnalytics || {};
+  if (typeof ea.orders === 'number' && Array.isArray(ea.bySource) && Array.isArray(ea.byCampaign)) {
+    pass('emailAnalytics has orders and breakdown arrays');
+  } else {
+    fail('emailAnalytics structure');
+  }
+
+  const inf = overview.influencers || {};
+  if (
+    typeof inf.orders === 'number' &&
+    Array.isArray(inf.topInfluencers) &&
+    Array.isArray(inf.topInfluencerCampaigns)
+  ) {
+    pass('influencers has orders and top lists');
+  } else {
+    fail('influencers structure');
+  }
+
+  const off = overview.offlineOrders || {};
+  if (typeof off.orders === 'number' && Array.isArray(off.byChannel) && Array.isArray(off.recentOrders)) {
+    pass('offlineOrders has orders and channel/recent arrays');
+  } else {
+    fail('offlineOrders structure');
+  }
+
+  if (overview.meta?.dataAvailability?.email === ea.availability) {
+    pass('meta.dataAvailability.email matches emailAnalytics');
+  } else {
+    fail('meta.dataAvailability.email', `${overview.meta?.dataAvailability?.email} vs ${ea.availability}`);
+  }
+
+  if (overview.meta?.dataAvailability?.influencer === inf.availability) {
+    pass('meta.dataAvailability.influencer matches influencers');
+  } else {
+    fail(
+      'meta.dataAvailability.influencer',
+      `${overview.meta?.dataAvailability?.influencer} vs ${inf.availability}`
+    );
+  }
+
+  if (overview.unsupportedSections?.emailAnalytics === (ea.availability === 'available' ? 'available' : 'unavailable')) {
+    pass('unsupportedSections.emailAnalytics reflects availability');
+  } else {
+    fail('unsupportedSections.emailAnalytics', overview.unsupportedSections?.emailAnalytics);
+  }
+
+  if (overview.unsupportedSections?.influencers === (inf.availability === 'available' ? 'available' : 'unavailable')) {
+    pass('unsupportedSections.influencers reflects availability');
+  } else {
+    fail('unsupportedSections.influencers', overview.unsupportedSections?.influencers);
+  }
+
+  if (overview.unsupportedSections?.offlineOrders === (off.availability === 'available' ? 'available' : 'unavailable')) {
+    pass('unsupportedSections.offlineOrders reflects availability');
+  } else {
+    fail('unsupportedSections.offlineOrders', overview.unsupportedSections?.offlineOrders);
   }
 }
 
@@ -861,6 +959,7 @@ async function verifyServiceLayer() {
   verifyCustomerProfileSection(live);
   verifyProfitabilitySection(live);
   verifyAdSpendRoasSection(live);
+  verifyExtendedAnalyticsSections(live);
 
   if (live.kpis.revenue === manualRev && live.kpis.orders === manualOrders) {
     pass('order/revenue KPIs unchanged after session KPI work');
@@ -989,6 +1088,32 @@ async function verifyServiceLayer() {
   }
 
   await MarketingAdSpend.deleteMany({ campaign: verifyCampaign });
+
+  const offlineNumber = '__VERIFY_OFFLINE__';
+  const offlineUpsert = await upsertOfflineOrder({
+    orderNumber: offlineNumber,
+    orderDate: range.queryStartDate,
+    totalValue: 99.99,
+    channel: 'phone',
+    source: 'manual',
+  });
+  if (offlineUpsert.ok) {
+    pass('upsertOfflineOrder accepts admin offline row');
+  } else {
+    fail('upsertOfflineOrder', offlineUpsert.reason);
+  }
+
+  const withOffline = await getAnalyticsOverview({
+    startDate: range.queryStartDate,
+    endDate: range.queryEndDate,
+  });
+  if (withOffline.offlineOrders?.availability === 'available') {
+    pass('overview offlineOrders available after upsert');
+  } else {
+    fail('overview offlineOrders after upsert');
+  }
+
+  await MarketingOfflineOrder.deleteMany({ orderNumber: offlineNumber });
 }
 
 async function verifyHttp() {
@@ -1046,6 +1171,24 @@ async function verifyHttp() {
     pass('HTTP response includes campaignRoasRoi array');
   } else {
     fail('HTTP response includes campaignRoasRoi array');
+  }
+
+  if (adminRes.json.emailAnalytics && typeof adminRes.json.emailAnalytics === 'object') {
+    pass('HTTP response includes emailAnalytics');
+  } else {
+    fail('HTTP response includes emailAnalytics');
+  }
+
+  if (adminRes.json.influencers && typeof adminRes.json.influencers === 'object') {
+    pass('HTTP response includes influencers');
+  } else {
+    fail('HTTP response includes influencers');
+  }
+
+  if (adminRes.json.offlineOrders && typeof adminRes.json.offlineOrders === 'object') {
+    pass('HTTP response includes offlineOrders');
+  } else {
+    fail('HTTP response includes offlineOrders');
   }
 
   let channelRes;

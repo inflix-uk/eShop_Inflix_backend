@@ -72,6 +72,13 @@ function resolveUnitCost(cartItem, product) {
   return parseNonNegativeNumber(variant.Cost);
 }
 
+/** Cost must be > 0 for POAS / profit data quality (0 = not set). */
+function resolveMeaningfulUnitCost(cartItem, product) {
+  const cost = resolveUnitCost(cartItem, product);
+  if (cost == null || cost <= 0) return null;
+  return cost;
+}
+
 /**
  * Gross margin from product variant Cost on revenue-eligible order lines.
  * Margin is computed on lines where a unit cost could be resolved.
@@ -137,7 +144,7 @@ async function getProfitabilityMetrics(startDate, endDate, channel = 'all') {
       totalLineRevenue += revenue;
 
       const product = productMap.get(String(productId));
-      const unitCost = resolveUnitCost(item, product);
+      const unitCost = resolveMeaningfulUnitCost(item, product);
 
       if (unitCost != null) {
         lineItemsWithCost += 1;
@@ -165,13 +172,19 @@ async function getProfitabilityMetrics(startDate, endDate, channel = 'all') {
     grossProfit,
     grossMarginPercent,
     costCoveragePercent,
-    availability: lineItemsWithCost > 0 ? 'available' : 'unavailable',
+    availability:
+      lineItemsWithCost > 0
+        ? 'available'
+        : lineItemsInRange > 0
+          ? 'partial'
+          : 'unavailable',
   };
 }
 
 module.exports = {
   getProfitabilityMetrics,
   resolveUnitCost,
+  resolveMeaningfulUnitCost,
   resolveVariantForLine,
   lineRevenue,
   isTradeInLine,

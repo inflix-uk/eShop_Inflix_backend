@@ -15,6 +15,7 @@ class EnvironmentValidator {
       'JWT_EXPIRES_IN',
       'STRIPE_SECRET_KEY',
       'STRIPE_PUBLISHABLE_KEY',
+      'STRIPE_USE_ENV_KEYS',
       'PAYPAL_CLIENT_ID',
       'PAYPAL_CLIENT_SECRET',
       'EMAIL_HOST',

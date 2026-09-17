@@ -34,6 +34,26 @@ const marketingAdSpendSchema = new mongoose.Schema(
       enum: ['manual', 'import'],
       default: 'import',
     },
+    utmSource: {
+      type: String,
+      maxlength: 128,
+      default: null,
+    },
+    utmMedium: {
+      type: String,
+      maxlength: 128,
+      default: null,
+    },
+    utmChannel: {
+      type: String,
+      maxlength: 128,
+      default: null,
+    },
+    notes: {
+      type: String,
+      maxlength: 512,
+      default: null,
+    },
     externalCampaignId: {
       type: String,
       maxlength: 128,

@@ -20,7 +20,7 @@ const { computeConvertedInPopulation } = require('../../utils/analyticsConversio
 const { getAbandonedCheckoutMetrics } = require('./abandonedCheckoutService');
 const { getCustomerProfileMetrics } = require('./customerProfileService');
 const { getProfitabilityMetrics } = require('./profitabilityService');
-const { getAdSpendRoasMetrics } = require('./adSpendRoasService');
+const { getAdSpendRoasMetrics, computeRoas } = require('./adSpendRoasService');
 const { getFraudInsights } = require('./fraudInsightsService');
 const { getRoasVsPoasBySource } = require('./roasVsPoasService');
 const { getProfitBreakdowns } = require('./profitBreakdownService');
@@ -29,6 +29,12 @@ const {
   resolveCampaignExpression,
   coalesceTouchField,
 } = require('./attributionPlatform');
+const { getEmailAnalyticsMetrics } = require('./emailAnalyticsService');
+const { getInfluencerAnalyticsMetrics } = require('./influencerAnalyticsService');
+const { getOfflineOrdersMetrics } = require('./offlineOrdersService');
+const { getMarketingFunnelCounts } = require('./recordMarketingEvent');
+const { buildEnrichedRevenueRows } = require('./dimensionAnalyticsService');
+const { computePoas } = require('./profitByDimensionService');
 
 const DONUT_COLORS = [
   '#3b82f6',
@@ -661,6 +667,10 @@ async function getAnalyticsOverview(query = {}) {
           },
         },
       ],
+      failedOrdersInRange: [
+        { $match: { ...baseMatch, status: 'Failed' } },
+        { $count: 'count' },
+      ],
       revenueKpis: [
         { $match: revenueMatch },
         {
@@ -860,6 +870,7 @@ async function getAnalyticsOverview(query = {}) {
 
   const ordersInRange = dqRow.ordersInRange || 0;
   const allOrdersInRange = ordersInRange;
+  const failedOrdersInRange = facetResult.failedOrdersInRange[0]?.count || 0;
   const ordersWithMarketingAttribution = dqRow.ordersWithMarketingAttribution || 0;
   const ordersWithoutMarketingAttribution = Math.max(
     0,
@@ -886,6 +897,7 @@ async function getAnalyticsOverview(query = {}) {
   const kpiRow = facetResult.revenueKpis[0] || { orders: 0, revenue: 0 };
   const orders = kpiRow.orders || 0;
   const revenueOrdersInRange = orders;
+  const nonRevenueOrdersInRange = Math.max(0, allOrdersInRange - revenueOrdersInRange);
   const revenue = round2(kpiRow.revenue || 0);
   const aov = orders > 0 ? round2(revenue / orders) : 0;
   const salesUnits = facetResult.salesUnits[0]?.units || 0;
@@ -906,71 +918,75 @@ async function getAnalyticsOverview(query = {}) {
     visitorSessionsInRange,
   });
 
-  const [sessionsBySource, sessionsByCampaign, sessionsByMedium] = await Promise.all([
-    aggregateSessionsByDimension(
-      startDate,
-      endDate,
-      resolvePlatformExpression(),
-      'Direct'
-    ),
-    aggregateSessionsByDimension(
-      startDate,
-      endDate,
-      resolveCampaignExpression(),
-      '(unassigned)'
-    ),
-    aggregateSessionsByDimension(
-      startDate,
-      endDate,
-      resolveMediumDimensionExpression(),
-      '(direct)'
-    ),
-  ]);
+  const revenueBySourceRaw = (facetResult.revenueBySource || []).map((row) => ({
+    source: row._id,
+    revenue: round2(row.revenue),
+    orders: row.orders,
+  }));
 
-  const revenueBySource = enrichRevenueRowsWithSessions(
-    (facetResult.revenueBySource || []).map((row) => ({
-      source: row._id || 'Direct',
-      revenue: round2(row.revenue),
-      orders: row.orders,
-    })),
-    'source',
-    sessionsBySource,
-    'Direct'
-  );
+  const revenueByMediumRaw = (facetResult.revenueByMedium || []).map((row) => ({
+    medium: row._id,
+    revenue: round2(row.revenue),
+    orders: row.orders,
+  }));
 
-  const revenueByMedium = mergeSessionOnlyDimensionRows(
-    enrichRevenueRowsWithSessions(
-      (facetResult.revenueByMedium || []).map((row) => ({
-        medium: row._id || '(direct)',
-        revenue: round2(row.revenue),
-        orders: row.orders,
-      })),
-      'medium',
-      sessionsByMedium,
-      '(direct)'
-    ),
-    'medium',
-    sessionsByMedium,
-    '(direct)'
-  );
+  const revenueByCampaignRaw = (facetResult.revenueByCampaign || []).map((row) => ({
+    campaign: row._id,
+    revenue: round2(row.revenue),
+    orders: row.orders,
+  }));
 
-  const revenueByCampaign = enrichRevenueRowsWithSessions(
-    (facetResult.revenueByCampaign || []).map((row) => ({
-      campaign: row._id || '(unassigned)',
-      revenue: round2(row.revenue),
-      orders: row.orders,
-    })),
-    'campaign',
-    sessionsByCampaign,
-    '(unassigned)'
-  );
-
-  const revenueByChannel = (facetResult.revenueByChannel || []).map((row) => ({
+  const revenueByChannelRaw = (facetResult.revenueByChannel || []).map((row) => ({
     channel: row._id,
     revenue: round2(row.revenue),
     orders: row.orders,
     aov: row.orders > 0 ? round2(row.revenue / row.orders) : 0,
   }));
+
+  const [
+    revenueBySource,
+    revenueByMedium,
+    revenueByCampaign,
+    revenueByChannel,
+  ] = await Promise.all([
+    buildEnrichedRevenueRows({
+      startDate,
+      endDate,
+      channel,
+      dimension: 'source',
+      baseRows: revenueBySourceRaw,
+      keyField: 'source',
+    }),
+    buildEnrichedRevenueRows({
+      startDate,
+      endDate,
+      channel,
+      dimension: 'medium',
+      baseRows: revenueByMediumRaw,
+      keyField: 'medium',
+    }),
+    buildEnrichedRevenueRows({
+      startDate,
+      endDate,
+      channel,
+      dimension: 'campaign',
+      baseRows: revenueByCampaignRaw,
+      keyField: 'campaign',
+    }),
+    buildEnrichedRevenueRows({
+      startDate,
+      endDate,
+      channel,
+      dimension: 'channel',
+      baseRows: revenueByChannelRaw,
+      keyField: 'channel',
+    }).then((rows) =>
+      rows.map((row) => ({
+        ...row,
+        aov: row.orders > 0 ? round2(row.revenue / row.orders) : 0,
+      }))
+    ),
+  ]);
 
   const campaignPerformance = revenueByCampaign.map((row) => ({
     name: row.campaign,
@@ -1041,6 +1057,13 @@ async function getAnalyticsOverview(query = {}) {
     conversionRateAvailability: UNAVAILABLE,
   }));
 
+  const productsSold = productRows.map((row) => ({
+    name: row.name,
+    orders: row.orders,
+    unitsSold: row.unitsSold,
+    revenue: row.revenue,
+  }));
+
   const productRevenueSegments = toDonutSegments(
     productRows.slice(0, 8).map((row) => ({
       label: row.name,
@@ -1073,6 +1096,10 @@ async function getAnalyticsOverview(query = {}) {
     visitorsByDevice,
     roasVsPoas,
     profitBreakdowns,
+    emailAnalytics,
+    influencers,
+    offlineOrders,
+    marketingFunnel,
   ] = await Promise.all([
     getProfitabilityMetrics(startDate, endDate, channel),
     getFraudInsights(startDate, endDate, channel),
@@ -1080,6 +1107,10 @@ async function getAnalyticsOverview(query = {}) {
     getVisitorsByDevice(startDate, endDate),
     getRoasVsPoasBySource(startDate, endDate, channel),
     getProfitBreakdowns(startDate, endDate, channel),
+    getEmailAnalyticsMetrics(startDate, endDate, channel),
+    getInfluencerAnalyticsMetrics(startDate, endDate, channel),
+    getOfflineOrdersMetrics(startDate, endDate),
+    getMarketingFunnelCounts(startDate, endDate),
   ]);
 
   const { profitBySource, profitByCampaign } = profitBreakdowns;
@@ -1092,6 +1123,36 @@ async function getAnalyticsOverview(query = {}) {
     row.fraudOrders = fraud?.fraudOrders || 0;
     row.fraudRate = fraud?.fraudRate ?? 0;
   }
+
+  const cleanRevenue = round2(revenue - (fraudInsights.totals.excludedRevenue || 0));
+  const cleanProfit = round2(
+    (profitability.grossProfit || 0) - (fraudInsights.totals.excludedProfit || 0)
+  );
+  const totalSpend = advertisingPerformance.totalSpend || 0;
+  const hasSpend = totalSpend > 0;
+  const poas = hasSpend ? computePoas(profitability.grossProfit || 0, totalSpend) : null;
+  const fraudAdjustedRoas = hasSpend ? computeRoas(cleanRevenue, totalSpend) : null;
+  const fraudAdjustedPoas = hasSpend ? computePoas(cleanProfit, totalSpend) : null;
+
+  const advertisingPerformanceEnriched = {
+    ...advertisingPerformance,
+    poas,
+    poasAvailability:
+      hasSpend && profitability.availability === 'available' ? 'available' : UNAVAILABLE,
+    fraudAdjustedRoas,
+    fraudAdjustedPoas,
+    fraudAdjustedRoasAvailability: hasSpend && revenue > 0 ? 'available' : UNAVAILABLE,
+    fraudAdjustedPoasAvailability:
+      hasSpend && profitability.availability === 'available' ? 'available' : UNAVAILABLE,
+    excludedRevenue: fraudInsights.totals.excludedRevenue,
+    excludedProfit: fraudInsights.totals.excludedProfit,
+    cleanRevenue,
+    cleanProfit,
+  };
+
+  const revenueRowMetricsAvailable =
+    revenueBySource.some((row) => row.visitorsAvailability === 'available') ||
+    revenueBySource.some((row) => row.conversionRateAvailability === 'available');
 
   const grossMargin = profitability.grossMarginPercent;
   const grossMarginAvailability =
@@ -1122,8 +1183,8 @@ async function getAnalyticsOverview(query = {}) {
         sessions: 'available',
         adSpend: advertisingPerformance.availability,
         profit: profitability.availability,
-        email: UNAVAILABLE,
-        influencer: UNAVAILABLE,
+        email: emailAnalytics.availability,
+        influencer: influencers.availability,
         abandonedCheckout: abandonedCheckout.availability,
         customerProfile: customerProfile.availability,
       },
@@ -1132,12 +1193,18 @@ async function getAnalyticsOverview(query = {}) {
       allOrdersInRange,
       ordersInRange: allOrdersInRange,
       revenueOrdersInRange,
+      nonRevenueOrdersInRange,
+      failedOrdersInRange,
       ordersWithMarketingAttribution,
       ordersWithoutMarketingAttribution,
       ordersWithUtmSource: dqRow.ordersWithUtmSource || 0,
       ordersWithGclid: dqRow.ordersWithGclid || 0,
       ordersWithFbclid: dqRow.ordersWithFbclid || 0,
       ordersWithReferrer: dqRow.ordersWithReferrer || 0,
+      lineItemsMissingCost: profitability.lineItemsMissingCost || 0,
+      lineItemsInRange: profitability.lineItemsInRange || 0,
+      profitDataQualityAvailability:
+        profitability.lineItemsInRange > 0 ? 'available' : UNAVAILABLE,
       visitorSessionsInRange,
       uniqueVisitorsInRange,
       visitorSessionsAvailability: 'available',
@@ -1146,6 +1213,7 @@ async function getAnalyticsOverview(query = {}) {
       convertedSessionsOutsideSessionPopulation:
         convertedPopulation.convertedSessionsOutsideSessionPopulation,
       conversionPopulationMismatch: convertedPopulation.conversionPopulationMismatch,
+      marketingFunnel,
     },
     kpis: {
       orders,
@@ -1169,7 +1237,7 @@ async function getAnalyticsOverview(query = {}) {
     revenueByCampaign,
     revenueByChannel,
     campaignPerformance: campaignPerformanceWithSpend,
-    advertisingPerformance,
+    advertisingPerformance: advertisingPerformanceEnriched,
     campaignRoasRoi,
     campaignRoasCpa,
     dailyOrdersRevenue,
@@ -1178,6 +1246,7 @@ async function getAnalyticsOverview(query = {}) {
     topSellingProducts,
     topRevenueProducts,
     productPerformance,
+    productsSold,
     abandonedCheckout,
     customerProfile,
     profitability,
@@ -1187,6 +1256,18 @@ async function getAnalyticsOverview(query = {}) {
     roasVsPoas,
     topLandingPages,
     visitorsByDevice,
+    emailAnalytics,
+    influencers,
+    offlineOrders,
+    zextonsSections: {
+      fraudInsights: fraudInsights.availability,
+      poas: advertisingPerformanceEnriched.poasAvailability,
+      profitBySource: profitBySource.availability,
+      profitByCampaign: profitByCampaign.availability,
+      visitorsByDevice: visitorsByDevice.availability,
+      revenueRowConversionRate: revenueRowMetricsAvailable ? 'available' : UNAVAILABLE,
+      revenueRowFraudRate: fraudInsights.availability,
+    },
     unsupportedSections: {
       advertisingPerformance:
         advertisingPerformance.availability === 'available' ? 'available' : UNAVAILABLE,
@@ -1197,9 +1278,9 @@ async function getAnalyticsOverview(query = {}) {
       profitability: profitability.availability === 'available' ? 'available' : UNAVAILABLE,
       customerProfile:
         customerProfile.availability === 'available' ? 'available' : UNAVAILABLE,
-      influencers: UNAVAILABLE,
-      offlineOrders: UNAVAILABLE,
-      emailAnalytics: UNAVAILABLE,
+      influencers: influencers.availability === 'available' ? 'available' : UNAVAILABLE,
+      offlineOrders: offlineOrders.availability === 'available' ? 'available' : UNAVAILABLE,
+      emailAnalytics: emailAnalytics.availability === 'available' ? 'available' : UNAVAILABLE,
       abandonedCheckout:
         abandonedCheckout.availability === 'available' ? 'available' : UNAVAILABLE,
       topLandingPages: topLandingPages.availability,
