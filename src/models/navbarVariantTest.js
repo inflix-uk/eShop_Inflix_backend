@@ -11,6 +11,12 @@ const navbarVariantTestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
+    /** Short-lived draft for admin "preview before save" (public fetch by token). */
+    previewDraft: {
+      token: { type: String, default: null },
+      config: { type: mongoose.Schema.Types.Mixed, default: null },
+      expiresAt: { type: Date, default: null },
+    },
   },
   {
     timestamps: true,

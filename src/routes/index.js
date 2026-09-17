@@ -384,8 +384,8 @@ router.post('/check/stock/availability',                adminProductController.c
 router.get('/get/product/for/csv',                      ...requireAdmin, adminProductController.getProductsAdminpageforcsv);
 
 // Product Search & Filtering
-router.get('/get/products/category/:categoryname',      adminProductController.getProductsByCategoryname);
-router.get('/get/product/by/subcategory/:subcategoryname',adminProductController.getProductsBySubCategoryname);
+router.get('/get/products/category/:categoryname',      resolvePricingScope, adminProductController.getProductsByCategoryname);
+router.get('/get/product/by/subcategory/:subcategoryname',resolvePricingScope, adminProductController.getProductsBySubCategoryname);
 router.get('/get/product/by/search/:searchname',         adminProductController.getProductsBySearch);
 router.get('/get/navbar/suggestions',                    adminProductController.getNavbarSuggestions);
 
@@ -522,13 +522,16 @@ router.get('/get/stats4',                              ...requireAdmin, adminSta
 // ========================================================================
 // ADMIN MARKETING ANALYTICS OVERVIEW
 // ========================================================================
+const analyticsOfflineOrderController = require('../controller/analyticsOfflineOrderController');
 const analyticsAdSpendController = require('../controller/analyticsAdSpendController');
 const analyticsOverviewController = require('../controller/analyticsOverviewController');
 const analyticsAdPerformanceController = require('../controller/analyticsAdPerformanceController');
 const analyticsCampaignController = require('../controller/analyticsCampaignController');
 const analyticsOrderFraudController = require('../controller/analyticsOrderFraudController');
 const analyticsVisitorSessionController = require('../controller/analyticsVisitorSessionController');
+const analyticsEventController = require('../controller/analyticsEventController');
 router.get('/analytics/overview', ...requireAdmin, analyticsOverviewController.getOverview);
+router.post('/analytics/event', analyticsEventController.record);
 router.patch(
   '/analytics/order/:id/fraud',
   ...requireAdmin,
@@ -556,6 +559,9 @@ router.get(
 );
 router.post('/analytics/campaign/click', analyticsCampaignController.trackClick);
 router.post('/analytics/ad-spend', ...requireAdmin, analyticsAdSpendController.upsert);
+router.post('/analytics/ad-spend/import', ...requireAdmin, analyticsAdSpendController.importCsv);
+router.get('/analytics/ad-spend/template', ...requireAdmin, analyticsAdSpendController.template);
+router.post('/analytics/offline-order', ...requireAdmin, analyticsOfflineOrderController.upsert);
 router.post('/analytics/visitor-session', analyticsVisitorSessionController.record);
 router.get('/get/order/stats',                         ...requireAdmin, adminStatsController.getOrderStats);
 router.get('/get/files',                               ...requireAdmin, adminStatsController.getFiles);
@@ -913,6 +919,8 @@ router.get('/navbar-header/public', publicCache.long, navbarHeaderController.get
 router.get('/navbar-header', ...requireAdmin, navbarHeaderController.getNavbarHeaderAdmin);
 router.post('/navbar-header', ...requireAdmin, navbarHeaderController.saveNavbarHeader);
 router.get('/navbar-variant-test/public', publicCache.long, navbarVariantTestController.getNavbarVariantTestPublic);
+router.get('/navbar-variant-test/preview/:token', navbarVariantTestController.getNavbarVariantTestPreviewDraft);
+router.put('/navbar-variant-test/preview-draft', ...requireAdmin, navbarVariantTestController.putNavbarVariantTestPreviewDraft);
 router.get('/navbar-variant-test', ...requireAdmin, navbarVariantTestController.getNavbarVariantTestAdmin);
 router.put('/navbar-variant-test', ...requireAdmin, navbarVariantTestController.putNavbarVariantTest);
 

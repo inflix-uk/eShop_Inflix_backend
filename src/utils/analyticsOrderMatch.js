@@ -20,6 +20,12 @@ const CHANNEL_FILTERS = {
   paid_social: { 'marketingAttribution.normalized.channel': 'paid_social' },
   direct: { 'marketingAttribution.normalized.channel': 'direct' },
   referral: { 'marketingAttribution.normalized.channel': 'referral' },
+  influencer: {
+    $or: [
+      { 'marketingAttribution.normalized.medium': 'influencer' },
+      { 'marketingAttribution.normalized.source': 'influencer' },
+    ],
+  },
 };
 
 function buildChannelMatch(channel) {
@@ -56,9 +62,23 @@ function buildRevenueMatch(startDate, endDate, channel) {
   };
 }
 
+/**
+ * Revenue match for a nested attribution channel (email, influencer) respecting toolbar filter.
+ */
+function buildNestedChannelRevenueMatch(startDate, endDate, selectedChannel, nestedChannel) {
+  if (selectedChannel !== 'all' && selectedChannel !== nestedChannel) {
+    return {
+      ...buildRevenueMatch(startDate, endDate, selectedChannel),
+      'marketingAttribution.normalized.channel': '__none__',
+    };
+  }
+  return buildRevenueMatch(startDate, endDate, nestedChannel);
+}
+
 module.exports = {
   REVENUE_STATUSES,
   buildBaseMatch,
   buildRevenueMatch,
   buildChannelMatch,
+  buildNestedChannelRevenueMatch,
 };

@@ -51,6 +51,7 @@ const {
   auditBlocked,
   startTimer,
 } = require('../audit/checkoutAudit');
+const { buildMarketingUserDataHashes } = require('../../utils/hashPii');
 
 // ============================================================================
 // HELPER FUNCTIONS - Coupon Management
@@ -874,11 +875,15 @@ const generateCustomerEmailHTML = async ({
  * @param {import('mongoose').Document} orderDoc
  * @param {{ marketingAttributionRaw?: object, contactInformation?: object, isCreate: boolean, conversionConsent?: object }} options
  */
-function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInformation, isCreate, orderNumber, conversionConsent }) {
+function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInformation, shippingInformation, isCreate, orderNumber, conversionConsent }) {
     const normalizedAttribution = normalizeMarketingAttribution(marketingAttributionRaw);
     const customerKey = buildCustomerKey({
         userId: contactInformation?.userId,
         email: contactInformation?.email,
+    });
+    const marketingUserData = buildMarketingUserDataHashes({
+        email: contactInformation?.email,
+        phone: shippingInformation?.phoneNumber,
     });
 
     const snapshot = {
@@ -911,6 +916,7 @@ function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInform
         }
         orderDoc.marketingAttribution = normalizedAttribution;
         if (customerKey) orderDoc.customerKey = customerKey;
+        if (marketingUserData) orderDoc.marketingUserData = marketingUserData;
         logMarketingAttributionTrace({
             orderNumber: orderNumber || orderDoc.orderNumber,
             raw: marketingAttributionRaw,
@@ -939,6 +945,9 @@ function applyMarketingFields(orderDoc, { marketingAttributionRaw, contactInform
     }
     if (!orderDoc.customerKey && customerKey) {
         orderDoc.customerKey = customerKey;
+    }
+    if (!orderDoc.marketingUserData && marketingUserData) {
+        orderDoc.marketingUserData = marketingUserData;
     }
 }
 
@@ -1298,6 +1307,7 @@ const createOrderService = async (orderData, req = null) => {
             applyMarketingFields(order, {
                 marketingAttributionRaw: marketingAttribution,
                 contactInformation,
+                shippingInformation,
                 isCreate: false,
                 orderNumber: order.orderNumber,
                 conversionConsent,
@@ -1326,6 +1336,7 @@ const createOrderService = async (orderData, req = null) => {
             applyMarketingFields(newOrder, {
                 marketingAttributionRaw: marketingAttribution,
                 contactInformation,
+                shippingInformation,
                 isCreate: true,
                 orderNumber: newOrderNumber,
                 conversionConsent,

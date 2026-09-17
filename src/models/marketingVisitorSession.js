@@ -50,6 +50,11 @@ const marketingVisitorSessionSchema = new mongoose.Schema(
     deviceType: {
       type: String,
       enum: ['mobile', 'desktop', 'tablet', 'unknown'],
+      default: 'unknown',
+    },
+    trafficSource: {
+      type: String,
+      maxlength: 128,
       default: null,
     },
     attribution: {

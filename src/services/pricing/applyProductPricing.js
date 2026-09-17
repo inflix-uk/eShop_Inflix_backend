@@ -29,14 +29,17 @@ function applyPricingToProduct(product, ctx) {
     const unitPrices = nextVariants.map(variantOriginalUnit).filter((n) => n > 0);
     const minResolved =
       unitPrices.length > 0 ? Math.min(...unitPrices) : resolveOriginalPrice(product);
+    const originalPrice = resolveOriginalPrice(product);
 
     return {
       ...product,
       variantValues: nextVariants,
       price: minResolved,
-      originalPrice: resolveOriginalPrice(product),
+      originalPrice,
       groupPrice: groupPriceWhole,
       userPrice: userPriceWhole,
+      minSalePrice: Number(product.minSalePrice) > 0 ? product.minSalePrice : minResolved,
+      minPrice: Number(product.minPrice) > 0 ? product.minPrice : originalPrice,
     };
   }
 
@@ -49,6 +52,8 @@ function applyPricingToProduct(product, ctx) {
     originalPrice,
     groupPrice: groupPriceWhole,
     userPrice: userPriceWhole,
+    minSalePrice: Number(product.minSalePrice) > 0 ? product.minSalePrice : resolvedPrice,
+    minPrice: Number(product.minPrice) > 0 ? product.minPrice : originalPrice,
   };
 }
 

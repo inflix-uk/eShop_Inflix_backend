@@ -190,6 +190,10 @@ const orderSchema = new mongoose.Schema({
             sentAt: { type: Date },
         },
     },
+    marketingUserData: {
+        emailSha256: { type: String, default: null },
+        phoneSha256: { type: String, default: null },
+    },
     customerKey: {
         type: String,
         required: false,

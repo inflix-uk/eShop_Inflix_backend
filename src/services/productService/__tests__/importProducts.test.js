@@ -120,6 +120,71 @@ describe('prepareProduct validation', () => {
     });
 });
 
+describe('find-or-create catalogue (collectMissing + applyMissingToRef)', () => {
+    test('collects unknown category, subcategory, brand, tag and attribute values', () => {
+        const missing = service.collectMissing(
+            [
+                {
+                    category: 'Mobile-Phones',
+                    subCategory: JSON.stringify({ 'Mobile-Phones': ['Flagship'] }),
+                    brand: 'Google',
+                    tags: 'Android, Pixel',
+                    variants: [
+                        { attributes: [{ attributeSlug: 'color', value: 'Pink' }] },
+                        { attributes: [{ attributeSlug: 'color', value: 'Teal' }] },
+                    ],
+                },
+            ],
+            ref()
+        );
+
+        assert.equal(missing.categories.get('mobile-phones'), 'Mobile-Phones');
+        assert.equal(missing.subcategories.get('mobile-phones\0flagship').sub, 'Flagship');
+        assert.equal(missing.attributeValues.get('brands\0google').name, 'Google');
+        assert.equal(missing.tags.get('android'), 'Android');
+        assert.equal(missing.attributeValues.get('color\0pink').name, 'Pink');
+        assert.equal(missing.attributeValues.get('color\0teal').name, 'Teal');
+    });
+
+    test('does not invent a new attribute TYPE', () => {
+        const missing = service.collectMissing(
+            [{ variants: [{ attributes: [{ attributeSlug: 'ghost', value: 'x' }] }] }],
+            ref()
+        );
+        assert.equal(missing.attributeValues.size, 0);
+    });
+
+    test('after applying missing names, prepareProduct accepts the row', () => {
+        const raw = {
+            category: 'Mobile-Phones',
+            subCategory: JSON.stringify({ 'Mobile-Phones': ['Flagship'] }),
+            brand: 'Google',
+            tags: 'Android',
+            variants: [{ attributes: [{ attributeSlug: 'color', value: 'Pink' }] }],
+        };
+        const reference = ref();
+        const missing = service.collectMissing([raw], reference);
+        service.applyMissingToRef(missing, reference);
+
+        const { product, errors } = service.prepareProduct(raw, reference);
+        assert.deepEqual(errors, []);
+        assert.equal(product.category, 'Mobile-Phones');
+        assert.equal(product.brand, 'Google');
+        assert.equal(product.tags, 'Android');
+        assert.equal(product.subCategory, JSON.stringify({ 'Mobile-Phones': ['Flagship'] }));
+    });
+
+    test('unknown attribute TYPE still fails after catalogue seed', () => {
+        const raw = {
+            variants: [{ attributes: [{ attributeSlug: 'ghost', value: 'x' }] }],
+        };
+        const reference = ref();
+        service.applyMissingToRef(service.collectMissing([raw], reference), reference);
+        const { errors } = service.prepareProduct(raw, reference);
+        assert.ok(errors.some((e) => e.includes('Unknown variant attribute "ghost"')));
+    });
+});
+
 describe('prepareProduct grandfather clause (unchanged stored values pass)', () => {
     // A live product carrying orphaned reference data: categories/tags that
     // have since been deleted from the reference collections.

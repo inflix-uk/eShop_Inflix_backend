@@ -32,6 +32,56 @@ function computeCac(spend, orders) {
   return round2(spend / orders);
 }
 
+async function aggregateSpendBySource(startDate, endDate, platform = DEFAULT_PLATFORM) {
+  const rows = await MarketingAdSpend.aggregate([
+    {
+      $match: {
+        platform,
+        spendDate: { $gte: startDate, $lte: endDate },
+        amount: { $gt: 0 },
+      },
+    },
+    {
+      $addFields: {
+        sourceKey: {
+          $let: {
+            vars: {
+              raw: { $ifNull: ['$utmSource', ''] },
+            },
+            in: {
+              $cond: [
+                {
+                  $gt: [{ $strLenCP: { $trim: { input: { $toString: '$$raw' } } } }, 0],
+                },
+                { $toLower: { $trim: { input: { $toString: '$$raw' } } } },
+                'google',
+              ],
+            },
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: '$sourceKey',
+        spend: { $sum: '$amount' },
+        recordCount: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const map = new Map();
+  for (const row of rows) {
+    const source = normalizeCampaign(row._id);
+    if (!source) continue;
+    map.set(source, {
+      spend: round2(row.spend),
+      recordCount: row.recordCount,
+    });
+  }
+  return map;
+}
+
 async function aggregateSpendByCampaign(startDate, endDate, platform = DEFAULT_PLATFORM) {
   const rows = await MarketingAdSpend.aggregate([
     {
@@ -220,6 +270,10 @@ async function upsertMarketingAdSpend({
   currency = 'GBP',
   source = 'manual',
   externalCampaignId,
+  utmSource,
+  utmMedium,
+  utmChannel,
+  notes,
 }) {
   const campaignName = normalizeCampaign(campaign);
   if (!campaignName) {
@@ -252,8 +306,12 @@ async function upsertMarketingAdSpend({
       $set: {
         amount: round2(parsedAmount),
         currency: currency || 'GBP',
-        source: source || 'manual',
+        source: source === 'import' ? 'import' : 'manual',
         externalCampaignId: externalCampaignId || null,
+        utmSource: utmSource ? String(utmSource).trim().slice(0, 128) : null,
+        utmMedium: utmMedium ? String(utmMedium).trim().slice(0, 128) : null,
+        utmChannel: utmChannel ? String(utmChannel).trim().slice(0, 128) : null,
+        notes: notes ? String(notes).trim().slice(0, 512) : null,
       },
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -262,10 +320,43 @@ async function upsertMarketingAdSpend({
   return { ok: true, id: doc._id };
 }
 
+async function importMarketingAdSpendRows(rows, { source = 'import' } = {}) {
+  let imported = 0;
+  let failed = 0;
+  const errors = [];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const result = await upsertMarketingAdSpend({
+      campaign: row.campaign,
+      spendDate: row.spendDate,
+      amount: row.amount,
+      utmSource: row.utmSource,
+      utmMedium: row.utmMedium,
+      utmChannel: row.utmChannel,
+      notes: row.notes,
+      source,
+    });
+
+    if (result.ok) {
+      imported += 1;
+    } else {
+      failed += 1;
+      if (errors.length < 25) {
+        errors.push({ index: index + 1, reason: result.reason || 'upsert failed' });
+      }
+    }
+  }
+
+  return { ok: failed === 0, imported, failed, errors };
+}
+
 module.exports = {
   getAdSpendRoasMetrics,
   upsertMarketingAdSpend,
+  importMarketingAdSpendRows,
   aggregateSpendByCampaign,
+  aggregateSpendBySource,
   buildCampaignRoasRows,
   computeRoas,
   computeRoiPercent,

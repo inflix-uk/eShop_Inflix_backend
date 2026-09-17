@@ -15,15 +15,17 @@ const { toSeoSlug, generateVariantId, variantNameToSeoSlug } = require('../../ut
  * corrected file can safely be re-run.
  *
  * Three properties the CSV flow depends on:
- * - Rows are validated against the live reference collections (categories,
- *   tags, variant attributes) before anything is written; a typo fails that
- *   row instead of silently creating a product no category page can show.
+ * - Unknown categories, subcategories, tags, brands and attribute VALUES are
+ *   find-or-created so a new catalogue (e.g. phones) can import without a
+ *   manual Product Central pass first. Unknown attribute TYPES still fail
+ *   the row — inventing a whole Color/Storage attribute is not safe.
  *   On updates, values unchanged from the stored product are grandfathered
  *   (orphaned categories/tags/attribute values must not strand an export).
  * - Updates MERGE: a blank cell means "leave the stored value alone", and
  *   fields the CSV cannot carry (varImgGroup, per-variant SEO, variant
  *   status/variantId, meta schemas…) are preserved, not wiped.
- * - dryRun performs no writes on either the create or the update path.
+ * - dryRun performs no writes: missing catalogue entries are applied only
+ *   in memory so the preview matches what the real import will do.
  */
 
 const norm = (v) => String(v ?? '').trim();
@@ -86,7 +88,7 @@ class ImportProductsService {
             (Array.isArray(c.subCategory) ? c.subCategory : []).forEach((s) => {
                 if (hasText(s)) subs.set(low(s), norm(s));
             });
-            categoriesByName.set(low(c.name), { name: norm(c.name), subs });
+            categoriesByName.set(low(c.name), { id: c._id || null, name: norm(c.name), subs });
         });
 
         const tagsByName = new Map();
@@ -147,6 +149,250 @@ class ImportProductsService {
         const attr = ref?.attributesBySlug.get(low(attributeSlug));
         if (!attr) return { attr: null, value: null };
         return { attr, value: attr.valuesByKey.get(low(rawValue)) || null };
+    }
+
+    escapeRegex(value) {
+        return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    emptyMissing() {
+        return {
+            categories: new Map(),
+            subcategories: new Map(),
+            tags: new Map(),
+            attributeValues: new Map(),
+        };
+    }
+
+    hasMissing(missing) {
+        return Boolean(
+            missing?.categories.size
+            || missing?.subcategories.size
+            || missing?.tags.size
+            || missing?.attributeValues.size
+        );
+    }
+
+    catalogCounts(missing) {
+        return {
+            categories: missing?.categories.size || 0,
+            subcategories: missing?.subcategories.size || 0,
+            tags: missing?.tags.size || 0,
+            attributeValues: missing?.attributeValues.size || 0,
+        };
+    }
+
+    catalogSummary(missing) {
+        const counts = this.catalogCounts(missing);
+        const parts = [];
+        if (counts.categories) parts.push(`${counts.categories} categor${counts.categories === 1 ? 'y' : 'ies'}`);
+        if (counts.subcategories) parts.push(`${counts.subcategories} subcategor${counts.subcategories === 1 ? 'y' : 'ies'}`);
+        if (counts.tags) parts.push(`${counts.tags} tag${counts.tags === 1 ? '' : 's'}`);
+        if (counts.attributeValues) parts.push(`${counts.attributeValues} attribute value${counts.attributeValues === 1 ? '' : 's'}`);
+        return parts.join(', ');
+    }
+
+    /**
+     * Walk the file once and collect catalogue names that are not in `ref`.
+     * Attribute TYPES (unknown slugs) are left out — those still fail the row.
+     */
+    collectMissing(products, ref) {
+        const missing = this.emptyMissing();
+        if (!ref) return missing;
+
+        const rememberCategory = (name) => {
+            if (!hasText(name) || ref.categoriesByName.has(low(name))) return;
+            missing.categories.set(low(name), norm(name));
+        };
+        const rememberSub = (catName, subName) => {
+            if (!hasText(catName) || !hasText(subName)) return;
+            rememberCategory(catName);
+            const cat = ref.categoriesByName.get(low(catName));
+            if (cat?.subs.has(low(subName))) return;
+            missing.subcategories.set(`${low(catName)}\0${low(subName)}`, {
+                category: cat?.name || norm(catName),
+                sub: norm(subName),
+            });
+        };
+        const rememberTag = (name) => {
+            if (!hasText(name) || ref.tagsByName.has(low(name))) return;
+            missing.tags.set(low(name), norm(name));
+        };
+        const rememberAttrValue = (slug, valueName) => {
+            if (!hasText(slug) || !hasText(valueName)) return;
+            const attr = ref.attributesBySlug.get(low(slug));
+            if (!attr) return;
+            if (attr.valuesByKey.get(low(valueName))) return;
+            missing.attributeValues.set(`${low(slug)}\0${low(valueName)}`, {
+                slug: attr.slug,
+                name: norm(valueName),
+            });
+        };
+
+        (Array.isArray(products) ? products : []).forEach((product) => {
+            if (hasText(product.category)) {
+                norm(product.category).split(',').map(norm).filter(Boolean).forEach(rememberCategory);
+            }
+
+            if (hasText(product.subCategory)) {
+                let parsed = null;
+                try {
+                    parsed = JSON.parse(product.subCategory);
+                } catch {
+                    parsed = null;
+                }
+                if (parsed && typeof parsed === 'object') {
+                    Object.entries(parsed).forEach(([catName, subs]) => {
+                        (Array.isArray(subs) ? subs : [subs]).filter(Boolean).forEach((sub) => {
+                            rememberSub(catName, sub);
+                        });
+                    });
+                }
+            }
+
+            if (hasText(product.brand)) rememberAttrValue('brands', product.brand);
+
+            if (hasText(product.tags)) {
+                norm(product.tags).split(',').map(norm).filter(Boolean).forEach(rememberTag);
+            }
+
+            [
+                ['comesWithItems', 'comes_with'],
+                ['topSectionItems', 'top_section'],
+            ].forEach(([key, slug]) => {
+                if (!hasItems(product[key])) return;
+                product[key].forEach((item) => rememberAttrValue(slug, item));
+            });
+
+            (product.variants || []).forEach((variant) => {
+                (variant?.attributes || []).forEach((a) => {
+                    if (hasText(a?.attributeSlug) && hasText(a.value)) {
+                        rememberAttrValue(a.attributeSlug, a.value);
+                    }
+                });
+            });
+        });
+
+        return missing;
+    }
+
+    applyMissingToRef(missing, ref) {
+        if (!ref || !missing) return;
+
+        missing.categories.forEach((name) => {
+            if (ref.categoriesByName.has(low(name))) return;
+            ref.categoriesByName.set(low(name), { id: null, name: norm(name), subs: new Map() });
+        });
+
+        missing.subcategories.forEach(({ category, sub }) => {
+            let cat = ref.categoriesByName.get(low(category));
+            if (!cat) {
+                cat = { id: null, name: norm(category), subs: new Map() };
+                ref.categoriesByName.set(low(category), cat);
+            }
+            if (!cat.subs.has(low(sub))) cat.subs.set(low(sub), norm(sub));
+        });
+
+        missing.tags.forEach((name) => {
+            if (!ref.tagsByName.has(low(name))) ref.tagsByName.set(low(name), norm(name));
+        });
+
+        missing.attributeValues.forEach(({ slug, name }) => {
+            const attr = ref.attributesBySlug.get(low(slug));
+            if (!attr) return;
+            const value = {
+                name: norm(name),
+                slug: toSeoSlug(name),
+                colorCode: null,
+            };
+            if (value.name) attr.valuesByKey.set(low(value.name), value);
+            if (value.slug) attr.valuesByKey.set(value.slug, value);
+        });
+    }
+
+    async persistMissing(missing) {
+        if (!this.hasMissing(missing)) return;
+
+        for (const name of missing.categories.values()) {
+            const existing = await ProductCategory.findOne({
+                name: { $regex: `^${this.escapeRegex(name)}$`, $options: 'i' },
+            }).select('_id');
+            if (existing) continue;
+
+            const subs = [...missing.subcategories.values()]
+                .filter((entry) => low(entry.category) === low(name))
+                .map((entry) => entry.sub);
+
+            await new ProductCategory({
+                name,
+                slug: toSeoSlug(name) || `category-${Date.now()}`,
+                subCategory: subs,
+                metasubCategory: subs.map((sub, index) => ({
+                    subcategoryName: sub,
+                    subCategoryIndex: index,
+                })),
+                isPublish: true,
+                isFeatured: false,
+            }).save();
+        }
+
+        const subsOnExisting = [...missing.subcategories.values()]
+            .filter((entry) => !missing.categories.has(low(entry.category)));
+
+        for (const { category, sub } of subsOnExisting) {
+            const cat = await ProductCategory.findOne({
+                name: { $regex: `^${this.escapeRegex(category)}$`, $options: 'i' },
+            });
+            if (!cat) continue;
+            const already = (Array.isArray(cat.subCategory) ? cat.subCategory : [])
+                .some((s) => low(s) === low(sub));
+            if (already) continue;
+            cat.subCategory = [...(cat.subCategory || []), sub];
+            cat.metasubCategory = [
+                ...(Array.isArray(cat.metasubCategory) ? cat.metasubCategory : []),
+                { subcategoryName: sub, subCategoryIndex: cat.subCategory.length - 1 },
+            ];
+            await cat.save();
+        }
+
+        for (const name of missing.tags.values()) {
+            const existing = await ProductTag.findOne({
+                name: { $regex: `^${this.escapeRegex(name)}$`, $options: 'i' },
+            }).select('_id');
+            if (existing) continue;
+            await new ProductTag({ name, isPublished: true }).save();
+        }
+
+        const bySlug = new Map();
+        missing.attributeValues.forEach((entry) => {
+            const key = low(entry.slug);
+            if (!bySlug.has(key)) bySlug.set(key, []);
+            bySlug.get(key).push(entry.name);
+        });
+
+        for (const [slug, names] of bySlug) {
+            const attr = await VariantAttribute.findOne({ slug, isDeleted: { $ne: true } });
+            if (!attr) continue;
+
+            let changed = false;
+            names.forEach((name) => {
+                const valueSlug = toSeoSlug(name);
+                const exists = (attr.values || []).some((v) => (
+                    v && v.isDeleted !== true
+                    && (low(v.name) === low(name) || (v.slug && v.slug === valueSlug))
+                ));
+                if (exists) return;
+                attr.values.push({
+                    name,
+                    slug: valueSlug,
+                    isActive: true,
+                    colorCode: null,
+                    models: [],
+                });
+                changed = true;
+            });
+            if (changed) await attr.save();
+        }
     }
 
     /**
@@ -531,14 +777,38 @@ class ImportProductsService {
             return { success: false, message: 'No products supplied', status: 400 };
         }
 
-        const ref = await this.loadReference();
+        let ref = await this.loadReference();
+        const missing = this.collectMissing(list, ref);
+        if (this.hasMissing(missing)) {
+            if (dryRun) {
+                this.applyMissingToRef(missing, ref);
+            } else {
+                try {
+                    await this.persistMissing(missing);
+                } catch (error) {
+                    console.error('Import: failed to create catalogue entries:', error);
+                    return {
+                        success: false,
+                        message: `Could not create missing catalogue entries: ${error.message}`,
+                        status: 500,
+                    };
+                }
+                ref = await this.loadReference();
+            }
+        }
 
         // Seed the slug set with what already exists so generated suffixes never
         // collide with the live catalogue.
         const existing = await Product.find({}, { producturl: 1 }).lean();
         const taken = new Set(existing.map(e => e.producturl).filter(Boolean));
 
-        const results = { created: 0, updated: 0, skipped: 0, failed: 0 };
+        const results = {
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            failed: 0,
+            catalog: this.catalogCounts(missing),
+        };
         const details = [];
 
         for (const raw of list) {
@@ -606,11 +876,15 @@ class ImportProductsService {
             }
         }
 
+        const catalogNote = this.hasMissing(missing)
+            ? `${dryRun ? 'Will auto-create' : 'Auto-created'} ${this.catalogSummary(missing)}`
+            : '';
+
         return {
             success: true,
             message: dryRun
-                ? `Dry run: ${results.created} to create, ${results.updated} to update, ${results.failed} would fail`
-                : `Imported ${results.created} created, ${results.updated} updated, ${results.skipped} skipped, ${results.failed} failed`,
+                ? `Dry run: ${results.created} to create, ${results.updated} to update, ${results.failed} would fail${catalogNote ? `. ${catalogNote}` : ''}`
+                : `Imported ${results.created} created, ${results.updated} updated, ${results.skipped} skipped, ${results.failed} failed${catalogNote ? `. ${catalogNote}` : ''}`,
             results,
             details,
             status: 201,

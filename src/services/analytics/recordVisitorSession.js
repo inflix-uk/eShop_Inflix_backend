@@ -14,6 +14,19 @@ function parseDate(value) {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
+function sanitizeDeviceType(value) {
+  const device = String(value || '').trim().toLowerCase();
+  if (['mobile', 'desktop', 'tablet'].includes(device)) return device;
+  return 'unknown';
+}
+
+function sanitizeTrafficSource(value) {
+  if (value == null) return undefined;
+  const s = String(value).trim();
+  if (!s) return undefined;
+  return s.length > 128 ? s.slice(0, 128) : s;
+}
+
 /**
  * Upsert a marketing visitor session (storefront, consent-gated). Never throws.
  * Accepts optional attribution (same raw shape as order marketingAttribution).
@@ -23,6 +36,7 @@ function parseDate(value) {
  *   startedAt?: string|Date,
  *   landingPage?: string,
  *   deviceType?: string,
+ *   trafficSource?: string,
  *   attribution?: object,
  *   marketingAttribution?: object,
  * }} payload
@@ -36,12 +50,8 @@ async function recordVisitorSession(payload = {}) {
   const landingPage = payload.landingPage
     ? String(payload.landingPage).trim().slice(0, 2048)
     : undefined;
-  const deviceRaw = String(payload.deviceType || '')
-    .trim()
-    .toLowerCase();
-  const deviceType = ['mobile', 'desktop', 'tablet', 'unknown'].includes(deviceRaw)
-    ? deviceRaw
-    : undefined;
+  const deviceType = sanitizeDeviceType(payload.deviceType);
+  const trafficSource = sanitizeTrafficSource(payload.trafficSource);
   const now = new Date();
 
   const rawAttribution = payload.attribution || payload.marketingAttribution;
@@ -55,6 +65,7 @@ async function recordVisitorSession(payload = {}) {
     ...(visitorId ? { visitorId } : {}),
     ...(landingPage ? { landingPage } : {}),
     ...(deviceType ? { deviceType } : {}),
+    ...(trafficSource ? { trafficSource } : {}),
   };
 
   if (normalizedAttribution) {

@@ -1120,15 +1120,19 @@ const adminProductController = {
                 .trim()
                 .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-            // Match category field (e.g. "Smartphones,Apple") or condition
-            // (e.g. /categories/refurbished/ → condition "Refurbished")
+            // Match:
+            // - category field (e.g. "Smartphones,Apple" or "Samsung")
+            // - condition (e.g. /categories/refurbished/ → "Refurbished")
+            // - brand (imported phones sit in Mobile-Phones but brand is Samsung)
             const products = await Product.aggregate([
                 {
                     $match: {
                         status: true,
+                        isdeleted: { $ne: true },
                         $or: [
                             { category: { $regex: new RegExp(safeName, 'i') } },
                             { condition: { $regex: new RegExp(`^${safeName}$`, 'i') } },
+                            { brand: { $regex: new RegExp(`^${safeName}$`, 'i') } },
                         ],
                     },
                 },
@@ -1218,10 +1222,13 @@ const adminProductController = {
                 });
             }
 
-            // Return the retrieved products in the API response
+            const scope = buildPricingScopeFromPricingScope(req.pricingScope);
+            const ctx = await loadPricingContext(scope);
+            const productsWithPrices = applyPricingToProducts(products, ctx);
+
             return res.status(201).json({
                 message: 'Products retrieved successfully',
-                products,
+                products: productsWithPrices,
                 status: 201,
             });
         } catch (error) {
@@ -1331,10 +1338,13 @@ const adminProductController = {
                 });
             }
 
-            // Return the processed products in the API response
+            const scope = buildPricingScopeFromPricingScope(req.pricingScope);
+            const ctx = await loadPricingContext(scope);
+            const productsWithPrices = applyPricingToProducts(products, ctx);
+
             return res.status(201).json({
                 message: 'Products retrieved successfully',
-                products,
+                products: productsWithPrices,
                 status: 201,
             });
         } catch (error) {
