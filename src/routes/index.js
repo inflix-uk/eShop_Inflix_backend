@@ -595,6 +595,14 @@ router.get('/get/newsletters',                         ...requireAdmin, adminSta
 router.post('/upload/csv',                             ...requireAdmin, adminStatsController.uploadCSV);
 router.post('/upload/csv/all-products',                ...requireAdmin, adminStatsController.uploadCSVAllProducts);
 router.post('/upload/csv/with/accessories',            ...requireAdmin, adminStatsController.uploadCSVWithAccessories);
+// Public Google Merchant Center feed only. Other /uploads/feed/* stay admin-only.
+// When express.static misses (e.g. serverless /tmp), this route must not 401.
+router.get('/uploads/feed/:filename', (req, res, next) => {
+  if (req.params.filename === 'all-products-feed.csv') {
+    return adminStatsController.downloadFeedCsv(req, res);
+  }
+  return next();
+});
 router.get('/uploads/feed/:filename',                  ...requireAdmin, adminStatsController.downloadFeedCsv);
 
 // Sitemap Generation
