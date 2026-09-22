@@ -46,6 +46,7 @@ const contactUsWidgetController = require('../controller/contactUsWidgetControll
 const shippingSettingsController = require('../controller/shippingSettingsController');
 const productCardSettingsController = require('../controller/productCardSettingsController');
 const robotsSettingsController = require('../controller/robotsSettingsController');
+const dashboardSettingsController = require('../controller/dashboardSettingsController');
 const homepageDataController = require('../controller/homepageDataController');
 const homepageNavLinksController = require('../controller/homepageNavLinksController');
 const pricingGroupController = require('../controller/pricingGroupController');
@@ -1017,6 +1018,12 @@ router.get('/robots-settings', ...requireAdmin, robotsSettingsController.getRobo
 router.post('/robots-settings', ...requireAdmin, robotsSettingsController.saveRobotsSettings);
 
 // ========================================================================
+// DASHBOARD WIDGET (orders vs upcoming bookings — one at a time)
+// ========================================================================
+router.get('/dashboard-settings', ...requireAdmin, dashboardSettingsController.getDashboardSettings);
+router.post('/dashboard-settings', ...requireAdmin, dashboardSettingsController.saveDashboardSettings);
+
+// ========================================================================
 // SITE-WIDE SCHEMA (JSON-LD structured data on every page)
 // ========================================================================
 const siteWideSchemaController = require('../controller/siteWideSchemaController');
@@ -1128,6 +1135,7 @@ const bookingPaymentController = require('../controller/bookingPaymentController
 
 // Admin routes first (specific routes before parameterized routes)
 router.get('/get/booking/admin', ...requireAdmin, bookingController.getAdminBookings);
+router.get('/get/booking/upcoming', ...requireAdmin, bookingController.getUpcomingBookings);
 router.get('/get/booking/admin/slots', ...requireAdmin, bookingController.getAdminSlotsForDate);
 router.get('/get/booking/admin/:id', ...requireAdmin, bookingController.getAdminBookingById);
 router.post('/create/booking/admin', ...requireAdmin, bookingController.createAdminBooking);
