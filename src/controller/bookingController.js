@@ -15,6 +15,42 @@ const {
   isAdminUser,
 } = require('../utils/ownershipAuth');
 
+function formatDateInTimeZone(timeZone) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timeZone || 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }
+}
+
+function addDays(yyyyMmDd, days) {
+  const [year, month, day] = String(yyyyMmDd).split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dateFilterForRange(range, today, weekEnd, monthEnd) {
+  if (range === 'today') return today;
+  if (range === 'week') return { $gte: today, $lte: weekEnd };
+  if (range === 'month') return { $gte: today, $lte: monthEnd };
+  return { $gte: today };
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const bookingController = {
   getAvailableSlots: async (req, res) => {
     try {
@@ -633,6 +669,85 @@ const bookingController = {
       });
     } catch (error) {
       console.error('Error fetching admin bookings:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  getUpcomingBookings: async (req, res) => {
+    try {
+      const BookingSettings = require('../models/bookingSettings');
+      const settings = await BookingSettings.getSettings().catch(() => null);
+      const timeZone = settings?.timezone || 'Europe/London';
+
+      const today = formatDateInTimeZone(timeZone);
+      const weekEnd = addDays(today, 6);
+      const monthEnd = addDays(today, 29);
+
+      const range = ['today', 'week', 'month', 'all'].includes(req.query.range)
+        ? req.query.range
+        : 'week';
+      const status = String(req.query.status || 'active');
+      const type = String(req.query.type || '').trim();
+      const search = String(req.query.search || '').trim().slice(0, 80);
+
+      const activeStatuses = ['pending', 'confirmed'];
+      const dateFilter = dateFilterForRange(range, today, weekEnd, monthEnd);
+
+      const filter = {
+        isdeleted: false,
+        date: dateFilter,
+      };
+
+      if (status === 'active') {
+        filter.status = { $in: activeStatuses };
+      } else if (status && status !== 'all') {
+        filter.status = status;
+      }
+
+      if (type) filter.type = type;
+
+      if (search) {
+        const pattern = new RegExp(escapeRegex(search), 'i');
+        filter.$or = [
+          { bookingNumber: pattern },
+          { 'customer.name': pattern },
+          { 'customer.email': pattern },
+          { 'customer.phone': pattern },
+        ];
+      }
+
+      const summaryBase = {
+        isdeleted: false,
+        status: { $in: activeStatuses },
+      };
+
+      const [bookings, todayCount, weekCount, monthCount, allCount] = await Promise.all([
+        Booking.find(filter)
+          .populate('packageId', 'name price durationMinutes type')
+          .sort({ date: 1, startTime: 1 })
+          .limit(100)
+          .lean(),
+        Booking.countDocuments({ ...summaryBase, date: today }),
+        Booking.countDocuments({ ...summaryBase, date: { $gte: today, $lte: weekEnd } }),
+        Booking.countDocuments({ ...summaryBase, date: { $gte: today, $lte: monthEnd } }),
+        Booking.countDocuments({ ...summaryBase, date: { $gte: today } }),
+      ]);
+
+      return res.json({
+        message: 'Upcoming bookings fetched successfully',
+        status: 200,
+        bookings,
+        today,
+        range,
+        summary: {
+          today: todayCount,
+          week: weekCount,
+          month: monthCount,
+          all: allCount,
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching upcoming bookings:', error);
       return res.status(500).json({ error: 'Internal server error' });
     }
   },
