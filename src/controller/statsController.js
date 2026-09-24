@@ -72,9 +72,7 @@ const MERCHANT_FEED_FIELDS = [
     { label: "condition", value: "condition" },
     { label: "custom_label_0", value: "custom_label_0" },
     { label: "color", value: "color" },
-    { label: "capacity", value: "capacity" },
     { label: "shipping", value: "shipping" },
-    { label: "tax", value: "tax" },
     { label: "mobile link", value: "mobile_link" },
     { label: "google_product_category", value: "google_product_category" },
 ];
