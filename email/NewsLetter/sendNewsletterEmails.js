@@ -49,7 +49,7 @@ function buildWelcomeHtml(fullName, f) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; width: 100%; border-collapse: collapse;">
                     <tr>
                         <td align="center" style="padding: 0 0 20px 0;">
-                            <img src="{{EB_logoUrl}}" width="160" alt="{{EB_logoAlt}}" style="display: block; border: 0; outline: none; text-decoration: none; height: auto; max-width: 160px; width: 160px;" />
+                            <img src="{{EB_logoUrl}}" width="160" height="81" alt="{{EB_logoAlt}}" border="0" style="display:block; border:0; outline:none; text-decoration:none; width:160px; height:81px; max-width:160px;" />
                         </td>
                     </tr>
                     <tr>
@@ -129,7 +129,7 @@ function buildHotUkDealsHtml(f) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; width: 100%; border-collapse: collapse;">
                     <tr>
                         <td align="center" style="padding: 0 0 20px 0;">
-                            <img src="{{EB_logoUrl}}" width="160" alt="{{EB_logoAlt}}" style="display: block; border: 0; outline: none; text-decoration: none; height: auto; max-width: 160px; width: 160px;" />
+                            <img src="{{EB_logoUrl}}" width="160" height="81" alt="{{EB_logoAlt}}" border="0" style="display:block; border:0; outline:none; text-decoration:none; width:160px; height:81px; max-width:160px;" />
                         </td>
                     </tr>
                     <tr>
@@ -199,6 +199,8 @@ async function sendNewsletterSubscriberWelcome(opts) {
   const resolved = await getWelcomeResolved();
   const raw = buildWelcomeHtml(fullName, resolved.fields);
   const html = await applyEmailBrandingToHtml(raw);
+  const logoSrc = (html.match(/<img[^>]+src="([^"]+)"/i) || [])[1] || '';
+  console.log('[newsletter] header logo', { src: logoSrc, attachedFile: false });
   const info = await sendMail({
     to,
     subject: resolved.subject,
@@ -216,6 +218,8 @@ async function sendHotUkDealsWelcome(opts) {
   const resolved = await getHotUkDealsResolved();
   const raw = buildHotUkDealsHtml(resolved.fields);
   const html = await applyEmailBrandingToHtml(raw);
+  const logoSrc = (html.match(/<img[^>]+src="([^"]+)"/i) || [])[1] || '';
+  console.log('[newsletter] header logo', { src: logoSrc, attachedFile: false });
   const info = await sendMail({
     to,
     subject: resolved.subject,

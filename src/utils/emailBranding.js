@@ -227,7 +227,8 @@ async function getEmailBranding() {
   try {
     const logoDoc = await Logo.getLogo();
     if (logoDoc) {
-      logoAlt = String(logoDoc.altText || 'Logo').trim() || 'Logo';
+      logoAlt = String(logoDoc.altText || '').trim();
+      if (!logoAlt || /^logo$/i.test(logoAlt)) logoAlt = 'Aroma Desire';
       logoUrl = resolveLogoAbsoluteUrl(logoDoc.logoUrl);
     }
   } catch {
