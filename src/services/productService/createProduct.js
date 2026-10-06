@@ -2,6 +2,7 @@
 const Product = require('../../models/product');
 const blobStorage = require('../../utils/blobStorage');
 const { toSeoSlug, generateVariantId, generateVariantSlug, variantNameToSeoSlug } = require('../../utils/slugUtils');
+const { cleanText } = require('../../utils/formText');
 
 /**
  * Create Product Service
@@ -601,18 +602,19 @@ class CreateProductService {
         return new Product({
             // Basic product information
             name: name,
-            category: category,
+            // Empty text fields are stored empty, never as the text "null".
+            category: cleanText(category),
             // Auto-generate producturl if empty or not provided
             producturl: producturl && producturl.trim() !== ''
                 ? producturl
                 : this.generateProductUrl(name),
-            tags: tags,
-            brand: brand,
-            condition: condition,
-            subCategory: subcategory,
+            tags: cleanText(tags),
+            brand: cleanText(brand),
+            condition: cleanText(condition),
+            subCategory: cleanText(subcategory),
             battery: battery || null,
             is_featured: is_featured,
-            sim_options: sim_option,
+            sim_options: cleanText(sim_option),
             is_refundable: {
                 status: is_refundable_Values.is_refundable,
                 refund_duration: is_refundable_Values.refund_duration,
@@ -642,8 +644,8 @@ class CreateProductService {
             variantValues: variantValuesArray || null,
             variantNames: variantNamesArray || null,
             varImgGroup: varImgGroupArray || null,
-            Product_summary: Product_summary,
-            Product_description: Product_description,
+            Product_summary: cleanText(Product_summary),
+            Product_description: cleanText(Product_description),
             Seo_Meta: Seo_MetaObject || null,
             meta_Image: {
                 filename: meta_Image ? meta_Image.filename : null,

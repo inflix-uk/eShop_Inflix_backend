@@ -74,6 +74,30 @@ describe('prepareProduct validation', () => {
         assert.deepEqual(product.topSectionItems, ['free_delivery']);
     });
 
+    test('finds the Comes With list when the store spells its slug with a hyphen', () => {
+        // A list created from its name gets "comes-with"; only the seeded one is "comes_with".
+        const hyphenRef = service.buildReference({
+            attributes: [
+                {
+                    _id: 'attr-cw',
+                    name: 'Comes With',
+                    slug: 'comes-with',
+                    values: [{ name: 'Charging Cable', slug: 'charging-cable' }],
+                },
+            ],
+        });
+
+        const { product, errors } = service.prepareProduct(
+            { comesWithItems: ['Charging Cable'] },
+            hyphenRef
+        );
+        assert.deepEqual(errors, []);
+        assert.deepEqual(product.comesWithItems, ['charging-cable']);
+
+        const missing = service.collectMissing([{ comesWithItems: ['Sim Tool'] }], hyphenRef);
+        assert.deepEqual([...missing.attributeValues.values()], [{ slug: 'comes-with', name: 'Sim Tool' }]);
+    });
+
     test('rejects unknown category, brand, tag, comes_with and attribute values', () => {
         const { errors } = service.prepareProduct(
             {
@@ -364,6 +388,22 @@ describe('buildUpdateDoc merge semantics', () => {
     test('explicit boolean false IS applied', () => {
         const set = service.buildUpdateDoc({ status: false }, existing, ref());
         assert.equal(set.status, false);
+    });
+
+    test('a row with no variant data leaves the stored variants alone', () => {
+        // What the parser produces for a product-only row: every variant cell empty.
+        const blankRow = {
+            name: '', attributes: [], Cost: null, Price: null, salePrice: null,
+            Quantity: null, SKU: null, EIN: null, MPN: null, imageUrls: [],
+        };
+        const set = service.buildUpdateDoc({ name: 'New Name', variants: [blankRow] }, existing, ref());
+        assert.equal(set.name, 'New Name');
+        assert.ok(!('variantValues' in set));
+
+        // A row that carries a price is still merged.
+        const priced = service.buildUpdateDoc({ variants: [{ ...blankRow, Price: 5 }] }, existing, ref());
+        assert.equal(priced.variantValues.length, 1);
+        assert.equal(priced.variantValues[0].Price, 5);
     });
 
     test('Seo_Meta merges per field and always preserves stored metaSchemas', () => {

@@ -3,6 +3,7 @@ const Product = require('../../models/product');
 const blobStorage = require('../../utils/blobStorage');
 const { replaceFileReferenceInBlocks } = require('../../controller/homepageDataController');
 const { toSeoSlug, generateVariantId, variantNameToSeoSlug } = require('../../utils/slugUtils');
+const { cleanText, toBoolean } = require('../../utils/formText');
 
 /**
  * Update Product Service
@@ -827,7 +828,7 @@ class UpdateProductService {
 
             // Process all values
             const variantDesc_values = this.processVariantDescriptions(variantDesc);
-            const sim_options = sim_option || [];
+            const sim_options = cleanText(sim_option);
             const comesWithItems_values = this.processComesWithItems(comesWithItems);
             const topSectionItems_values = this.processTopSectionItems(topSectionItems);
             const specifications_values = this.processSpecifications(specifications);
@@ -868,22 +869,28 @@ class UpdateProductService {
             }
 
             // Update product fields
-            product.name = name;
+            // A blank name would leave the product unfindable; keep the stored one.
+            const cleanName = cleanText(name);
+            if (cleanName && cleanName.trim() !== '') product.name = cleanName;
             // Auto-generate producturl if empty or not provided
             product.producturl = producturl && producturl.trim() !== ''
                 ? producturl
-                : this.generateSlug(name);
-            product.category = category;
+                : this.generateSlug(product.name);
+            product.category = cleanText(category);
+            const cleanMainCategory = cleanText(mainCategory);
             product.mainCategory =
-              mainCategory !== undefined && mainCategory !== null && String(mainCategory).trim() !== ""
-                ? String(mainCategory).trim()
+              cleanMainCategory !== null && cleanMainCategory.trim() !== ""
+                ? cleanMainCategory.trim()
                 : null;
-            product.tags = tags;
-            product.subCategory = subcategory;
-            product.brand = brand;
+            product.tags = cleanText(tags);
+            product.subCategory = cleanText(subcategory);
+            product.brand = cleanText(brand);
             product.battery = battery || null;
-            product.condition = condition;
-            product.is_featured = is_featured;
+            product.condition = cleanText(condition);
+            // Text that is not a boolean fails the whole save, so a switch the
+            // form did not send leaves the stored value as it is.
+            const featured = toBoolean(is_featured);
+            if (featured !== null) product.is_featured = featured;
             product.seeAccessoriesWeDontNeed = seeAccessoriesWeDontNeed === 'true' ? true : seeAccessoriesWeDontNeed === 'false' ? false : null;
 
             // Process topsection with images
@@ -921,11 +928,13 @@ class UpdateProductService {
                 refund_type: is_refundable_Values.refund_type
             };
 
-            product.is_authenticated = is_authenticated;
-            product.low_stock_quantity_alert = low_stock_quantity_alert !== null &&
-                low_stock_quantity_alert !== undefined &&
-                !isNaN(Number(low_stock_quantity_alert))
-                ? Number(low_stock_quantity_alert)
+            const authenticated = toBoolean(is_authenticated);
+            if (authenticated !== null) product.is_authenticated = authenticated;
+            const lowStock = cleanText(low_stock_quantity_alert);
+            product.low_stock_quantity_alert = lowStock !== null &&
+                lowStock.trim() !== '' &&
+                !isNaN(Number(lowStock))
+                ? Number(lowStock)
                 : null;
 
             product.thumbnail_image = {
@@ -985,7 +994,7 @@ class UpdateProductService {
             product.variantDescription = variantDesc_values || null;
             product.varImgGroup = this.normalizeVarImgGroup(finalVarImgGroupArray || []) || null;
 
-            product.sim_options = sim_options || null;
+            product.sim_options = sim_options && sim_options.trim() !== '' ? sim_options : null;
             product.product_Specifications = specifications_values;
 
             // comesWithItems array (from VariantAttribute system)
@@ -995,10 +1004,10 @@ class UpdateProductService {
             product.topSectionItems = topSectionItems_values || [];
 
             // selectOption (single slug from VariantAttribute system)
-            product.selectOption = selectOption || null;
+            product.selectOption = cleanText(selectOption) || null;
 
-            product.Product_summary = Product_summary;
-            product.Product_description = Product_description;
+            product.Product_summary = cleanText(Product_summary);
+            product.Product_description = cleanText(Product_description);
 
             if (Product_description_blocks !== undefined && Product_description_blocks !== null) {
                 let blocksArray = null;
@@ -1046,7 +1055,8 @@ class UpdateProductService {
             }
 
             product.Seo_Meta = Seo_MetaObject || null;
-            product.status = status;
+            const published = toBoolean(status);
+            if (published !== null) product.status = published;
 
             product.meta_Image = {
                 filename: meta_ImageObject.filename || uploadedFiles.meta_Image?.filename,
