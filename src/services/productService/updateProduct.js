@@ -872,10 +872,14 @@ class UpdateProductService {
             // A blank name would leave the product unfindable; keep the stored one.
             const cleanName = cleanText(name);
             if (cleanName && cleanName.trim() !== '') product.name = cleanName;
-            // Auto-generate producturl if empty or not provided
-            product.producturl = producturl && producturl.trim() !== ''
-                ? producturl
-                : this.generateSlug(product.name);
+            // A published product keeps its web address; changing it on save
+            // broke every link to the product. Drafts take the one sent, and
+            // one is generated only when there is none at all.
+            const incomingUrl = producturl && producturl.trim() !== '' ? producturl.trim() : '';
+            const keepStoredUrl = product.status === true && Boolean(product.producturl);
+            if (!keepStoredUrl) {
+                product.producturl = incomingUrl || product.producturl || this.generateSlug(product.name);
+            }
             product.category = cleanText(category);
             const cleanMainCategory = cleanText(mainCategory);
             product.mainCategory =
