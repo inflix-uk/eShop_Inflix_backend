@@ -758,6 +758,22 @@ const createVariantAttribute = async (req, res) => {
         }
 
         const duplicate = await findVariantAttributeByNameCI(trimmedName);
+        if (duplicate && duplicate.isDeleted === true) {
+            // A deleted attribute still holds its name and slug, so creating
+            // it again could never succeed, yet it is hidden from every list.
+            // Bring it back, with the values it had, instead of refusing.
+            duplicate.isDeleted = false;
+            duplicate.isActive = isActive !== undefined ? isActive : true;
+            if (description !== undefined) duplicate.description = description;
+            if (Array.isArray(values) && values.length > 0) duplicate.values = values;
+            await duplicate.save();
+
+            return res.status(201).json({
+                status: 201,
+                message: 'Variant attribute restored',
+                variantAttribute: duplicate
+            });
+        }
         if (duplicate) {
             return res.status(409).json({
                 status: 409,

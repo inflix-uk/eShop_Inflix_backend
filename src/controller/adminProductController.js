@@ -225,16 +225,27 @@ const adminProductController = {
 
                 const { id } = req.params;
 
-                // Call service to handle business logic
-                const result = await updateProductService.updateProduct(id, {
-                    name, category, subcategory, mainCategory, tags, brand, condition, is_featured,
-                    is_refundable, is_authenticated, low_stock_quantity_alert,
-                    has_warranty, productType, status, Seo_Meta, Product_summary,
-                    Product_description, Product_description_blocks, descriptionBlockImageCount,
-                    comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
-                    sim_option, battery, producturl, seeAccessoriesWeDontNeed, topsection,
-                    perks_and_benefits, req
-                });
+                // Call service to handle business logic. The outer try/catch
+                // does not cover this callback: without its own, a failed save
+                // sent no response at all and the admin's Update button hung.
+                let result;
+                try {
+                    result = await updateProductService.updateProduct(id, {
+                        name, category, subcategory, mainCategory, tags, brand, condition, is_featured,
+                        is_refundable, is_authenticated, low_stock_quantity_alert,
+                        has_warranty, productType, status, Seo_Meta, Product_summary,
+                        Product_description, Product_description_blocks, descriptionBlockImageCount,
+                        comesWithItems, topSectionItems, selectOption, specifications, variantDesc,
+                        sim_option, battery, producturl, seeAccessoriesWeDontNeed, topsection,
+                        perks_and_benefits, req
+                    });
+                } catch (error) {
+                    console.error('Error updating product:', error);
+                    const reason = error?.code === 11000
+                        ? 'another product already uses this product URL'
+                        : error?.message || 'unexpected error';
+                    return res.json({ message: `Failed to update product: ${reason}`, status: 500 });
+                }
 
                 // Handle service result
                 if (!result.success) {
@@ -651,8 +662,10 @@ const adminProductController = {
                 status: 'Approved'
             }).sort({ createdAt: -1 });
 
-            // Helper function to normalize slugs for comparison (handles both hyphen and underscore formats)
-            const normalizeSlug = (s) => s ? s.toLowerCase().replace(/[-_]+/g, '-') : '';
+            // Helper function to normalize slugs for comparison (handles both hyphen and underscore formats).
+            // Spaces too: imported products can hold the option's name ("Charging Cable")
+            // where its slug ("charging-cable") is expected.
+            const normalizeSlug = (s) => s ? String(s).toLowerCase().trim().replace(/[\s_-]+/g, '-') : '';
 
             // Fetch topSectionItems with full data (icon, description) from VariantAttribute
             // Try both underscore and hyphen versions of slug for backwards compatibility
@@ -665,7 +678,8 @@ const adminProductController = {
                 if (topSectionAttribute && topSectionAttribute.values) {
                     populatedTopSectionItems = product.topSectionItems.map(slug => {
                         const normalizedProductSlug = normalizeSlug(slug);
-                        const matchedValue = topSectionAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug);
+                        const matchedValue = topSectionAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug)
+                            || topSectionAttribute.values.find(v => normalizeSlug(v.name) === normalizedProductSlug);
                         if (matchedValue) {
                             return {
                                 slug: matchedValue.slug,
@@ -709,7 +723,8 @@ const adminProductController = {
                     populatedComesWithItems = product.comesWithItems.map(slug => {
                         // Match using normalized slugs to handle underscore/hyphen inconsistencies
                         const normalizedProductSlug = normalizeSlug(slug);
-                        const matchedValue = comesWithAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug);
+                        const matchedValue = comesWithAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug)
+                            || comesWithAttribute.values.find(v => normalizeSlug(v.name) === normalizedProductSlug);
                         if (matchedValue) {
                             return {
                                 slug: matchedValue.slug,

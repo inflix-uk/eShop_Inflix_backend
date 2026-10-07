@@ -409,7 +409,7 @@ router.patch('/bulk/update/review/status',               ...requireAdmin, produc
 // ========================================================================
 // PRODUCT FAQ MANAGEMENT
 // ========================================================================
-router.post('/post/product/faq',                          productFaqController.postProductFaq);
+router.post('/post/product/faq',                          ...requireAdmin, productFaqController.postProductFaq);
 router.get('/get/all/product/faqs/:id',                   productFaqController.getAllProductFaqs);
 router.patch('/update/product/faq/:id',                   ...requireAdmin, productFaqController.updateProductFaq);
 router.get('/get/faq/:id',                                productFaqController.getFaqById);

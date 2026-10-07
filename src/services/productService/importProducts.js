@@ -145,6 +145,18 @@ class ImportProductsService {
         }
     }
 
+    /**
+     * The "Comes With" / "Top Section" option lists. Stores name them with
+     * either separator (comes_with or comes-with); matching only the first
+     * skipped validation on the others and stored whatever the cell held.
+     */
+    optionAttribute(ref, slug) {
+        if (!ref) return null;
+        return ref.attributesBySlug.get(slug)
+            || ref.attributesBySlug.get(slug.replace(/_/g, '-'))
+            || null;
+    }
+
     lookupValue(ref, attributeSlug, rawValue) {
         const attr = ref?.attributesBySlug.get(low(attributeSlug));
         if (!attr) return { attr: null, value: null };
@@ -260,8 +272,9 @@ class ImportProductsService {
                 ['comesWithItems', 'comes_with'],
                 ['topSectionItems', 'top_section'],
             ].forEach(([key, slug]) => {
-                if (!hasItems(product[key])) return;
-                product[key].forEach((item) => rememberAttrValue(slug, item));
+                const attr = this.optionAttribute(ref, slug);
+                if (!hasItems(product[key]) || !attr) return;
+                product[key].forEach((item) => rememberAttrValue(attr.slug, item));
             });
 
             (product.variants || []).forEach((variant) => {
@@ -500,7 +513,7 @@ class ImportProductsService {
             ['comesWithItems', 'comes_with'],
             ['topSectionItems', 'top_section'],
         ].forEach(([key, slug]) => {
-            const attr = ref.attributesBySlug.get(slug);
+            const attr = this.optionAttribute(ref, slug);
             if (!hasItems(product[key]) || !attr || !attr.valuesByKey.size) return;
             const storedItems = Array.isArray(existing?.[key]) ? existing[key] : [];
             if (storedItems.length && low(product[key].join('|')) === low(storedItems.join('|'))) {
@@ -696,6 +709,15 @@ class ImportProductsService {
         });
     }
 
+    /** True when a file row has no variant data at all (name "single" is filled in by the parser). */
+    isBlankVariantRow(raw) {
+        if (!raw) return true;
+        const named = hasText(raw.name) && low(raw.name) !== 'single';
+        const priced = [raw.Cost, raw.Price, raw.salePrice, raw.Quantity].some((v) => v !== null && v !== undefined && v !== '');
+        const coded = [raw.SKU, raw.EIN, raw.MPN].some(hasText);
+        return !named && !priced && !coded && !hasItems(raw.attributes) && !hasItems(raw.imageUrls);
+    }
+
     /**
      * $set for an EXISTING product. Only fields the file actually provides are
      * written; producturl, varImgGroup, battery, perks, warranty, related
@@ -750,8 +772,12 @@ class ImportProductsService {
             metaSchemas: Array.isArray(existingSeo.metaSchemas) ? existingSeo.metaSchemas : [],
         };
 
-        if (hasItems(p.variants)) {
-            set.variantValues = this.mergeVariants(p.variants, existing.variantValues, type, ref);
+        // A row with every variant cell empty carries product-level changes
+        // only. Merging it would replace the stored variants with one blank
+        // "default" variant, so it leaves them as they are.
+        const variantRows = (p.variants || []).filter((v) => !this.isBlankVariantRow(v));
+        if (hasItems(variantRows)) {
+            set.variantValues = this.mergeVariants(variantRows, existing.variantValues, type, ref);
         }
 
         if (type === 'variant') {
