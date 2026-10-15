@@ -1567,3 +1567,4 @@ const createOrderService = async (orderData, req = null) => {
 };
 
 module.exports = createOrderService;
+module.exports.generateOrderNumber = generateOrderNumber;

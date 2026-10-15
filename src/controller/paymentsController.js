@@ -29,6 +29,11 @@ const {
 // Booking payment confirmation service
 const { confirmBookingPayment, handleBookingPaymentFailed } = require('../services/bookingService/confirmBooking');
 const {
+  isUnassignedOrderNumber,
+  encodeCartMetadata,
+  recoverOrderFromPaymentIntent,
+} = require('../services/orderService/recoverOrderFromPaymentIntent');
+const {
   logCheckout,
   auditSuccess,
   auditFailure,
@@ -446,6 +451,8 @@ const paymentsController = {
                     productCount: String(chargeableProducts.length),
                     totalItems: String(chargeableProducts.reduce((sum, p) => sum + p.qty, 0)),
                     products: productSummary,
+                    // Compact cart so the webhook can rebuild a missing order
+                    cartItems: encodeCartMetadata(chargeableProducts),
 
                     // Pricing
                     subtotal: String(totalSalePrice.toFixed(2)),
@@ -1619,7 +1626,11 @@ const paymentsController = {
                     // Check if this is a booking payment or order payment
                     const metadataPaymentType = paymentIntent.metadata?.paymentType;
                     const bookingNumber = paymentIntent.metadata?.bookingNumber;
-                    const orderNumber = paymentIntent.metadata?.orderNumber;
+                    // "pending" is the placeholder written when the PaymentIntent
+                    // was created before any order existed — it names no order.
+                    const orderNumber = isUnassignedOrderNumber(paymentIntent.metadata?.orderNumber)
+                        ? null
+                        : paymentIntent.metadata.orderNumber;
 
                     writeLog({
                         event: 'backend.webhook.payment_intent.succeeded',
@@ -1775,20 +1786,58 @@ const paymentsController = {
                             });
                         }
                     } else {
-                        console.log('⚠️ No orderNumber in paymentIntent metadata');
+                        console.log('⚠️ No orderNumber in paymentIntent metadata — attempting recovery');
+                        const recovery = await recoverOrderFromPaymentIntent(paymentIntent);
+
+                        if (recovery.recovered || recovery.alreadyExists) {
+                            console.log(
+                                recovery.recovered ? '✅ Order recovered from PaymentIntent:' : 'ℹ️ Order already exists for PaymentIntent:',
+                                recovery.orderNumber
+                            );
+                            if (recovery.recovered) {
+                                auditSuccess({
+                                    event: 'shop.order.recovered_by_webhook',
+                                    stage: 'complete',
+                                    flow: 'shop',
+                                    source: 'webhook',
+                                    message: `Order ${recovery.orderNumber} created by Stripe webhook from an unattributed payment`,
+                                    orderNumber: recovery.orderNumber,
+                                    paymentIntentId: paymentIntent.id,
+                                    paymentIntentStatus: paymentIntent.status,
+                                    paymentMethodType: paymentType,
+                                    amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
+                                    currency: paymentIntent.currency,
+                                    customerEmail: paymentIntent.receipt_email || undefined,
+                                });
+                            }
+                            writeLog({
+                                event: recovery.recovered
+                                    ? 'backend.webhook.order_recovered'
+                                    : 'backend.webhook.order_already_exists',
+                                source: 'backend',
+                                paymentIntentId: paymentIntent.id,
+                                orderNumber: recovery.orderNumber,
+                                paymentMethodType: paymentType,
+                            });
+                            break;
+                        }
+
                         auditFailure({
                             event: 'shop.webhook.unattributable_payment',
                             stage: 'webhook',
                             source: 'webhook',
                             severity: 'critical',
-                            failureReason: 'Succeeded payment carries neither orderNumber nor bookingNumber',
+                            failureReason: `No orderNumber/bookingNumber and order recovery failed: ${recovery.reason}`,
                             message: 'PAID BUT UNATTRIBUTABLE - nothing links this charge to an order',
                             paymentIntentId: paymentIntent.id,
                             paymentMethodType: paymentType,
                             amount: paymentIntent.amount ? paymentIntent.amount / 100 : undefined,
                             currency: paymentIntent.currency,
                             customerEmail: paymentIntent.receipt_email || undefined,
-                            data: { metadataKeys: Object.keys(paymentIntent.metadata || {}) },
+                            data: {
+                                metadataKeys: Object.keys(paymentIntent.metadata || {}),
+                                recoveryCode: recovery.code || null,
+                            },
                         });
                         writeLog({
                             event: 'backend.webhook.no_ordernumber_in_metadata',
