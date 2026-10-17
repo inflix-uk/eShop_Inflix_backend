@@ -198,7 +198,8 @@ const footerSettingsSchema = new mongoose.Schema({
         'after_logo',
         'after_useful_links',
         'after_customer_care',
-        'after_newsletter'
+        'after_newsletter',
+        'after_contact'
       ],
       default: 'after_useful_links'
     },
@@ -227,6 +228,121 @@ const footerSettingsSchema = new mongoose.Schema({
       }
     }]
   }],
+  sectionPayments: {
+    isEnabled: {
+      type: Boolean,
+      default: false
+    },
+    heading: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [200, 'Payment methods heading cannot exceed 200 characters']
+    },
+    description: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [1000, 'Payment methods description cannot exceed 1000 characters']
+    },
+    logos: [{
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+        maxlength: [100, 'Payment method name cannot exceed 100 characters']
+      },
+      image: {
+        type: String,
+        default: ''
+      },
+      isActive: {
+        type: Boolean,
+        default: true
+      },
+      order: {
+        type: Number,
+        default: 0
+      }
+    }]
+  },
+  sectionContact: {
+    isEnabled: {
+      type: Boolean,
+      default: false
+    },
+    title: {
+      type: String,
+      default: '',
+      trim: true,
+      maxlength: [200, 'Contact section title cannot exceed 200 characters']
+    },
+    items: [{
+      type: {
+        type: String,
+        enum: ['phone', 'email', 'whatsapp', 'address'],
+        default: 'phone'
+      },
+      label: {
+        type: String,
+        default: '',
+        trim: true,
+        maxlength: [200, 'Contact label cannot exceed 200 characters']
+      },
+      value: {
+        type: String,
+        required: true,
+        trim: true,
+        maxlength: [500, 'Contact detail cannot exceed 500 characters']
+      },
+      isActive: {
+        type: Boolean,
+        default: true
+      },
+      order: {
+        type: Number,
+        default: 0
+      }
+    }]
+  },
+  customHtml: {
+    isEnabled: {
+      type: Boolean,
+      default: false
+    },
+    position: {
+      type: String,
+      enum: ['above_columns', 'below_columns', 'replace_columns'],
+      default: 'below_columns'
+    },
+    html: {
+      type: String,
+      default: '',
+      maxlength: [100000, 'Footer HTML cannot exceed 100,000 characters']
+    },
+    css: {
+      type: String,
+      default: '',
+      maxlength: [100000, 'Footer CSS cannot exceed 100,000 characters']
+    }
+  },
+  layout: {
+    columnOrder: {
+      type: [String],
+      default: undefined
+    },
+    hiddenColumns: {
+      type: [String],
+      default: undefined
+    },
+    colors: {
+      background: { type: String, default: '' },
+      text: { type: String, default: '' },
+      heading: { type: String, default: '' },
+      linkHover: { type: String, default: '' },
+      border: { type: String, default: '' }
+    }
+  },
   section5: {
     title: {
       type: String,
