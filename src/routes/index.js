@@ -768,7 +768,7 @@ router.delete('/delete/deal/:id', ...requireAdmin, dealsController.deleteDeal);
 // ========================================================================
 // FOOTER SETTINGS MANAGEMENT
 // ========================================================================
-router.get('/footer/settings/public', publicCache.long, footerSettingsController.getFooterSettingsPublic);
+router.get('/footer/settings/public', publicCache.short, footerSettingsController.getFooterSettingsPublic);
 router.get('/footer/settings', ...requireAdmin, footerSettingsController.getFooterSettings);
 router.post('/footer/settings', ...requireAdmin, footerSettingsController.saveFooterSettings);
 router.patch('/footer/settings/:section', ...requireAdmin, footerSettingsController.updateFooterSection);
