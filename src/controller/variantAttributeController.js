@@ -625,6 +625,29 @@ const updateModelStatus = async (req, res) => {
 };
 
 // Update value details (name and status)
+// Product fields that hold option slugs, keyed by list slug (hyphen and
+// underscore spellings are the same list).
+const OPTION_LIST_PRODUCT_FIELDS = {
+    top_section: 'topSectionItems',
+    comes_with: 'comesWithItems',
+};
+
+async function renameOptionOnProducts(attributeSlug, oldSlug, oldName, newSlug) {
+    const field = OPTION_LIST_PRODUCT_FIELDS[String(attributeSlug || '').toLowerCase().replace(/-/g, '_')];
+    if (!field || !oldSlug || oldSlug === newSlug) return;
+    // Products may hold the slug in either spelling, or the option's name (imports)
+    const oldForms = [...new Set([oldSlug, oldSlug.replace(/-/g, '_'), oldName].filter(Boolean))];
+    try {
+        await Product.updateMany(
+            { [field]: { $in: oldForms } },
+            { $set: { [`${field}.$[old]`]: newSlug } },
+            { arrayFilters: [{ old: { $in: oldForms } }] }
+        );
+    } catch (error) {
+        console.error(`Renaming ${field} option on products failed:`, error.message);
+    }
+}
+
 const updateValueDetails = async (req, res) => {
     try {
         const { id, valueSlug } = req.params;
@@ -648,11 +671,25 @@ const updateValueDetails = async (req, res) => {
             });
         }
 
+        const previousValue = variantAttribute.values[valueIndex];
+        const previousSlug = previousValue.slug;
+        const previousName = previousValue.name;
+
         // Update the value
         if (name !== undefined) {
-            variantAttribute.values[valueIndex].name = name;
             // Update slug if name changed (use hyphens for SEO-friendly URLs)
-            variantAttribute.values[valueIndex].slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/g, '').replace(/^-+/, '').replace(/-+/g, '-');
+            const nextSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/g, '').replace(/^-+/, '').replace(/-+/g, '-');
+            // Two values sharing a slug can never be told apart again: every
+            // edit/toggle addresses a value by slug and always hits the first.
+            const clash = variantAttribute.values.some((v, i) => i !== valueIndex && v.slug === nextSlug && !v.isDeleted);
+            if (clash) {
+                return res.status(400).json({
+                    status: 400,
+                    message: `Another value is already called "${name}". Please use a different name.`
+                });
+            }
+            variantAttribute.values[valueIndex].name = name;
+            variantAttribute.values[valueIndex].slug = nextSlug;
         }
         if (isActive !== undefined) {
             variantAttribute.values[valueIndex].isActive = isActive;
@@ -668,6 +705,11 @@ const updateValueDetails = async (req, res) => {
         }
 
         await variantAttribute.save();
+
+        // Products store highlight / Comes With picks by slug. Without this a
+        // renamed option kept showing its old name on every product page.
+        const newSlug = variantAttribute.values[valueIndex].slug;
+        await renameOptionOnProducts(variantAttribute.slug, previousSlug, previousName, newSlug);
 
         res.status(200).json({
             status: 200,
