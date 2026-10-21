@@ -165,7 +165,8 @@ const adminProductController = {
                 '-varImgGroup -Seo_Meta -product_Specifications -variantDescription ' +
                 '-relatedProducts -topsection -topSectionItems -comesWithItems ' +
                 '-battery -perks_and_benefits -Product_summary';
-            const products = await Product.find({ status: 'true' })
+            // Deleted products keep status true, so they must be excluded too
+            const products = await Product.find({ status: 'true', isdeleted: { $ne: true } })
                 .select(LISTING_EXCLUDED_FIELDS)
                 .lean();
 
@@ -680,6 +681,10 @@ const adminProductController = {
                         const normalizedProductSlug = normalizeSlug(slug);
                         const matchedValue = topSectionAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug)
                             || topSectionAttribute.values.find(v => normalizeSlug(v.name) === normalizedProductSlug);
+                        // Switched off or deleted in Product Options: hide it on the site
+                        if (matchedValue && (matchedValue.isActive === false || matchedValue.isDeleted === true)) {
+                            return null;
+                        }
                         if (matchedValue) {
                             return {
                                 slug: matchedValue.slug,
@@ -699,7 +704,7 @@ const adminProductController = {
                             image: null,
                             fromCatalog: false
                         };
-                    });
+                    }).filter(Boolean);
                 } else {
                     populatedTopSectionItems = product.topSectionItems.map(slug => ({
                         slug,
@@ -725,6 +730,10 @@ const adminProductController = {
                         const normalizedProductSlug = normalizeSlug(slug);
                         const matchedValue = comesWithAttribute.values.find(v => normalizeSlug(v.slug) === normalizedProductSlug)
                             || comesWithAttribute.values.find(v => normalizeSlug(v.name) === normalizedProductSlug);
+                        // Switched off or deleted in Product Options: hide it on the site
+                        if (matchedValue && (matchedValue.isActive === false || matchedValue.isDeleted === true)) {
+                            return null;
+                        }
                         if (matchedValue) {
                             return {
                                 slug: matchedValue.slug,
@@ -744,7 +753,7 @@ const adminProductController = {
                             image: null,
                             fromCatalog: false
                         };
-                    });
+                    }).filter(Boolean);
                 } else {
                     populatedComesWithItems = product.comesWithItems.map(slug => ({
                         slug,
@@ -1264,6 +1273,7 @@ const adminProductController = {
                     $match: {
                         subCategory: { $regex: new RegExp(subcategoryname, 'i') },
                         status: true,
+                        isdeleted: { $ne: true },
                     },
                 },
                 {
@@ -1391,6 +1401,7 @@ const adminProductController = {
                 {
                     $match: {
                         status: true,
+                        isdeleted: { $ne: true },
                         $or: [
                             { name: { $regex: new RegExp(searchname, 'i') } },
                             { producturl: { $regex: new RegExp(searchname, 'i') } },

@@ -61,7 +61,8 @@ const getDefaultFooterSettings = () => {
     bottomBar: {
       textBeforeCredit: '',
       creditLabel: '',
-      creditUrl: ''
+      creditUrl: '',
+      showCookieSettingsButton: true
     },
     sectionCustom: [],
     section4: {

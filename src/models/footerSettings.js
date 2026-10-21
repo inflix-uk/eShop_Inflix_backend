@@ -179,6 +179,12 @@ const footerSettingsSchema = new mongoose.Schema({
       default: '',
       trim: true,
       maxlength: [500, 'Credit URL cannot exceed 500 characters']
+    },
+    // The built-in "Cookie settings" button under the bottom bar. Hiding it
+    // leaves the consent banner and any custom cookie-settings link working.
+    showCookieSettingsButton: {
+      type: Boolean,
+      default: true
     }
   },
   sectionCustom: [{
