@@ -114,8 +114,26 @@ async function getDefaultFrom(overrides) {
 /**
  * Send mail using DB/env SMTP. If mailOptions.from is omitted, uses configured default From.
  */
+function describeSmtpSource(effective) {
+  const doc = effective.doc || {};
+  const hostFromDb = Boolean(doc.host && String(doc.host).trim());
+  const userFromDb = Boolean(doc.username && String(doc.username).trim());
+  const passFromDb = Boolean(doc.password && String(doc.password).trim());
+  const fromFromDb = Boolean(doc.fromEmail && String(doc.fromEmail).trim());
+  return {
+    host: hostFromDb ? 'admin-smtp' : 'env',
+    username: userFromDb ? 'admin-smtp' : 'env',
+    password: passFromDb ? 'admin-smtp' : 'env',
+    fromEmail: fromFromDb ? 'admin-smtp' : 'env',
+  };
+}
+
 async function sendMail(mailOptions, overrides) {
-  const fromDefault = await getDefaultFrom(overrides);
+  const effective = await resolveEffectiveConfig(overrides);
+  const fromDefault = buildFromHeader(effective.fromName, effective.fromEmail)
+    || (process.env.NEWSLETTER_FROM && String(process.env.NEWSLETTER_FROM).trim())
+    || (process.env.EMAIL_FROM && String(process.env.EMAIL_FROM).trim())
+    || undefined;
   const payload = { ...mailOptions };
   if (!payload.from) {
     if (!fromDefault) {
@@ -125,8 +143,45 @@ async function sendMail(mailOptions, overrides) {
     }
     payload.from = fromDefault;
   }
-  const transporter = await createTransporter(overrides);
-  return transporter.sendMail(payload);
+
+  console.log('[mailer] send start', {
+    to: payload.to,
+    subject: payload.subject,
+    from: payload.from,
+    host: effective.host,
+    port: effective.port,
+    secure: effective.secure,
+    user: effective.user,
+    passwordSet: Boolean(effective.pass),
+    source: describeSmtpSource(effective),
+  });
+
+  try {
+    const transporter = nodemailer.createTransport(buildTransportOptions(effective));
+    const info = await transporter.sendMail(payload);
+    console.log('[mailer] send ok', {
+      to: payload.to,
+      messageId: info.messageId,
+      response: info.response,
+      accepted: info.accepted,
+      rejected: info.rejected,
+    });
+    return info;
+  } catch (err) {
+    console.error('[mailer] send failed', {
+      to: payload.to,
+      from: payload.from,
+      host: effective.host,
+      port: effective.port,
+      user: effective.user,
+      code: err.code,
+      responseCode: err.responseCode,
+      command: err.command,
+      message: err.message,
+      response: err.response,
+    });
+    throw err;
+  }
 }
 
 async function verifyTransporter(overrides) {

@@ -1508,8 +1508,11 @@ const statsController = {
                 });
             }
 
+            console.log('[newsletter] subscribe request', { email: trimmedEmail, mode: mode || 'website' });
+
             const existingSubscriber = await Newsletter.findOne({ email: trimmedEmail });
             if (existingSubscriber) {
+                console.log('[newsletter] skip email, already subscribed', { email: trimmedEmail });
                 return res.status(200).json({
                     message: 'Email is already subscribed',
                     status: 200,
@@ -1526,13 +1529,17 @@ const statsController = {
             await newSubscriber.save();
 
             try {
+                console.log('[newsletter] sending welcome email', { to: trimmedEmail });
                 await sendNewsletterSubscriberWelcome({ to: trimmedEmail, fullName });
+                console.log('[newsletter] welcome email finished', { to: trimmedEmail });
             } catch (mailErr) {
-                console.error(
-                    'Error sending newsletter welcome email:',
-                    mailErr?.message || mailErr,
-                    mailErr?.response || ''
-                );
+                console.error('[newsletter] welcome email failed', {
+                    to: trimmedEmail,
+                    code: mailErr?.code,
+                    responseCode: mailErr?.responseCode,
+                    message: mailErr?.message || String(mailErr),
+                    response: mailErr?.response || '',
+                });
             }
 
             return res.status(201).json({
@@ -1552,8 +1559,11 @@ const statsController = {
             const { fullName, email, mode } = req.body; // Destructure the request body
 
             // Check if email is already subscribed (optional - you can remove this if you want to allow duplicates)
+            console.log('[deals-modal] subscribe request', { email, mode });
+
             const existingSubscriber = await Newsletter.findOne({ email });
             if (existingSubscriber) {
+                console.log('[deals-modal] skip email, already subscribed', { email });
                 return res.json({
                     message: 'Email is already subscribed',
                     status: 400
@@ -1571,9 +1581,17 @@ const statsController = {
             await newSubscriber.save();
 
             try {
+                console.log('[deals-modal] sending coupon email', { to: email });
                 await sendHotUkDealsWelcome({ to: email });
+                console.log('[deals-modal] coupon email finished', { to: email });
             } catch (mailErr) {
-                console.error("Error sending Hot UK Deals email:", mailErr);
+                console.error('[deals-modal] coupon email failed', {
+                    to: email,
+                    code: mailErr?.code,
+                    responseCode: mailErr?.responseCode,
+                    message: mailErr?.message || String(mailErr),
+                    response: mailErr?.response || '',
+                });
             }
 
             // Respond with success message
