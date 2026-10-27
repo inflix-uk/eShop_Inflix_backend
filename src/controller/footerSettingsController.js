@@ -3,6 +3,20 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const blobStorage = require('../utils/blobStorage');
+const {
+  normalizePayments,
+  normalizeContact,
+  normalizeCustomHtml,
+  normalizeLayout,
+} = require('../utils/footerSettingsNormalize');
+
+/** Blocks stored as one object each and always passed through their shape guard. */
+const NORMALIZED_SECTIONS = {
+  sectionPayments: normalizePayments,
+  sectionContact: normalizeContact,
+  customHtml: normalizeCustomHtml,
+  layout: normalizeLayout,
+};
 
 // Check if we should use Blob storage (Vercel) or local disk storage (development)
 const useBlobStorage = blobStorage.isConfigured();
@@ -47,13 +61,18 @@ const getDefaultFooterSettings = () => {
     bottomBar: {
       textBeforeCredit: '',
       creditLabel: '',
-      creditUrl: ''
+      creditUrl: '',
+      showCookieSettingsButton: true
     },
     sectionCustom: [],
     section4: {
       title: '',
       links: []
     },
+    sectionPayments: normalizePayments(),
+    sectionContact: normalizeContact(),
+    customHtml: normalizeCustomHtml(),
+    layout: normalizeLayout(),
     // section5 intentionally removed from API defaults/response
   };
 };
@@ -63,6 +82,7 @@ const ALLOWED_CUSTOM_PLACEMENTS = [
   'after_useful_links',
   'after_customer_care',
   'after_newsletter',
+  'after_contact',
 ];
 
 /**
@@ -191,6 +211,9 @@ function serializeFooterSettingsForClient(settingsDoc) {
     ...(settingsData.bottomBar || {}),
   };
   settingsData.sectionCustom = normalizeCustomSections(settingsData.sectionCustom);
+  for (const [key, normalize] of Object.entries(NORMALIZED_SECTIONS)) {
+    settingsData[key] = normalize(settingsData[key]);
+  }
   // Ensure legacy section5 data is never exposed to clients
   delete settingsData.section5;
 
@@ -265,9 +288,10 @@ const getFooterSettingsPublic = async (req, res) => {
 const saveFooterSettings = async (req, res) => {
   try {
     const { section1, section2, section3, section4, sectionNewsletter, bottomBar, sectionCustom } = req.body;
+    const hasNormalizedSection = Object.keys(NORMALIZED_SECTIONS).some((key) => req.body[key]);
     
     // Validate that at least one section is provided
-    if (!section1 && !section2 && !section3 && !section4 && !sectionNewsletter && !bottomBar && !sectionCustom) {
+    if (!section1 && !section2 && !section3 && !section4 && !sectionNewsletter && !bottomBar && !sectionCustom && !hasNormalizedSection) {
       return res.status(400).json({
         success: false,
         message: 'At least one section must be provided'
@@ -313,6 +337,10 @@ const saveFooterSettings = async (req, res) => {
         sectionCustom !== undefined ? sectionCustom : prev.sectionCustom
       ),
     };
+
+    for (const [key, normalize] of Object.entries(NORMALIZED_SECTIONS)) {
+      merged[key] = normalize(req.body[key] !== undefined ? req.body[key] : prev[key]);
+    }
 
     if (merged.section1.logo != null && typeof merged.section1.logo === 'object') {
       merged.section1.logo = {
@@ -365,7 +393,10 @@ const updateFooterSection = async (req, res) => {
     const sectionData = req.body;
     
     // Validate section name
-    const validSections = ['section1', 'section2', 'section3', 'section4', 'sectionNewsletter', 'bottomBar', 'sectionCustom'];
+    const validSections = [
+      'section1', 'section2', 'section3', 'section4', 'sectionNewsletter', 'bottomBar', 'sectionCustom',
+      ...Object.keys(NORMALIZED_SECTIONS),
+    ];
     if (!validSections.includes(section)) {
       return res.status(400).json({
         success: false,
@@ -403,6 +434,11 @@ const updateFooterSection = async (req, res) => {
           ? sectionData.sections
           : [];
       mergedSection = normalizeCustomSections(incoming);
+    } else if (NORMALIZED_SECTIONS[section]) {
+      mergedSection = NORMALIZED_SECTIONS[section]({
+        ...(prev[section] || {}),
+        ...sectionData,
+      });
     } else {
       mergedSection = {
         ...defaults[section],

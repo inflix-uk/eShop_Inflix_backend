@@ -34,5 +34,7 @@ function publicCache(maxAgeSeconds, staleWhileRevalidateSeconds) {
 // sensitive but still shared across all visitors.
 publicCache.long = publicCache(3600, 86400);    // 1 hour fresh, serve stale up to 1 day
 publicCache.medium = publicCache(1800, 14400);  // 30 min fresh, serve stale up to 4 hours
+// "short" = an admin expects to see the edit on the site within minutes (footer).
+publicCache.short = publicCache(60, 120);       // 1 min fresh, serve stale up to 2 minutes
 
 module.exports = publicCache;
