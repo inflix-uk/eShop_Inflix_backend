@@ -18,6 +18,7 @@ const mongoose = require('mongoose');
 
 // Import services
 const updateProductService = require('../services/productService/updateProduct');
+const bulkSheetService = require('../services/productService/bulkSheet');
 const createProductService = require('../services/productService/createProduct');
 const importProductsService = require('../services/productService/importProducts');
 
@@ -127,6 +128,42 @@ const adminProductController = {
      * Bulk import products parsed from CSV by the admin panel.
      * Body: { products: [...], updateExisting?: boolean, dryRun?: boolean }
      */
+    /**
+     * "Prices & Content" sheet export: variant prices/identifiers and product
+     * descriptions/perks. Body { ids } or query ?ids=<id,id,...>; none = every product.
+     */
+    exportPricesContentSheet: async (req, res) => {
+        try {
+            // POST body { ids } for long lists (a whole brand); GET ?ids=a,b for a few.
+            const ids = Array.isArray(req.body?.ids)
+                ? req.body.ids.map((s) => String(s).trim()).filter(Boolean)
+                : String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean);
+            const data = await bulkSheetService.exportSheet({ ids });
+            return res.json({ status: 200, ...data });
+        } catch (error) {
+            console.error('Error exporting prices/content sheet:', error);
+            return res.status(500).json({ status: 500, message: error.message || 'Export failed' });
+        }
+    },
+
+    /**
+     * "Prices & Content" sheet import. Body: { variants: [...], content: [...], dryRun }.
+     * Matches by product/variant id; blank cells keep stored values.
+     */
+    importPricesContentSheet: async (req, res) => {
+        try {
+            const { variants = [], content = [], dryRun = true } = req.body || {};
+            if (!Array.isArray(variants) || !Array.isArray(content)) {
+                return res.status(400).json({ status: 400, message: 'variants and content must be lists' });
+            }
+            const result = await bulkSheetService.importSheet({ variants, content, dryRun: dryRun !== false });
+            return res.json({ status: 200, ...result });
+        } catch (error) {
+            console.error('Error importing prices/content sheet:', error);
+            return res.status(500).json({ status: 500, message: error.message || 'Import failed' });
+        }
+    },
+
     importProducts: async (req, res) => {
         try {
             const { products, updateExisting = true, dryRun = false } = req.body || {};

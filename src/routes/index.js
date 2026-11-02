@@ -340,6 +340,9 @@ router.put('/update/variant-attribute-model-details/:id/:valueSlug/:modelSlug', 
 router.post('/create/product',                        ...requireAdmin, adminProductController.createProduct);
 router.post('/import/products',                       ...requireAdmin, adminProductController.importProducts);
 router.get('/get/product/csv-reference',               ...requireAdmin, adminProductController.getCsvReferenceData); 
+router.get('/get/products/prices-content-sheet',         ...requireAdmin, adminProductController.exportPricesContentSheet);
+router.post('/get/products/prices-content-sheet',        ...requireAdmin, adminProductController.exportPricesContentSheet);
+router.post('/import/products/prices-content-sheet',     ...requireAdmin, adminProductController.importPricesContentSheet);
 router.patch('/update/product/:id',                   ...requireAdmin, adminProductController.updateProduct);
 router.patch('/status/product/:id',                   ...requireAdmin, adminProductController.statusProduct); 
 router.patch('/feature/product/:id',                  ...requireAdmin, adminProductController.featureProduct);
