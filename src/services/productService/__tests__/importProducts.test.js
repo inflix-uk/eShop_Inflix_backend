@@ -566,3 +566,148 @@ describe('image reuse on update (round-tripped exports stay lossless)', () => {
         assert.deepEqual(variant.variantImages, existing.variantValues[0].variantImages);
     });
 });
+
+describe('variant colour imports (slug variant-colour, loose keys, rebuilt names)', () => {
+    // Mirrors the live store: "Variant Colour" is slugged variant-colour by the model.
+    const phoneRef = () => service.buildReference({
+        attributes: [
+            {
+                _id: 'attr-cond', name: 'Condition', slug: 'condition',
+                values: [{ name: 'Brand New', slug: 'brand-new' }, { name: 'Good', slug: 'good' }],
+            },
+            {
+                _id: 'attr-vc', name: 'Variant Colour', slug: 'variant-colour',
+                values: [{ name: 'Awesome Gray', slug: 'awesome-gray', colorCode: '#777777' }],
+            },
+            {
+                _id: 'attr-storage', name: 'Storage', slug: 'storage',
+                values: [{ name: '128GB', slug: '128gb' }, { name: '256GB', slug: '256gb' }],
+            },
+        ],
+    });
+
+    test('colour, color, Variant Colour and variant-colour all resolve to the same attribute', () => {
+        const reference = phoneRef();
+        ['variant-colour', 'Variant Colour', 'colour', 'color', 'COLOUR', 'variant_colour'].forEach((key) => {
+            const { attr, value } = service.lookupValue(reference, key, 'awesome  GRAY');
+            assert.equal(attr?.slug, 'variant-colour', key);
+            assert.equal(value?.name, 'Awesome Gray', key);
+        });
+    });
+
+    test('an exact slug still wins over a loose match', () => {
+        // The base fixture has a real "color" attribute.
+        assert.equal(service.lookupValue(ref(), 'color', 'Sky Blue').attr.slug, 'color');
+        assert.equal(service.lookupValue(ref(), 'colour', 'Sky Blue').attr.slug, 'color');
+    });
+
+    test('a colour alias passes validation instead of failing the product', () => {
+        const { errors } = service.prepareProduct(
+            { variants: [{ attributes: [{ attributeSlug: 'colour', value: 'Awesome Gray' }] }] },
+            phoneRef()
+        );
+        assert.deepEqual(errors, []);
+    });
+
+    test('a new colour under an alias is collected for the real attribute', () => {
+        const reference = phoneRef();
+        const raw = { variants: [{ attributes: [{ attributeSlug: 'color', value: 'Mint Green' }] }] };
+        const missing = service.collectMissing([raw], reference);
+        assert.deepEqual(missing.attributeValues.get('variant-colour\0mint green'), {
+            slug: 'variant-colour', name: 'Mint Green',
+        });
+        service.applyMissingToRef(missing, reference);
+        assert.deepEqual(service.prepareProduct(raw, reference).errors, []);
+    });
+
+    test('multi-word values build the name the admin form generates, in variantNames order', () => {
+        const reference = phoneRef();
+        const p = {
+            name: 'Phone',
+            productType: { type: 'variant' },
+            variantNames: [
+                { attributeSlug: 'condition', options: [{ value: 'Brand New' }] },
+                { attributeSlug: 'colour', options: [{ value: 'Awesome Gray' }] },
+                { attributeSlug: 'storage', options: [{ value: '128GB' }] },
+            ],
+            variants: [{
+                name: 'whatever-the-file-said',
+                // Cell order differs from the option order: the name must not.
+                attributes: [
+                    { attributeSlug: 'storage', value: '128gb' },
+                    { attributeSlug: 'colour', value: 'awesome gray' },
+                    { attributeSlug: 'condition', value: 'Brand New' },
+                ],
+            }],
+        };
+        const doc = service.buildCreateDoc(p, 'phone', reference);
+        const [variant] = doc.variantValues;
+        assert.equal(variant.name, 'brand-new-awesome-gray-128gb');
+        assert.equal(variant.slug, 'brand-new-awesome-gray-128gb');
+        const colour = variant.attributes.find((a) => a.attributeSlug === 'variant-colour');
+        assert.equal(colour.value, 'Awesome Gray');
+        assert.equal(colour.colorCode, '#777777');
+        assert.deepEqual(doc.variantNames.map((vn) => vn.attributeSlug), ['condition', 'variant-colour', 'storage']);
+    });
+
+    test('variant_name from the file is kept only when there are no attributes', () => {
+        const v = service.buildVariant({ name: 'custom-name', attributes: [] }, 'variant', phoneRef());
+        assert.equal(v.name, 'custom-name');
+    });
+
+    test('update merges option lists and names new variants in the stored order', () => {
+        const existing = {
+            productType: { type: 'variant' },
+            variantNames: [
+                { name: 'Condition', attributeSlug: 'condition', options: [{ value: 'Good', slug: 'good' }] },
+                { name: 'Variant Colour', attributeSlug: 'variant-colour', options: [{ value: 'Black', slug: 'black' }] },
+                { name: 'Storage', attributeSlug: 'storage', options: [{ value: '256GB', slug: '256gb' }] },
+            ],
+            variantValues: [{
+                name: 'good-black-256gb', SKU: 'OLD', variantId: 'KEEP',
+                attributes: [
+                    { attributeSlug: 'condition', value: 'Good', valueSlug: 'good' },
+                    { attributeSlug: 'variant-colour', value: 'Black', valueSlug: 'black' },
+                    { attributeSlug: 'storage', value: '256GB', valueSlug: '256gb' },
+                ],
+            }],
+        };
+        const set = service.buildUpdateDoc(
+            {
+                // File lists the attributes in a different order, with an alias.
+                variantNames: [
+                    { attributeSlug: 'storage', options: [{ value: '128GB' }] },
+                    { attributeSlug: 'colour', options: [{ value: 'Awesome Gray' }] },
+                    { attributeSlug: 'condition', options: [{ value: 'Brand New' }] },
+                ],
+                variants: [{
+                    SKU: 'NEW', Price: 100,
+                    attributes: [
+                        { attributeSlug: 'storage', value: '128GB' },
+                        { attributeSlug: 'colour', value: 'Awesome Gray' },
+                        { attributeSlug: 'condition', value: 'Brand New' },
+                    ],
+                }],
+            },
+            existing,
+            phoneRef()
+        );
+
+        assert.deepEqual(set.variantNames.map((vn) => vn.attributeSlug), ['condition', 'variant-colour', 'storage']);
+        assert.deepEqual(set.variantNames[1].options.map((o) => o.value), ['Black', 'Awesome Gray']);
+        assert.deepEqual(set.variantNames[2].options.map((o) => o.value), ['256GB', '128GB']);
+        assert.equal(set.variantValues[0].name, 'brand-new-awesome-gray-128gb');
+    });
+
+    test('grandfathered pairs are not re-created as catalogue values on update', () => {
+        const stored = new Map([['phone', {
+            variantValues: [{ attributes: [{ attributeSlug: 'variant-colour', value: 'Retired Red', valueSlug: 'retired-red' }] }],
+        }]]);
+        const missing = service.collectMissing(
+            [{ producturl: 'phone', variants: [{ attributes: [{ attributeSlug: 'colour', value: 'Retired Red' }] }] }],
+            phoneRef(),
+            stored
+        );
+        assert.equal(missing.attributeValues.size, 0);
+    });
+});

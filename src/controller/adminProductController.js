@@ -5,7 +5,18 @@ const { loadPricingContext } = require("../services/pricing/loadPricingContext")
 const { applyPricingToProducts } = require("../services/pricing/applyProductPricing");
 const { buildPricingScopeFromPricingScope } = require("../services/pricing/buildPricingScope");
 const { applyBrandFilterToQuery, isUnassignedBrandFilter } = require("../utils/productBrandFilters");
+const {
+    summarizeConditions,
+    attachConditions,
+    conditionAttributesExpr,
+    conditionVariantsProjection,
+    attachProjectedConditions,
+    conditionMatchClauses,
+} = require("../utils/productConditions");
 const productCategory = require("../models/productCategories");
+
+// Fields added to listing projections only to compute conditions
+const CONDITION_STRIP = { omit: ['variantNames'], omitVariantFields: ['status', 'attributes'] };
 
 const bcrypt = require("bcrypt");
 const crypto = require('crypto');
@@ -213,7 +224,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithResolvedPrice = applyPricingToProducts(products, ctx);
+            const productsWithResolvedPrice = attachConditions(applyPricingToProducts(products, ctx));
 
             return res.json({ message: 'Products retrieved', products: productsWithResolvedPrice, status: 201 });
         } catch (error) {
@@ -884,7 +895,7 @@ const adminProductController = {
     
     getProductsHomepage: async (req, res) => {
         try {
-            const products = await Product.aggregate([
+            const rawProducts = await Product.aggregate([
                 { $match: { status: true } },
                 {
                     $project: {
@@ -896,6 +907,9 @@ const adminProductController = {
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: { $avg: "$reviewDetails.rating" },
                         condition: 1,
+                        // Only used to compute conditions; stripped before responding
+                        variantNames: 1,
+                        conditionVariants: conditionVariantsProjection,
                         category: 1,
                         subCategory: 1,
                         producturl: 1,
@@ -904,6 +918,7 @@ const adminProductController = {
                     },
                 },
             ]);
+            const products = attachProjectedConditions(rawProducts);
     
             if (!products || products.length === 0) {
                 return res.status(404).json({ message: 'Products not found' });
@@ -919,7 +934,7 @@ const adminProductController = {
    
     getLatestProductsHomepage: async (req, res) => {
         try {
-            const products = await Product.aggregate([
+            const rawProducts = await Product.aggregate([
                 { $match: { status: true } },
                 // Add computed field for total stock across all variants
                 {
@@ -949,6 +964,9 @@ const adminProductController = {
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: { $avg: "$reviewDetails.rating" },
                         condition: 1,
+                        // Only used to compute conditions; stripped before responding
+                        variantNames: 1,
+                        conditionVariants: conditionVariantsProjection,
                         category: 1,
                         subCategory: 1,
                         producturl: 1,
@@ -958,6 +976,7 @@ const adminProductController = {
                     },
                 },
             ]);
+            const products = attachProjectedConditions(rawProducts);
 
             if (!products || products.length === 0) {
                 return res.status(404).json({ message: 'Products not found' });
@@ -972,7 +991,7 @@ const adminProductController = {
     
     getFeatureProductsHomepage: async (req, res) => {
         try {
-            const products = await Product.aggregate([
+            const rawProducts = await Product.aggregate([
                 { $match: { status: true, is_featured: true } }, // Match products where status and is_featured are true
                 { $sort: { createdAt: -1 } }, // Sort by createdAt in descending order
                 { $limit: 10 }, // Limit the results to 10 products
@@ -986,6 +1005,9 @@ const adminProductController = {
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: { $avg: "$reviewDetails.rating" },
                         condition: 1,
+                        // Only used to compute conditions; stripped before responding
+                        variantNames: 1,
+                        conditionVariants: conditionVariantsProjection,
                         category: 1,
                         subCategory: 1,
                         producturl: 1,
@@ -994,6 +1016,7 @@ const adminProductController = {
                     },
                 },
             ]);
+            const products = attachProjectedConditions(rawProducts);
     
             return res.status(200).json({
                 message: products.length ? 'Products retrieved' : 'No featured products',
@@ -1009,10 +1032,11 @@ const adminProductController = {
 
     getRefurbishedProductsHomepage: async (req, res) => {
         try {
-            const products = await Product.aggregate([
+            const rawProducts = await Product.aggregate([
                 {
                     $match: {
-                        $or: [{ condition: "Refurbished" }, { condition: "Brand New" }],
+                        // Product-level condition, or sold in that condition via variants
+                        $or: conditionMatchClauses(/^(Refurbished|Brand New)$/i),
                         $expr: {
                             $regexMatch: {
                                 input: { $toString: "$subCategory" },
@@ -1034,6 +1058,9 @@ const adminProductController = {
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: { $avg: "$reviewDetails.rating" },
                         condition: 1,
+                        // Only used to compute conditions; stripped before responding
+                        variantNames: 1,
+                        conditionVariants: conditionVariantsProjection,
                         category: 1,
                         subCategory: 1,
                         producturl: 1,
@@ -1042,6 +1069,7 @@ const adminProductController = {
                     }
                 }
             ]);
+            const products = attachProjectedConditions(rawProducts);
 
             if (!products || products.length === 0) {
                 return res.status(404).json({ message: 'Products not found' });
@@ -1057,7 +1085,7 @@ const adminProductController = {
 
     getTabletsAndIpadsHomepage: async (req, res) => {
         try {
-            const products = await Product.aggregate([
+            const rawProducts = await Product.aggregate([
                 {
                     $match: {
                         status: true,
@@ -1097,6 +1125,9 @@ const adminProductController = {
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: { $avg: "$reviewDetails.rating" },
                         condition: 1,
+                        // Only used to compute conditions; stripped before responding
+                        variantNames: 1,
+                        conditionVariants: conditionVariantsProjection,
                         category: 1,
                         subCategory: 1,
                         producturl: 1,
@@ -1105,6 +1136,7 @@ const adminProductController = {
                     }
                 }
             ]);
+            const products = attachProjectedConditions(rawProducts);
 
             if (!products || products.length === 0) {
                 return res.status(404).json({ message: 'Tablets & iPads not found' });
@@ -1125,7 +1157,7 @@ const adminProductController = {
 
     getLaptopsAndMacbooksHomepage: async (req, res) => {
         try {
-            const products = await Product.aggregate([
+            const rawProducts = await Product.aggregate([
                 {
                     $match: {
                         status: true,
@@ -1146,6 +1178,9 @@ const adminProductController = {
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: { $avg: "$reviewDetails.rating" },
                         condition: 1,
+                        // Only used to compute conditions; stripped before responding
+                        variantNames: 1,
+                        conditionVariants: conditionVariantsProjection,
                         category: 1,
                         subCategory: 1,
                         producturl: 1,
@@ -1154,6 +1189,7 @@ const adminProductController = {
                     }
                 }
             ]);
+            const products = attachProjectedConditions(rawProducts);
 
             if (!products || products.length === 0) {
                 return res.status(404).json({ message: 'Laptops & Macbooks not found' });
@@ -1192,7 +1228,8 @@ const adminProductController = {
                         isdeleted: { $ne: true },
                         $or: [
                             { category: { $regex: new RegExp(safeName, 'i') } },
-                            { condition: { $regex: new RegExp(`^${safeName}$`, 'i') } },
+                            // Product-level condition or any variant condition ("brand-new" also matches "Brand New")
+                            ...conditionMatchClauses(new RegExp(`^${safeName.replace(/-/g, '[-\\s]')}$`, 'i')),
                             { brand: { $regex: new RegExp(`^${safeName}$`, 'i') } },
                         ],
                     },
@@ -1212,10 +1249,14 @@ const adminProductController = {
                                     Price: "$$variant.Price",
                                     salePrice: "$$variant.salePrice",
                                     Quantity: "$$variant.Quantity",
-                                    SKU: "$$variant.SKU"
+                                    SKU: "$$variant.SKU",
+                                    // For conditions only; stripped before responding
+                                    status: "$$variant.status",
+                                    attributes: conditionAttributesExpr("$$variant.attributes")
                                 }
                             }
                         },
+                        variantNames: 1,
                         minPrice: { $min: "$variantValues.Price" },
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: {
@@ -1285,7 +1326,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithPrices = applyPricingToProducts(products, ctx);
+            const productsWithPrices = attachConditions(applyPricingToProducts(products, ctx), CONDITION_STRIP);
 
             return res.status(201).json({
                 message: 'Products retrieved successfully',
@@ -1328,10 +1369,14 @@ const adminProductController = {
                                     Price: "$$variant.Price",
                                     salePrice: "$$variant.salePrice",
                                     Quantity: "$$variant.Quantity",
-                                    SKU: "$$variant.SKU"
+                                    SKU: "$$variant.SKU",
+                                    // For conditions only; stripped before responding
+                                    status: "$$variant.status",
+                                    attributes: conditionAttributesExpr("$$variant.attributes")
                                 }
                             }
                         },
+                        variantNames: 1,
                         minPrice: { $min: "$variantValues.Price" },
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: {
@@ -1402,7 +1447,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithPrices = applyPricingToProducts(products, ctx);
+            const productsWithPrices = attachConditions(applyPricingToProducts(products, ctx), CONDITION_STRIP);
 
             return res.status(201).json({
                 message: 'Products retrieved successfully',
@@ -1462,10 +1507,14 @@ const adminProductController = {
                                     Price: "$$variant.Price",
                                     salePrice: "$$variant.salePrice",
                                     Quantity: "$$variant.Quantity",
-                                    SKU: "$$variant.SKU"
+                                    SKU: "$$variant.SKU",
+                                    // For conditions only; stripped before responding
+                                    status: "$$variant.status",
+                                    attributes: conditionAttributesExpr("$$variant.attributes")
                                 }
                             }
                         },
+                        variantNames: 1,
                         minPrice: { $min: "$variantValues.Price" },
                         minSalePrice: { $min: "$variantValues.salePrice" },
                         averageRating: {
@@ -1543,7 +1592,7 @@ const adminProductController = {
             // Return the processed products in the API response
             return res.status(201).json({
                 message: 'Products retrieved successfully',
-                products,
+                products: attachConditions(products, CONDITION_STRIP),
                 status: 201,
             });
         } catch (error) {
@@ -1980,7 +2029,7 @@ const adminProductController = {
             // Use explicit field selection (faster than exclusion)
             const [productsData, totalProductsCount] = await Promise.all([
               Product.find(filterQuery)
-                .select('_id name producturl category subCategory brand condition is_featured status productType variantValues thumbnail_image Gallery_Images createdAt updatedAt')
+                .select('_id name producturl category subCategory brand condition is_featured status productType variantValues variantNames thumbnail_image Gallery_Images createdAt updatedAt')
                 .sort({ createdAt: -1 })
                 .skip(skipCount)
                 .limit(batchSize)
@@ -1994,6 +2043,10 @@ const adminProductController = {
               if (product.Gallery_Images?.length > 0) {
                 product.Gallery_Images = [product.Gallery_Images[0]];
               }
+
+              // Conditions must be computed before variantValues is trimmed below
+              Object.assign(product, summarizeConditions(product));
+              delete product.variantNames;
 
               // Calculate variant count and process variantValues
               const variantCount = product.variantValues?.length || 0;
@@ -2439,7 +2492,7 @@ const adminProductController = {
                 _id: { $in: objectIds },
                 status: true,
             })
-                .select('_id name producturl category subCategory brand condition thumbnail_image variantValues reviewDetails')
+                .select('_id name producturl category subCategory brand condition thumbnail_image variantValues variantNames reviewDetails')
                 .lean();
 
             const formatCard = (fullProduct) => {
@@ -2468,6 +2521,7 @@ const adminProductController = {
                     subCategory: fullProduct.subCategory,
                     brand: fullProduct.brand,
                     condition: fullProduct.condition,
+                    ...summarizeConditions(fullProduct),
                     thumbnail_image: fullProduct.thumbnail_image,
                     minPrice: minPrice != null ? minPrice : 0,
                     minSalePrice: minSalePrice != null ? minSalePrice : 0,

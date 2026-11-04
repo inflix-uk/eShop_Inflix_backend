@@ -134,6 +134,7 @@ async function exportSheet({ ids } = {}) {
  */
 async function importSheet({ variants = [], content = [], dryRun = true } = {}) {
     const errors = [];
+    const warnings = [];
     const changes = [];
     const productIds = new Set();
     variants.forEach((r) => isValidId(asText(r.productId)) && productIds.add(asText(r.productId)));
@@ -164,7 +165,16 @@ async function importSheet({ variants = [], content = [], dryRun = true } = {}) 
             errors.push({ sheet: 'Variant Prices', row, message: 'Product not found (keep the product_id column from the export)' });
             return;
         }
-        const index = (product.variantValues || []).findIndex((v) => String(v._id) === vid);
+        const list = product.variantValues || [];
+        let index = list.findIndex((v) => String(v._id) === vid);
+        if (index === -1 && !isBlank(r.variant)) {
+            // Saving the product form used to give every variant a new id, so a sheet
+            // exported before that save no longer matches by id. Fall back to the
+            // variant name, but only when exactly one variant has it.
+            const name = asText(r.variant).toLowerCase();
+            const same = list.map((v, i) => (asText(v.name).toLowerCase() === name ? i : -1)).filter((i) => i !== -1);
+            if (same.length === 1) index = same[0];
+        }
         if (index === -1) {
             errors.push({ sheet: 'Variant Prices', row, message: `Variant not found on "${product.name}" (keep the variant_id column from the export)` });
             return;
@@ -195,6 +205,18 @@ async function importSheet({ variants = [], content = [], dryRun = true } = {}) 
             if (current !== value) {
                 $set[`variantValues.${index}.${field}`] = value;
                 record(product, variant.name, field === 'EIN' ? 'EAN' : field, current, value);
+            }
+        }
+        // Flag prices that look like placeholders; they are still applied if confirmed.
+        const valueAfter = (field) => ($set[`variantValues.${index}.${field}`] ?? variant[field]);
+        const price = Number(valueAfter('Price'));
+        const sale = Number(valueAfter('salePrice'));
+        const touched = ['Price', 'salePrice'].some((f) => `variantValues.${index}.${f}` in $set);
+        if (touched && price > 0 && sale > 0) {
+            if (sale >= price) {
+                warnings.push({ sheet: 'Variant Prices', row, message: `sale price ${sale} is not below price ${price} — it will not show as a sale` });
+            } else if (sale < price * 0.3) {
+                warnings.push({ sheet: 'Variant Prices', row, message: `sale price ${sale} is more than 70% below price ${price} — check it is not a placeholder` });
             }
         }
         if (!isBlank(r.active)) {
@@ -262,6 +284,8 @@ async function importSheet({ variants = [], content = [], dryRun = true } = {}) 
         changeCount: changes.length,
         changes: changes.slice(0, 500),
         errors,
+        warnings: warnings.slice(0, 200),
+        warningCount: warnings.length,
     };
 }
 
