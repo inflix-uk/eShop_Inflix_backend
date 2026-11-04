@@ -35,6 +35,23 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const hasText = (v) => norm(v) !== '';
 const hasItems = (v) => Array.isArray(v) && v.length > 0;
 
+/**
+ * Lookup keys for an attribute type, so a file may say "colour", "color",
+ * "Variant Colour" or "variant-colour" for the same attribute.
+ */
+const attributeKeys = (...names) => {
+    const keys = new Set();
+    names.filter(hasText).forEach((n) => {
+        [low(n), toSeoSlug(n)].filter(Boolean).forEach((k) => {
+            [k, k.replace(/^variant[-_\s]+/, '')].filter(Boolean).forEach((x) => {
+                keys.add(x);
+                keys.add(x.replace(/\bcolou?r\b/g, (m) => (m === 'color' ? 'colour' : 'color')));
+            });
+        });
+    });
+    return [...keys];
+};
+
 class ImportProductsService {
     /** producturl must be unique and non-null: the index is unique WITHOUT sparse. */
     buildSlug(product, taken) {
@@ -99,19 +116,15 @@ class ImportProductsService {
         const attributesBySlug = new Map();
         attributes.forEach((a) => {
             if (!hasText(a?.slug)) return;
-            // Keyed by BOTH lowercased name and slug, so cells may carry either.
+            // Keyed by name, slug and slugified name, so cells may carry either.
             const valuesByKey = new Map();
             (a.values || [])
                 .filter((v) => v && v.isDeleted !== true)
-                .forEach((v) => {
-                    const value = {
-                        name: norm(v.name),
-                        slug: norm(v.slug) || toSeoSlug(v.name),
-                        colorCode: hasText(v.colorCode) ? norm(v.colorCode) : null,
-                    };
-                    if (value.name) valuesByKey.set(low(value.name), value);
-                    if (value.slug) valuesByKey.set(value.slug, value);
-                });
+                .forEach((v) => this.indexValue(valuesByKey, {
+                    name: norm(v.name),
+                    slug: norm(v.slug) || toSeoSlug(v.name),
+                    colorCode: hasText(v.colorCode) ? norm(v.colorCode) : null,
+                }));
             attributesBySlug.set(low(a.slug), {
                 id: a._id,
                 name: norm(a.name) || norm(a.slug),
@@ -121,7 +134,46 @@ class ImportProductsService {
             });
         });
 
-        return { categoriesByName, tagsByName, attributesBySlug };
+        // Loose keys (slugified, "variant-" stripped, color/colour) for file
+        // cells. Exact slugs are indexed first so they always win a clash.
+        const attributesByKey = new Map(attributesBySlug);
+        attributesBySlug.forEach((attr) => {
+            attributeKeys(attr.slug, attr.name).forEach((k) => {
+                if (!attributesByKey.has(k)) attributesByKey.set(k, attr);
+            });
+        });
+
+        return { categoriesByName, tagsByName, attributesBySlug, attributesByKey };
+    }
+
+    indexValue(valuesByKey, value) {
+        const keys = [low(value.name), value.slug, low(value.slug), toSeoSlug(value.name), toSeoSlug(value.slug)];
+        keys.forEach((k, i) => {
+            if (!k) return;
+            // Exact name and slug overwrite; derived forms only fill gaps.
+            if (i < 2 || !valuesByKey.has(k)) valuesByKey.set(k, value);
+        });
+    }
+
+    /** Attribute type by slug, name or a loose spelling of either. */
+    findAttribute(ref, rawSlug) {
+        if (!ref || !hasText(rawSlug)) return null;
+        const exact = ref.attributesBySlug.get(low(rawSlug));
+        if (exact) return exact;
+        const byKey = ref.attributesByKey || ref.attributesBySlug;
+        for (const k of attributeKeys(rawSlug)) {
+            if (byKey.has(k)) return byKey.get(k);
+        }
+        return null;
+    }
+
+    /** Value of an attribute, ignoring case and spacing. */
+    findValue(attr, rawValue) {
+        if (!attr || !hasText(rawValue)) return null;
+        return attr.valuesByKey.get(low(rawValue))
+            || attr.valuesByKey.get(low(rawValue).replace(/\s+/g, ' '))
+            || attr.valuesByKey.get(toSeoSlug(rawValue))
+            || null;
     }
 
     /**
@@ -158,9 +210,32 @@ class ImportProductsService {
     }
 
     lookupValue(ref, attributeSlug, rawValue) {
-        const attr = ref?.attributesBySlug.get(low(attributeSlug));
+        const attr = this.findAttribute(ref, attributeSlug);
         if (!attr) return { attr: null, value: null };
-        return { attr, value: attr.valuesByKey.get(low(rawValue)) || null };
+        return { attr, value: this.findValue(attr, rawValue) };
+    }
+
+    /** "slug=value" keys for every attribute pair the stored product already has. */
+    storedPairs(existing) {
+        const pairs = new Set();
+        (existing?.variantValues || []).forEach((variant) => {
+            (variant?.attributes || []).forEach((a) => {
+                if (!hasText(a?.attributeSlug)) return;
+                [a.value, a.valueSlug].filter(hasText).forEach((v) => {
+                    pairs.add(`${low(a.attributeSlug)}=${low(v)}`);
+                    pairs.add(`${low(a.attributeSlug)}=${toSeoSlug(v)}`);
+                });
+            });
+        });
+        return pairs;
+    }
+
+    /** True when the stored product already carries this attribute pair. */
+    isStoredPair(pairs, ref, attributeSlug, value) {
+        if (!pairs?.size) return false;
+        const slugs = [low(attributeSlug), this.findAttribute(ref, attributeSlug)?.slug].filter(Boolean);
+        const values = [low(value), toSeoSlug(value)].filter(Boolean);
+        return slugs.some((s) => values.some((v) => pairs.has(`${s}=${v}`)));
     }
 
     escapeRegex(value) {
@@ -207,8 +282,10 @@ class ImportProductsService {
     /**
      * Walk the file once and collect catalogue names that are not in `ref`.
      * Attribute TYPES (unknown slugs) are left out — those still fail the row.
+     * `existingByUrl` (producturl -> stored product) skips attribute pairs a
+     * product already stores, so grandfathered values are not re-created.
      */
-    collectMissing(products, ref) {
+    collectMissing(products, ref, existingByUrl = null) {
         const missing = this.emptyMissing();
         if (!ref) return missing;
 
@@ -232,10 +309,10 @@ class ImportProductsService {
         };
         const rememberAttrValue = (slug, valueName) => {
             if (!hasText(slug) || !hasText(valueName)) return;
-            const attr = ref.attributesBySlug.get(low(slug));
+            const attr = this.findAttribute(ref, slug);
             if (!attr) return;
-            if (attr.valuesByKey.get(low(valueName))) return;
-            missing.attributeValues.set(`${low(slug)}\0${low(valueName)}`, {
+            if (this.findValue(attr, valueName)) return;
+            missing.attributeValues.set(`${attr.slug}\0${low(valueName)}`, {
                 slug: attr.slug,
                 name: norm(valueName),
             });
@@ -277,11 +354,12 @@ class ImportProductsService {
                 product[key].forEach((item) => rememberAttrValue(attr.slug, item));
             });
 
+            const stored = this.storedPairs(existingByUrl?.get(norm(product.producturl)));
             (product.variants || []).forEach((variant) => {
                 (variant?.attributes || []).forEach((a) => {
-                    if (hasText(a?.attributeSlug) && hasText(a.value)) {
-                        rememberAttrValue(a.attributeSlug, a.value);
-                    }
+                    if (!hasText(a?.attributeSlug) || !hasText(a.value)) return;
+                    if (this.isStoredPair(stored, ref, a.attributeSlug, a.value)) return;
+                    rememberAttrValue(a.attributeSlug, a.value);
                 });
             });
         });
@@ -312,14 +390,12 @@ class ImportProductsService {
 
         missing.attributeValues.forEach(({ slug, name }) => {
             const attr = ref.attributesBySlug.get(low(slug));
-            if (!attr) return;
-            const value = {
+            if (!attr || this.findValue(attr, name)) return;
+            this.indexValue(attr.valuesByKey, {
                 name: norm(name),
                 slug: toSeoSlug(name),
                 colorCode: null,
-            };
-            if (value.name) attr.valuesByKey.set(low(value.name), value);
-            if (value.slug) attr.valuesByKey.set(value.slug, value);
+            });
         });
     }
 
@@ -533,20 +609,14 @@ class ImportProductsService {
         // Pairs the product already stores (by value name or slug) are
         // grandfathered, so exports keep re-importing after a value is retired.
         if (ref.attributesBySlug.size) {
-            const storedPairs = new Set();
-            (existing?.variantValues || []).forEach((variant) => {
-                (variant?.attributes || []).forEach((a) => {
-                    if (!hasText(a?.attributeSlug)) return;
-                    if (hasText(a.value)) storedPairs.add(`${low(a.attributeSlug)}=${low(a.value)}`);
-                    if (hasText(a.valueSlug)) storedPairs.add(`${low(a.attributeSlug)}=${low(a.valueSlug)}`);
-                });
-            });
+            const storedPairs = this.storedPairs(existing);
+            const known = [...ref.attributesBySlug.keys()].slice(0, 12).join(', ');
 
             (product.variants || []).forEach((variant) => {
                 (variant?.attributes || []).forEach((a) => {
-                    if (storedPairs.has(`${low(a.attributeSlug)}=${low(a.value)}`)) return;
+                    if (this.isStoredPair(storedPairs, ref, a.attributeSlug, a.value)) return;
                     const { attr, value } = this.lookupValue(ref, a.attributeSlug, a.value);
-                    if (!attr) errors.push(`Unknown variant attribute "${norm(a.attributeSlug)}"`);
+                    if (!attr) errors.push(`Unknown variant attribute "${norm(a.attributeSlug)}" (known: ${known})`);
                     else if (!value) errors.push(`Unknown value "${norm(a.value)}" for attribute "${attr.name}"`);
                 });
             });
@@ -555,7 +625,29 @@ class ImportProductsService {
         return { product, errors: [...new Set(errors)] };
     }
 
-    buildVariant(raw, productType, ref) {
+    /**
+     * Variant name the admin form would generate: option slugs joined by "-",
+     * in the product's variantNames order (editProductService.generateVariants).
+     */
+    variantNameFromAttributes(attributes, variantNames) {
+        const remaining = [...attributes];
+        const parts = [];
+        (variantNames || []).forEach((vn) => {
+            const slug = low(vn.attributeSlug || vn.name);
+            const idx = remaining.findIndex((a) => low(a.attributeSlug) === slug);
+            if (idx === -1) return;
+            const [a] = remaining.splice(idx, 1);
+            const option = (vn.options || []).find((o) => (
+                (hasText(o?.value) && low(o.value) === low(a.value))
+                || (hasText(o?.slug) && toSeoSlug(o.slug) === toSeoSlug(a.valueSlug))
+            ));
+            parts.push(toSeoSlug(option?.slug || option?.value || a.valueSlug || a.value));
+        });
+        remaining.forEach((a) => parts.push(toSeoSlug(a.valueSlug || a.value)));
+        return parts.filter(Boolean).join('-');
+    }
+
+    buildVariant(raw, productType, ref, variantNames = []) {
         // Enrich from the attribute catalogue: display name, canonical value
         // spelling/slug and colour swatch — the same data the form path stores.
         const attributes = (raw.attributes || []).map((a) => {
@@ -570,14 +662,16 @@ class ImportProductsService {
             };
         });
 
-        // A null variant name crashes the storefront product page
+        // The storefront selects a variant by its name, so a variant product's
+        // name is rebuilt from its attributes; the file's variant_name only
+        // counts when there are none. A null name crashes the product page
         // (variant.name.toLowerCase() is called unguarded), so always fill it.
-        let name = norm(raw.name);
-        if (!name) {
-            name = productType === 'single'
-                ? 'single'
-                : attributes.map(a => a.valueSlug).filter(Boolean).join('-') || 'default';
+        let name = '';
+        if (productType !== 'single' && hasItems(attributes)) {
+            name = this.variantNameFromAttributes(attributes, variantNames);
         }
+        if (!name) name = norm(raw.name);
+        if (!name) name = productType === 'single' ? 'single' : 'default';
 
         return {
             name,
@@ -604,13 +698,13 @@ class ImportProductsService {
     /** variantNames drives the storefront option pickers — mirror the form path. */
     enrichVariantNames(variantNames, ref) {
         return (variantNames || []).map((vn) => {
-            const attr = ref?.attributesBySlug.get(low(vn.attributeSlug));
+            const attr = this.findAttribute(ref, vn.attributeSlug);
             const entry = {
                 name: attr?.name || vn.name || vn.attributeSlug,
                 attributeSlug: attr?.slug || vn.attributeSlug,
                 hasModels: attr ? attr.hasModels : !!vn.hasModels,
                 options: (vn.options || []).map((o) => {
-                    const value = attr?.valuesByKey.get(low(o.value)) || null;
+                    const value = this.findValue(attr, o.value);
                     return {
                         value: value?.name ?? o.value,
                         slug: value?.slug || toSeoSlug(o.value),
@@ -624,10 +718,40 @@ class ImportProductsService {
         });
     }
 
+    /**
+     * On update the file's options are ADDED to the stored ones (stored order
+     * first), so importing one new colour does not drop the others.
+     */
+    mergeVariantNames(stored, incoming, ref) {
+        const keyOf = (vn) => this.findAttribute(ref, vn?.attributeSlug || vn?.name)?.slug
+            || low(vn?.attributeSlug || vn?.name);
+        const sameOption = (a, b) => (
+            (hasText(a?.value) && low(a.value) === low(b?.value))
+            || (hasText(a?.slug) && toSeoSlug(a.slug) === toSeoSlug(b?.slug))
+        );
+
+        const merged = (Array.isArray(stored) ? stored : []).map((vn) => ({
+            ...vn,
+            options: [...(vn.options || [])],
+        }));
+        (incoming || []).forEach((vn) => {
+            const target = merged.find((m) => keyOf(m) === keyOf(vn));
+            if (!target) {
+                merged.push(vn);
+                return;
+            }
+            (vn.options || []).forEach((o) => {
+                if (!target.options.some((t) => sameOption(t, o))) target.options.push(o);
+            });
+        });
+        return merged;
+    }
+
     /** Full document for a NEW product. */
     buildCreateDoc(p, slug, ref) {
         const type = p.productType?.type === 'variant' ? 'variant' : 'single';
-        const variants = (p.variants || []).map(v => this.buildVariant(v, type, ref));
+        const variantNames = type === 'variant' ? this.enrichVariantNames(p.variantNames, ref) : [];
+        const variants = (p.variants || []).map(v => this.buildVariant(v, type, ref, variantNames));
 
         return {
             name: p.name,
@@ -655,7 +779,7 @@ class ImportProductsService {
             },
             Gallery_Images: (p.galleryUrls || []).map(u => this.toImage(u)).filter(Boolean),
             variantValues: variants,
-            variantNames: type === 'variant' ? this.enrichVariantNames(p.variantNames, ref) : [],
+            variantNames,
             varImgGroup: [],
             // battery is JSON.parse'd unguarded by the storefront — an invalid
             // value crashes the whole product page, so never populate it here.
@@ -669,14 +793,14 @@ class ImportProductsService {
      * then name, then slug): variantId (carts/stock checks key on it),
      * status, per-variant SEO and images. Blank cells keep stored values.
      */
-    mergeVariants(rawVariants, existingVariants, type, ref) {
+    mergeVariants(rawVariants, existingVariants, type, ref, variantNames = []) {
         const olds = Array.isArray(existingVariants) ? existingVariants : [];
         const bySku = new Map(olds.filter(v => hasText(v?.SKU)).map(v => [low(v.SKU), v]));
         const byName = new Map(olds.filter(v => hasText(v?.name)).map(v => [low(v.name), v]));
         const bySlug = new Map(olds.filter(v => hasText(v?.slug)).map(v => [low(v.slug), v]));
 
         return (rawVariants || []).map((raw) => {
-            const fresh = this.buildVariant(raw, type, ref);
+            const fresh = this.buildVariant(raw, type, ref, variantNames);
             const old =
                 (hasText(raw.SKU) && bySku.get(low(raw.SKU))) ||
                 byName.get(low(fresh.name)) ||
@@ -772,18 +896,24 @@ class ImportProductsService {
             metaSchemas: Array.isArray(existingSeo.metaSchemas) ? existingSeo.metaSchemas : [],
         };
 
+        let variantNames = Array.isArray(existing.variantNames) ? existing.variantNames : [];
+        if (type === 'variant') {
+            if (hasItems(p.variantNames)) {
+                // A product switching from single starts from an empty option list.
+                const stored = existing.productType?.type === 'variant' ? variantNames : [];
+                variantNames = this.mergeVariantNames(stored, this.enrichVariantNames(p.variantNames, ref), ref);
+                set.variantNames = variantNames;
+            }
+        } else if (explicitType) {
+            set.variantNames = [];
+        }
+
         // A row with every variant cell empty carries product-level changes
         // only. Merging it would replace the stored variants with one blank
         // "default" variant, so it leaves them as they are.
         const variantRows = (p.variants || []).filter((v) => !this.isBlankVariantRow(v));
         if (hasItems(variantRows)) {
-            set.variantValues = this.mergeVariants(variantRows, existing.variantValues, type, ref);
-        }
-
-        if (type === 'variant') {
-            if (hasItems(p.variantNames)) set.variantNames = this.enrichVariantNames(p.variantNames, ref);
-        } else if (explicitType) {
-            set.variantNames = [];
+            set.variantValues = this.mergeVariants(variantRows, existing.variantValues, type, ref, variantNames);
         }
 
         return set;
@@ -804,7 +934,19 @@ class ImportProductsService {
         }
 
         let ref = await this.loadReference();
-        const missing = this.collectMissing(list, ref);
+
+        // Stored attribute pairs, so collectMissing skips grandfathered values.
+        const urls = [...new Set(list.map((p) => norm(p?.producturl)).filter(Boolean))];
+        const storedByUrl = new Map();
+        if (ref && urls.length) {
+            const stored = await Product.find(
+                { producturl: { $in: urls } },
+                { producturl: 1, 'variantValues.attributes': 1 }
+            ).lean();
+            stored.forEach((doc) => storedByUrl.set(doc.producturl, doc));
+        }
+
+        const missing = this.collectMissing(list, ref, storedByUrl);
         if (this.hasMissing(missing)) {
             if (dryRun) {
                 this.applyMissingToRef(missing, ref);

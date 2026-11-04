@@ -59,12 +59,50 @@ class CreateProductService {
     }
 
     /**
+     * Split a variant name like "brand-new-awesome-gray-128gb" by matching the
+     * longest option slug of each attribute in order, so multi-word values
+     * stay whole. Returns null when the name cannot be matched that way.
+     */
+    matchVariantNameToOptions(variantName, variantNamesArray) {
+        const defs = Array.isArray(variantNamesArray) ? variantNamesArray : [];
+        if (!defs.length || defs.some(d => !(d.options || []).length)) return null;
+
+        // Longest slug first; backtrack if it leaves later attributes unmatched.
+        const match = (rest, index) => {
+            if (index === defs.length) return rest ? null : [];
+            const variantDef = defs[index];
+            const candidates = variantDef.options
+                .map(opt => ({ opt, slug: this.generateSlug(opt.slug || opt.value) }))
+                .filter(({ slug }) => slug && (rest === slug || rest.startsWith(`${slug}-`)))
+                .sort((a, b) => b.slug.length - a.slug.length);
+            for (const { opt, slug } of candidates) {
+                const tail = match(rest.slice(slug.length).replace(/^-/, ''), index + 1);
+                if (!tail) continue;
+                return [{
+                    attributeName: variantDef.name,
+                    attributeSlug: variantDef.attributeSlug,
+                    value: opt.value ?? slug,
+                    valueSlug: opt.slug || slug,
+                    colorCode: opt.colorCode || null,
+                    model: opt.model || null
+                }, ...tail];
+            }
+            return null;
+        };
+        return match(variantNameToSeoSlug(variantName), 0);
+    }
+
+    /**
      * Parse variant name to structured attributes
      * @param {string} variantName - The variant name (e.g., "Red-iPhone 15 Pro-128GB")
      * @param {Array} variantNamesArray - Array of variant definitions
      * @returns {Array} - Array of structured attribute objects
      */
     parseVariantNameToAttributes(variantName, variantNamesArray) {
+        const matched = this.matchVariantNameToOptions(variantName, variantNamesArray);
+        if (matched) return matched;
+
+        // No option list to match against: fall back to one part per attribute.
         const parts = variantName.split('-');
         return variantNamesArray.map((variantDef, index) => {
             const part = parts[index] || '';

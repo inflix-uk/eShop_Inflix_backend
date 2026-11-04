@@ -4,6 +4,11 @@ const blobStorage = require('../../utils/blobStorage');
 const { replaceFileReferenceInBlocks } = require('../../controller/homepageDataController');
 const { toSeoSlug, generateVariantId, variantNameToSeoSlug } = require('../../utils/slugUtils');
 const { cleanText, toBoolean } = require('../../utils/formText');
+const mongoose = require('mongoose');
+
+/** Empty form fields mean "not set"; 0 is kept. */
+const keepValue = (v) => (v === undefined || v === null || (typeof v === 'string' && v.trim() === '') ? null : v);
+const isValidObjectId = (id) => !!id && mongoose.Types.ObjectId.isValid(String(id)) && /^[0-9a-f]{24}$/i.test(String(id));
 
 /**
  * Update Product Service
@@ -596,7 +601,13 @@ class UpdateProductService {
             ? JSON.parse(variantMetaImage)
             : variantMetaImage;
 
-        // Build variant values array
+        // Build variant values array. A row id is reused once at most.
+        const usedRowIds = new Set();
+        const isReusableObjectId = (id) => {
+            if (!isValidObjectId(id) || usedRowIds.has(String(id))) return false;
+            usedRowIds.add(String(id));
+            return true;
+        };
         for (const key in parsedVariantValues) {
             if (Object.hasOwnProperty.call(parsedVariantValues, key)) {
                 const variantValue = parsedVariantValues[key];
@@ -661,16 +672,20 @@ class UpdateProductService {
                 console.log('====================================');
 
                 const variantObject = {
+                    // Keep the row's id so a Prices & Content sheet exported earlier still matches it.
+                    ...(isReusableObjectId(variantValue._id) ? { _id: String(variantValue._id) } : {}),
                     name: key.trim(),
                     variantId: existingVariantId || generateVariantId(),
                     slug: seoSlug,
                     variantImages: images || parsedVariant,
-                    Cost: variantValue.Cost || null,
-                    Price: variantValue.Price || null,
-                    Quantity: variantValue.Quantity || null,
+                    // 0 is a real price / stock level; only empty means "not set".
+                    Cost: keepValue(variantValue.Cost),
+                    Price: keepValue(variantValue.Price),
+                    Quantity: keepValue(variantValue.Quantity),
                     SKU: variantValue.SKU || null,
                     EIN: variantValue.EIN || null,
-                    salePrice: variantValue.salePrice || null,
+                    salePrice: keepValue(variantValue.salePrice),
+                    ...(Array.isArray(variantValue.attributes) ? { attributes: variantValue.attributes } : {}),
                     metaTitle: variantValue.metaTitle || null,
                     metaDescription: variantValue.metaDescription || null,
                     metaKeywords: variantValue.metaKeywords || null,

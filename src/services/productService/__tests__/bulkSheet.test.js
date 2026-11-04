@@ -41,3 +41,39 @@ test('several blocks are left to the product form', () => {
     });
     assert.strictEqual(d.editable, false);
 });
+
+test('a variant whose id changed is still matched by its unique name', async () => {
+    const Product = require('../../../models/product');
+    const { importSheet } = require('../bulkSheet');
+    const pid = '6ad88a9a47aabe3bc09979d7';
+    const original = Product.find;
+    Product.find = () => ({
+        select: () => ({
+            lean: async () => [{
+                _id: pid,
+                name: 'Fold',
+                variantValues: [
+                    { _id: '6ae877e672ca0ebbc5e77b93', name: 'excellent-512gb-cream', Price: 100 },
+                    { _id: '6ae877e672ca0ebbc5e77b94', name: 'good-512gb-cream', Price: 90 },
+                    { _id: '6ae877e672ca0ebbc5e77b95', name: 'good-512gb-cream', Price: 80 },
+                ],
+            }],
+        }),
+    });
+    try {
+        const res = await importSheet({
+            dryRun: true,
+            variants: [
+                { row: 2, productId: pid, variantId: '000000000000000000000001', variant: 'excellent-512gb-cream', price: '120' },
+                { row: 3, productId: pid, variantId: '000000000000000000000002', variant: 'good-512gb-cream', price: '95' },
+            ],
+        });
+        assert.strictEqual(res.changeCount, 1);
+        assert.deepStrictEqual(res.changes[0], { product: 'Fold', variant: 'excellent-512gb-cream', field: 'Price', from: 100, to: 120 });
+        // Two variants share that name, so the row is not guessed.
+        assert.strictEqual(res.errors.length, 1);
+        assert.strictEqual(res.errors[0].row, 3);
+    } finally {
+        Product.find = original;
+    }
+});
