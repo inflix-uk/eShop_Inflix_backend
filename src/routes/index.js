@@ -21,6 +21,7 @@ const productReviewsController = require('../controller/productReviewsController
 const productFaqController = require('../controller/productFaqController');
 const productRelatedController = require('../controller/productRelatedController');
 const ordersController = require('../controller/orderController');
+const { listCouriers } = require('../utils/courierTracking');
 const returnOrderController = require('../controller/returnOrderController');
 const requestOrderController = require('../controller/requestOrderController');
 const returnOrderOptionsController = require('../controller/returnOrderOptionsController');
@@ -437,6 +438,7 @@ router.post('/create/order',                        ordersController.createOrder
 router.get('/get/order',                            ...requireAdmin, ordersController.getAllOrderv1);
 router.get('/get/order/export',                     ...requireAdmin, ordersController.getOrdersForExport);
 router.get('/get/order/cart/:id',                   ...requireAdmin, ordersController.getOrderCartById);
+router.get('/shipping/couriers',                     ...requireAdmin, (req, res) => res.json({ success: true, couriers: listCouriers() }));
 router.patch('/update/order/shipping/:id',          ...requireAdmin, ordersController.updateOrderShipping);
 router.patch('/update/order/:id',                   ...requireAdmin, ordersController.updateOrder);
 router.patch('/update/orders/bulk',                 ...requireAdmin, ordersController.bulkUpdateOrders);
@@ -1063,6 +1065,7 @@ router.put(
 const orderEmailTemplatesController = require('../controller/orderEmailTemplatesController');
 router.get('/order-email-templates', ...requireAdmin, orderEmailTemplatesController.getAdmin);
 router.put('/order-email-templates', ...requireAdmin, orderEmailTemplatesController.saveAdmin);
+router.post('/order-email-templates/preview', ...requireAdmin, orderEmailTemplatesController.preview);
 
 // ========================================================================
 // EMAIL BRANDING (admin preview — matches transactional `getEmailBranding`)

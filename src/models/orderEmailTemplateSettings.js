@@ -13,6 +13,8 @@ const orderEmailTemplateSettingsSchema = new Schema(
     orderStatusCustomer: { type: Schema.Types.Mixed, default: {} },
     orderStatusAdmin: { type: Schema.Types.Mixed, default: {} },
     orderShippedCustomer: { type: Schema.Types.Mixed, default: {} },
+    /** Copy for receipt / delivered / return / refund emails, keyed by type (see config/transactionalEmailDefaults). */
+    transactional: { type: Schema.Types.Mixed, default: {} },
   },
   {
     timestamps: true,

@@ -56,6 +56,14 @@ const orderSchema = new mongoose.Schema({
         type: Object,
         required: false
     },
+    /**
+     * Which transactional emails were already sent (dedupe on repeated saves), e.g.
+     * { shipped: { key: 'DHL|123|url', at }, delivered, receipt, refunded, requestStatus }
+     */
+    emailNotifications: {
+        type: mongoose.Schema.Types.Mixed,
+        required: false
+    },
 // Return Request tracking
     returnRequestInitiated: {
         type: Boolean,

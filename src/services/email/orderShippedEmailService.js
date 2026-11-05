@@ -9,6 +9,7 @@ const {
   buildShippedCartItemVariantSpans,
   emailFieldPresent,
 } = require('../../utils/orderStatusEmailDynamicHtml');
+const { trackingUrlForOrder } = require('../../utils/courierTracking');
 
 function escapeHtml(str) {
   return String(str)
@@ -45,10 +46,29 @@ function buildShippedProductListHtml(cart) {
     .join('');
 }
 
+/**
+ * Tracking link for the selected courier (stored custom URL first, else courier map).
+ * Previously this was hard-coded to Royal Mail for every courier.
+ */
 function trackingHrefForOrder(order) {
-  const tn = order.shippingDetails?.trackingNumber;
-  if (!tn || String(tn).trim() === '') return '#';
-  return `https://www.royalmail.com/track-your-item#/${encodeURIComponent(String(tn).trim())}`;
+  return trackingUrlForOrder(order);
+}
+
+function buildDeliveryAddressHtml(order) {
+  const sd = order.shippingDetails || {};
+  const name = [sd.firstName, sd.lastName].filter((x) => emailFieldPresent(x)).join(' ');
+  const parts = [sd.address, sd.city, sd.postalCode, sd.country]
+    .filter((x) => emailFieldPresent(x))
+    .map((x) => String(x).trim());
+  const lines = [name, parts.join(', ')].filter(Boolean).map(escapeHtml);
+  return lines.join('<br>');
+}
+
+function buildTrackingButtonHtml(trackingUrl, buttonText) {
+  if (!trackingUrl) return '';
+  const safe = escapeHtml(trackingUrl);
+  return `<a href="${safe}" class="tracking-link">${escapeHtml(buttonText || 'Track Your Order')}</a>
+      <p style="font-size: 12px; color: #666; word-break: break-all;">${safe}</p>`;
 }
 
 /**
@@ -81,6 +101,8 @@ async function buildOrderShippedEmail(order) {
       : 'N/A'
   );
   const trackingUrl = trackingHrefForOrder(order);
+  const trackingButtonHtml = buildTrackingButtonHtml(trackingUrl, fields.trackButtonText);
+  const deliveryAddressHtml = buildDeliveryAddressHtml(order);
   const customerFirstName = escapeHtml(String(firstNameRaw).trim() || 'Customer');
 
   html = html
@@ -92,8 +114,12 @@ async function buildOrderShippedEmail(order) {
     .join(carrier)
     .split('{{trackingNumber}}')
     .join(trackingNumber)
+    .split('{{trackingButtonHtml}}')
+    .join(trackingButtonHtml)
+    .split('{{deliveryAddressHtml}}')
+    .join(deliveryAddressHtml)
     .split('{{trackingUrl}}')
-    .join(escapeHtml(trackingUrl))
+    .join(escapeHtml(trackingUrl || ''))
     .split('{{customerFirstName}}')
     .join(customerFirstName);
 
@@ -104,5 +130,6 @@ async function buildOrderShippedEmail(order) {
 
 module.exports = {
   buildOrderShippedEmail,
+  trackingHrefForOrder,
   buildShippedProductListHtml,
 };

@@ -5,6 +5,10 @@ const {
   ORDER_STATUS_ADMIN_DEFAULTS,
   ORDER_SHIPPED_CUSTOMER_DEFAULTS,
 } = require('../../config/orderEmailTemplateDefaults');
+const {
+  TRANSACTIONAL_EMAIL_TYPES,
+  TRANSACTIONAL_TYPE_KEYS,
+} = require('../../config/transactionalEmailDefaults');
 
 const MAX_LEN = 20000;
 const SUBJECT_MAX = 500;
@@ -175,6 +179,27 @@ async function saveOrderEmailSections(body) {
       next[key] = slice(key, v);
     }
     doc.orderShippedCustomer = next;
+  }
+
+  if (body.transactional && typeof body.transactional === 'object') {
+    const current =
+      doc.transactional && typeof doc.transactional === 'object' ? { ...doc.transactional } : {};
+    for (const type of TRANSACTIONAL_TYPE_KEYS) {
+      const incoming = body.transactional[type];
+      if (!incoming || typeof incoming !== 'object') continue;
+      const next = { ...(current[type] && typeof current[type] === 'object' ? current[type] : {}) };
+      for (const key of Object.keys(TRANSACTIONAL_EMAIL_TYPES[type].defaults)) {
+        if (!Object.prototype.hasOwnProperty.call(incoming, key)) continue;
+        const v = incoming[key];
+        if (v == null) continue;
+        if (typeof v !== 'string') throw new Error(`transactional.${type}.${key} must be a string`);
+        const isSubject = key === 'emailSubject' || key === 'adminEmailSubject';
+        next[key] = isSubject ? v.slice(0, SUBJECT_MAX) : v.slice(0, MAX_LEN);
+      }
+      current[type] = next;
+    }
+    doc.transactional = current;
+    doc.markModified('transactional');
   }
 
   if (body.orderNumberPrefix !== undefined && body.orderNumberPrefix !== null) {

@@ -12,6 +12,10 @@ const multer = require('multer');
 const moment = require('moment');
 const mongoose = require('mongoose');
 const {
+    notifyRequestCreated,
+    notifyRefundStatus,
+} = require('../services/email/transactionalEmailService');
+const {
     resolveScopedUserId,
     assertOrderAccess,
     assertRequestOrderAccess,
@@ -65,7 +69,7 @@ const requestOrderController = {
                 console.log("Body:", req.body);
             
                 // Parse and validate order details
-                const { orderDetails, reason, status, additionalDetails } = req.body;
+                const { orderDetails, reason, status, additionalDetails, requestType } = req.body;
                 if (!orderDetails) {
                     return res.status(400).json({
                         message: 'Order details are required',
@@ -131,6 +135,7 @@ const requestOrderController = {
                     status: status || 'Pending',
                     files: files,
                     reason: reason || '',
+                    requestType: String(requestType || '').toLowerCase() === 'refund' ? 'refund' : 'return',
                 });
 
                 // Save the request order to the database
@@ -143,6 +148,12 @@ const requestOrderController = {
                     returnRequestInitiatedAt: new Date()
                 });
                 console.log("Updated Order with returnRequestId:", requestOrder._id);
+
+                // Return / refund request emails → customer + admin/business inbox. Fire-and-forget:
+                // never affects the API response.
+                notifyRequestCreated(requestOrder, order, { customerEmail: req.user?.email }).catch((e) =>
+                    console.error('Return/refund request emails failed:', e)
+                );
 
                 return res.status(200).json({
                     message: 'Files uploaded and request saved successfully',
@@ -361,6 +372,16 @@ const requestOrderController = {
             } else if (existingReturnOrder) {
                 // Update existing return order status to match the request status
                 await ReturnOrder.findByIdAndUpdate(existingReturnOrder._id, { status });
+            }
+
+            // Tell the customer their return/refund request status changed (deduped per status).
+            if (status && status !== requestOrder.status && requestOrder.orderId) {
+                notifyRefundStatus(requestOrder.orderId, {
+                    status,
+                    requestOrder,
+                    customerEmail: requestOrder.userId?.email,
+                    dedupeKey: `request|${requestOrder._id}|${status}`,
+                }).catch((e) => console.error('Request status email failed:', e));
             }
 
             // Respond with a success message and the updated order

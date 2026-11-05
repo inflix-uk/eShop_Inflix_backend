@@ -2,6 +2,10 @@
  * "Prices & Content" spreadsheet: export variant prices / identifiers and product
  * descriptions / perks, edit them in Excel, and import them back.
  *
+ * The admin offers the two halves as separate files ("Product Details & Pricing"
+ * and "Descriptions & Perks", exportSheet({ part })) so each stays small; the
+ * import takes either half, or both from an old combined workbook.
+ *
  * Rows are matched by product _id and variant _id (SKUs repeat across products and
  * some variants have none), so the import can only ever touch the exact variant a
  * row came from. Blank cells keep the stored value. Variants are never added,
@@ -79,13 +83,28 @@ function descriptionSource(product) {
     return { editable: false, path: null, value: '' };
 }
 
-async function exportSheet({ ids } = {}) {
+const EXPORT_PARTS = {
+    // Prices half: no description/perks text, so the file stays small.
+    prices: 'name producturl brand status variantValues',
+    content: 'name producturl brand status Product_summary Product_description Product_description_blocks perks_and_benefits',
+};
+
+/**
+ * Rows for the sheet. `part`: "prices" (variants only), "content" (descriptions
+ * and perks only) or anything else for both (the original combined workbook).
+ */
+async function exportSheet({ ids, part } = {}) {
+    const wantPrices = part !== 'content';
+    const wantContent = part !== 'prices';
     const filter = { isdeleted: { $ne: true } };
     if (Array.isArray(ids) && ids.length > 0) {
         filter._id = { $in: ids.filter(isValidId) };
     }
+    const fields = new Set();
+    if (wantPrices) EXPORT_PARTS.prices.split(' ').forEach((f) => fields.add(f));
+    if (wantContent) EXPORT_PARTS.content.split(' ').forEach((f) => fields.add(f));
     const products = await Product.find(filter)
-        .select('name producturl brand status Product_summary Product_description Product_description_blocks perks_and_benefits variantValues productType')
+        .select([...fields].join(' '))
         .sort({ brand: 1, name: 1 })
         .lean();
 
@@ -93,36 +112,41 @@ async function exportSheet({ ids } = {}) {
     const content = [];
     for (const p of products) {
         const productId = String(p._id);
-        (p.variantValues || []).forEach((v) => {
-            variants.push({
+        if (wantPrices) {
+            (p.variantValues || []).forEach((v) => {
+                variants.push({
+                    productId,
+                    productName: p.name || '',
+                    brand: p.brand || '',
+                    variantId: String(v._id),
+                    variant: v.name || '',
+                    sku: cleanStored(v.SKU),
+                    ean: cleanStored(v.EIN),
+                    mpn: cleanStored(v.MPN),
+                    cost: v.Cost ?? '',
+                    price: v.Price ?? '',
+                    salePrice: isBlank(v.salePrice) ? '' : v.salePrice,
+                    quantity: v.Quantity ?? '',
+                    active: v.status === false ? 'No' : 'Yes',
+                });
+            });
+        }
+        if (wantContent) {
+            const desc = descriptionSource(p);
+            const perks = p.perks_and_benefits || {};
+            content.push({
                 productId,
                 productName: p.name || '',
-                variantId: String(v._id),
-                variant: v.name || '',
-                sku: cleanStored(v.SKU),
-                ean: cleanStored(v.EIN),
-                mpn: cleanStored(v.MPN),
-                cost: v.Cost ?? '',
-                price: v.Price ?? '',
-                salePrice: isBlank(v.salePrice) ? '' : v.salePrice,
-                quantity: v.Quantity ?? '',
-                active: v.status === false ? 'No' : 'Yes',
+                productUrl: p.producturl || '',
+                summary: cleanStored(p.Product_summary),
+                description: desc.value,
+                descriptionEditable: desc.editable,
+                perksEnabled: perks.status ? 'Yes' : 'No',
+                perks: cleanStored(perks.description),
             });
-        });
-        const desc = descriptionSource(p);
-        const perks = p.perks_and_benefits || {};
-        content.push({
-            productId,
-            productName: p.name || '',
-            productUrl: p.producturl || '',
-            summary: cleanStored(p.Product_summary),
-            description: desc.value,
-            descriptionEditable: desc.editable,
-            perksEnabled: perks.status ? 'Yes' : 'No',
-            perks: cleanStored(perks.description),
-        });
+        }
     }
-    return { products: products.length, variants, content };
+    return { products: products.length, part: wantPrices && wantContent ? 'both' : part, variants, content };
 }
 
 /**
@@ -140,8 +164,13 @@ async function importSheet({ variants = [], content = [], dryRun = true } = {}) 
     variants.forEach((r) => isValidId(asText(r.productId)) && productIds.add(asText(r.productId)));
     content.forEach((r) => isValidId(asText(r.productId)) && productIds.add(asText(r.productId)));
 
+    // Each half loads only its own fields: a prices-only import never reads
+    // (or writes) descriptions, and a content-only import never touches variants.
+    const fields = ['name isdeleted'];
+    if (variants.length) fields.push('variantValues');
+    if (content.length) fields.push('Product_summary Product_description Product_description_blocks perks_and_benefits');
     const products = await Product.find({ _id: { $in: [...productIds] } })
-        .select('name isdeleted Product_summary Product_description Product_description_blocks perks_and_benefits variantValues')
+        .select(fields.join(' '))
         .lean();
     const byId = new Map(products.map((p) => [String(p._id), p]));
 
