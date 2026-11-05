@@ -20,8 +20,12 @@ const {
     resolveOrderLineImageUrlServer,
     attachLineImageUrlsToOrder,
 } = require("../utils/orderLineImageUrlServer");
-const { sendMail } = require('../utils/mailer');
-const { buildOrderShippedEmail } = require('../services/email/orderShippedEmailService');
+const { normalizeShippingTracking } = require('../utils/courierTracking');
+const {
+    notifyOrderShipped,
+    notifyOrderDelivered,
+    notifyRefundStatus,
+} = require('../services/email/transactionalEmailService');
 const {
     sendOrderUpdateEmailToCustomer,
     buildOrderDataForStatusEmail,
@@ -359,6 +363,9 @@ const orderController = {
                             'shippingDetails.country': 1,
                             'shippingDetails.trackingNumber': 1,
                             'shippingDetails.notes': 1,
+                            'shippingDetails.provider': 1,
+                            'shippingDetails.trackingUrl': 1,
+                            'shippingDetails.trackingUrlCustom': 1,
                             // Payment details (minimal)
                             'paymentDetails.cardDetails.brand': 1,
                             'paymentDetails.cardDetails.last4': 1,
@@ -470,6 +477,9 @@ const orderController = {
                         'shippingDetails.country': 1,
                         'shippingDetails.notes': 1,
                         'shippingDetails.trackingNumber': 1,
+                        'shippingDetails.provider': 1,
+                        'shippingDetails.trackingUrl': 1,
+                        'shippingDetails.trackingUrlCustom': 1,
                         'paymentDetails.cardDetails.brand': 1,
                         'paymentDetails.cardDetails.last4': 1,
                         'coupon.code': 1,
@@ -609,14 +619,18 @@ const orderController = {
                 updateData.status = status;
             }
 
-            // Update shipping details if provided
+            // Update shipping details if provided. Courier name is canonicalised and the
+            // tracking URL is built from the courier map (or the seller's custom URL is kept).
             if (shippingDetails) {
-                if (shippingDetails.provider !== undefined) {
-                    updateData['shippingDetails.provider'] = shippingDetails.provider;
+                const tracking = normalizeShippingTracking(shippingDetails, order.shippingDetails || {});
+                if (shippingDetails.provider !== undefined || shippingDetails.customProvider !== undefined) {
+                    updateData['shippingDetails.provider'] = tracking.provider;
                 }
                 if (shippingDetails.trackingNumber !== undefined) {
-                    updateData['shippingDetails.trackingNumber'] = shippingDetails.trackingNumber;
+                    updateData['shippingDetails.trackingNumber'] = tracking.trackingNumber;
                 }
+                updateData['shippingDetails.trackingUrl'] = tracking.trackingUrl;
+                updateData['shippingDetails.trackingUrlCustom'] = tracking.trackingUrlCustom;
                 if (shippingDetails.notes !== undefined) {
                     updateData['shippingDetails.notes'] = shippingDetails.notes;
                 }
@@ -639,26 +653,38 @@ const orderController = {
                 status: 1,
                 'shippingDetails.provider': 1,
                 'shippingDetails.trackingNumber': 1,
+                'shippingDetails.trackingUrl': 1,
+                'shippingDetails.trackingUrlCustom': 1,
                 'shippingDetails.notes': 1,
                 refund: 1
             });
 
-            const fullOrder = await Order.findById(id);
-            if (fullOrder?.contactDetails?.email) {
-                if (status === 'Shipped') {
-                    buildOrderShippedEmail(fullOrder)
-                        .then(({ html, subject }) =>
-                            sendMail({ to: fullOrder.contactDetails.email, subject, html })
-                        )
-                        .catch((e) => console.error('Shipped email (shipping endpoint):', e));
-                } else {
-                    const skipGenericStatusEmail = ['Shipped', 'Refunded', 'Pending'];
-                    if (status && !skipGenericStatusEmail.includes(status)) {
+            // Emails never block or fail the update (all helpers catch + log).
+            try {
+                const fullOrder = await Order.findById(id);
+                if (fullOrder) {
+                    const effectiveStatus = status || fullOrder.status;
+                    if (effectiveStatus === 'Shipped' && (status === 'Shipped' || shippingDetails)) {
+                        // Dedupes on courier + tracking: re-saving the same values does not resend.
+                        notifyOrderShipped(fullOrder);
+                    } else if (status === 'Delivered') {
+                        notifyOrderDelivered(fullOrder);
+                    } else if (status === 'Refunded') {
+                        notifyRefundStatus(fullOrder, {
+                            status: 'Refunded',
+                            refundAmount: fullOrder.refund?.refundAmount ?? fullOrder.totalOrderValue,
+                            refundType: fullOrder.refund?.refundType || 'full',
+                            includeAdmin: true,
+                            dedupeKey: `order-refunded|${fullOrder.refund?.refundAmount ?? ''}`,
+                        });
+                    } else if (status && status !== 'Pending' && status !== order.status && fullOrder.contactDetails?.email) {
                         sendOrderUpdateEmailToCustomer(
                             buildOrderDataForStatusEmail(fullOrder)
                         ).catch((e) => console.error('Status email (shipping endpoint):', e));
                     }
                 }
+            } catch (emailErr) {
+                console.error('Order email trigger failed (shipping endpoint):', emailErr);
             }
 
             return res.status(200).json({

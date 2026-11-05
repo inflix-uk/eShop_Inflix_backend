@@ -141,7 +141,8 @@ const adminProductController = {
      */
     /**
      * "Prices & Content" sheet export: variant prices/identifiers and product
-     * descriptions/perks. Body { ids } or query ?ids=<id,id,...>; none = every product.
+     * descriptions/perks. Body { ids, part } or query ?ids=<id,id,...>&part=;
+     * no ids = every product; part "prices" or "content" returns only that half.
      */
     exportPricesContentSheet: async (req, res) => {
         try {
@@ -149,7 +150,9 @@ const adminProductController = {
             const ids = Array.isArray(req.body?.ids)
                 ? req.body.ids.map((s) => String(s).trim()).filter(Boolean)
                 : String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean);
-            const data = await bulkSheetService.exportSheet({ ids });
+            // part=prices | content exports one half only, so the file stays small.
+            const part = String(req.body?.part || req.query.part || '').trim().toLowerCase();
+            const data = await bulkSheetService.exportSheet({ ids, part });
             return res.json({ status: 200, ...data });
         } catch (error) {
             console.error('Error exporting prices/content sheet:', error);
@@ -341,7 +344,21 @@ const adminProductController = {
     restoreDeleteProduct: async (req, res) => {
         try {
             const { id } = req.params;
-            const restoredProduct = await Product.findByIdAndUpdate(id, { isdeleted: false }, { new: true });
+            const current = await Product.findById(id).select('producturl').lean();
+            if (!current) {
+                return res.json({ message: 'Product not found', status: 404 });
+            }
+            // An import that re-created this product renamed the deleted copy to
+            // "<url>-deleted-<id>". Take the original url back only if it is free.
+            const update = { isdeleted: false };
+            const suffix = `-deleted-${id}`;
+            if (typeof current.producturl === 'string' && current.producturl.endsWith(suffix)) {
+                const original = current.producturl.slice(0, -suffix.length);
+                if (original && !(await Product.exists({ producturl: original }))) {
+                    update.producturl = original;
+                }
+            }
+            const restoredProduct = await Product.findByIdAndUpdate(id, update, { new: true });
             if (!restoredProduct) {
                 return res.json({ message: 'Product not found', status: 404 });
             }

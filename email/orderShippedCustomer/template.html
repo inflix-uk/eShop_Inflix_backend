@@ -31,7 +31,8 @@
       <p><strong>{{SH_labelCarrier}}</strong> {{carrier}}</p>
       <p><strong>{{SH_labelTracking}}</strong> {{trackingNumber}}</p>
       <p>{{SH_beforeTrackButton}}</p>
-      <a href="{{trackingUrl}}" class="tracking-link">{{SH_trackButtonText}}</a>
+      {{trackingButtonHtml}}
+      <p><strong>{{SH_labelDeliveryAddress}}</strong><br>{{deliveryAddressHtml}}</p>
       <p>{{SH_closingThanksLine}}</p>
     </div>
     <div class="footer">

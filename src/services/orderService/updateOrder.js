@@ -7,17 +7,20 @@ const {
     getOrderConfirmationResolved,
     applyOrderConfirmationCopyToHtml,
 } = require('../email/orderEmailCopyService');
-const { ORDER_CONFIRMATION_DEFAULTS } = require('../../config/orderEmailTemplateDefaults');
 const { getEmailBranding, applyEmailBrandingToHtml } = require('../../utils/emailBranding');
-const { buildOrderShippedEmail } = require('../email/orderShippedEmailService');
+const { normalizeShippingTracking } = require('../../utils/courierTracking');
+const {
+    notifyOrderShipped,
+    notifyOrderDelivered,
+    notifyRefundStatus,
+    getAdminRecipient,
+} = require('../email/transactionalEmailService');
 const {
     sendOrderUpdateEmailToCustomer,
     buildOrderDataForStatusEmail,
 } = require('../../../email/OrderUpdateEmailToCustomer/OrderUpdateEmailToCustomer');
 const {
     buildSimpleCartRowVariantDivs,
-    buildRefundCartItemVariantSpans,
-    buildAdminRefundCartItemVariantHtml,
     emailFieldPresent,
     escapeHtml,
 } = require('../../utils/orderStatusEmailDynamicHtml');
@@ -49,6 +52,21 @@ const updateOrderService = async (id, orderData) => {
             updateData.refund = refund;
         }
 
+        const existingOrder = await Order.findById(id).select({ status: 1, shippingDetails: 1, refund: 1 }).lean();
+
+        // Courier name + tracking URL come from the courier map (custom seller URL kept).
+        if (shippingDetails && typeof shippingDetails === 'object') {
+            const tracking = normalizeShippingTracking(shippingDetails, existingOrder?.shippingDetails || {});
+            const { customProvider, ...rest } = shippingDetails;
+            updateData.shippingDetails = {
+                ...rest,
+                provider: tracking.provider,
+                trackingNumber: tracking.trackingNumber,
+                trackingUrl: tracking.trackingUrl,
+                trackingUrlCustom: tracking.trackingUrlCustom,
+            };
+        }
+
         // Find the order by ID and update it with the new data
         const updatedOrder = await Order.findByIdAndUpdate(
             id,
@@ -67,423 +85,165 @@ const updateOrderService = async (id, orderData) => {
 
         console.log('updatedOrder:', updatedOrder);
 
+        const previousStatus = existingOrder?.status;
+
         if (status === 'Shipped') {
             // Note: Quantities are already reduced when order status became "Pending" in createOrder.js
-            const to = updatedOrder.contactDetails?.email;
-            if (to) {
-                buildOrderShippedEmail(updatedOrder)
-                    .then(({ html, subject }) =>
-                        sendMail({
-                            to,
-                            subject,
-                            html,
-                        })
-                    )
-                    .then(
-                        (info) =>
-                            console.log('Shipment email sent:', info.response || info.messageId),
-                        (error) => console.log('Error sending shipment email:', error)
-                    )
-                    .catch((err) => console.error('Shipped email build failed:', err));
-            }
+            // Deduped on courier + tracking number; never throws.
+            notifyOrderShipped(updatedOrder);
         }
 
-        if (status === 'Pending') {
-            // Read the HTML email template
-            const emailTemplatePath = path.join(__dirname, '..', '..', '..', 'email', 'orderConfermation', 'index.html');
-            let emailTemplate = fs.readFileSync(emailTemplatePath, 'utf8');
-            const branding = await getEmailBranding();
-            emailTemplate = await applyEmailBrandingToHtml(emailTemplate, branding);
-            const confirmationCopy = await getOrderConfirmationResolved();
-            emailTemplate = applyOrderConfirmationCopyToHtml(
-              emailTemplate,
-              confirmationCopy.fields
-            );
+        if (status === 'Delivered') {
+            notifyOrderDelivered(updatedOrder);
+        }
 
-            // Calculate total order value and apply discounts
-            let totalOrderValue = updatedOrder.cart.reduce((sum, item) => sum + (item.qty || 0) * (item.salePrice || item.Price || 0), 0);
+        // Only when the order moves INTO Pending — admin edits of a Pending order must not
+        // re-send the confirmation every time they are saved.
+        if (status === 'Pending' && previousStatus !== 'Pending') {
+            try {
+                // Read the HTML email template
+                const emailTemplatePath = path.join(__dirname, '..', '..', '..', 'email', 'orderConfermation', 'index.html');
+                let emailTemplate = fs.readFileSync(emailTemplatePath, 'utf8');
+                const branding = await getEmailBranding();
+                emailTemplate = await applyEmailBrandingToHtml(emailTemplate, branding);
+                const confirmationCopy = await getOrderConfirmationResolved();
+                emailTemplate = applyOrderConfirmationCopyToHtml(
+                  emailTemplate,
+                  confirmationCopy.fields
+                );
 
-            let discountAmount = 0;
-            if (updatedOrder.coupon && updatedOrder.coupon.length > 0) {
-                const coupon = updatedOrder.coupon[0];
-                if (coupon.discount_type === "flat") {
-                    discountAmount = coupon.discount;
-                } else if (coupon.discount_type === "percentage") {
-                    const percentageDiscount = (totalOrderValue * coupon.discount) / 100;
-                    discountAmount = coupon.upto ? Math.min(percentageDiscount, coupon.upto) : percentageDiscount;
+                // Calculate total order value and apply discounts
+                let totalOrderValue = updatedOrder.cart.reduce((sum, item) => sum + (item.qty || 0) * (item.salePrice || item.Price || 0), 0);
+
+                let discountAmount = 0;
+                if (updatedOrder.coupon && updatedOrder.coupon.length > 0) {
+                    const coupon = updatedOrder.coupon[0];
+                    if (coupon.discount_type === "flat") {
+                        discountAmount = coupon.discount;
+                    } else if (coupon.discount_type === "percentage") {
+                        const percentageDiscount = (totalOrderValue * coupon.discount) / 100;
+                        discountAmount = coupon.upto ? Math.min(percentageDiscount, coupon.upto) : percentageDiscount;
+                    }
                 }
-            }
 
-            const discountedOrderValue = Math.max(0, totalOrderValue - discountAmount);
-            const finalOrderValue = discountAmount > 0 ? discountedOrderValue : totalOrderValue;
+                const discountedOrderValue = Math.max(0, totalOrderValue - discountAmount);
+                const finalOrderValue = discountAmount > 0 ? discountedOrderValue : totalOrderValue;
 
-            // Generate HTML for each cart item
-            const cartItemsHTML = updatedOrder.cart.map(item => {
-                const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
+                // Generate HTML for each cart item
+                const cartItemsHTML = updatedOrder.cart.map(item => {
+                    const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
 
-                return `
-                    <tr>
-                        <td align="left" valign="middle" style="padding: 20px 0; border-bottom: 1px solid #e7e7d2b3;">
-                            ${emailFieldPresent(item.productName) ? `<div><strong>${escapeHtml(item.productName)}</strong></div>` : ''}
-                            ${buildSimpleCartRowVariantDivs(item)}
-                            <div>Quantity: ${item.qty}</div>
-                            <div>Item Subtotal: £${itemSubtotal}</div>
+                    return `
+                        <tr>
+                            <td align="left" valign="middle" style="padding: 20px 0; border-bottom: 1px solid #e7e7d2b3;">
+                                ${emailFieldPresent(item.productName) ? `<div><strong>${escapeHtml(item.productName)}</strong></div>` : ''}
+                                ${buildSimpleCartRowVariantDivs(item)}
+                                <div>Quantity: ${item.qty}</div>
+                                <div>Item Subtotal: £${itemSubtotal}</div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+                // Update email template with cart items and order details
+                const completetotal = `
+                    <tr align="left" valign="middle">
+                        <td class="pc-w620-halign-left pc-w620-valign-middle pc-w620-width-100pc" align="left" valign="middle" style="padding: 20px 0px 20px 0px;">
+                            <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
+                                <tr>
+                                    <td class="pc-w620-spacing-20-0-0-0 pc-w620-align-left" align="left" valign="top">
+                                        <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
+                                            <tr>
+                                                <td valign="top" class="pc-w620-align-left" align="left">
+                                                    <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${branding.typo_h3}; font-size: 16px; color: #1d3425; text-align: left;">
+                                                        <span>Subtotal: £${totalOrderValue.toFixed(2)}</span>
+                                                    </div>
+                                                    <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${branding.typo_h3}; font-size: 16px; color: #1d3425; text-align: left;">
+                                                        <span>Total Price (After Discount): £${finalOrderValue.toFixed(2)}</span>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
                 `;
-            }).join('');
 
-            // Update email template with cart items and order details
-            const completetotal = `
-                <tr align="left" valign="middle">
-                    <td class="pc-w620-halign-left pc-w620-valign-middle pc-w620-width-100pc" align="left" valign="middle" style="padding: 20px 0px 20px 0px;">
-                        <table width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-                            <tr>
-                                <td class="pc-w620-spacing-20-0-0-0 pc-w620-align-left" align="left" valign="top">
-                                    <table border="0" cellpadding="0" cellspacing="0" role="presentation" class="pc-w620-align-left" width="100%" style="border-collapse: separate; border-spacing: 0; margin-right: auto; margin-left: auto;">
-                                        <tr>
-                                            <td valign="top" class="pc-w620-align-left" align="left">
-                                                <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${branding.typo_h3}; font-size: 16px; color: #1d3425; text-align: left;">
-                                                    <span>Subtotal: £${totalOrderValue.toFixed(2)}</span>
-                                                </div>
-                                                <div class="pc-font-alt pc-w620-align-left" style="line-height: 24px; letter-spacing: -0px; ${branding.typo_h3}; font-size: 16px; color: #1d3425; text-align: left;">
-                                                    <span>Total Price (After Discount): £${finalOrderValue.toFixed(2)}</span>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </td>
-                            </tr>
-                        </table>
-                    </td>
-                </tr>
-            `;
+                emailTemplate = emailTemplate
+                    .replace('{{cartItems}}', cartItemsHTML)
+                    .replace('{{ordernumber}}', `Confirmation number: ${updatedOrder.orderNumber}`)
+                    .replace('{{subtotal}}', `£${totalOrderValue.toFixed(2)}`)
+                    .replace('{{completetotal}}', completetotal);
 
-            emailTemplate = emailTemplate
-                .replace('{{cartItems}}', cartItemsHTML)
-                .replace('{{ordernumber}}', `Confirmation number: ${updatedOrder.orderNumber}`)
-                .replace('{{subtotal}}', `£${totalOrderValue.toFixed(2)}`)
-                .replace('{{completetotal}}', completetotal);
+                // Add Trustpilot AFS script to the email template (in head section)
+                const trustpilotScript = `
+    <script type="application/json+trustpilot">
+    {
+        "recipientName": "${updatedOrder.shippingDetails.firstName} ${updatedOrder.shippingDetails.lastName}",
+        "recipientEmail": "${updatedOrder.contactDetails.email}",
+        "referenceId": "${updatedOrder.orderNumber}"
+    }
+    </script>`;
+                emailTemplate = emailTemplate.replace('</head>', `${trustpilotScript}\n</head>`);
 
-            // Add Trustpilot AFS script to the email template (in head section)
-            const trustpilotScript = `
-<script type="application/json+trustpilot">
-{
-    "recipientName": "${updatedOrder.shippingDetails.firstName} ${updatedOrder.shippingDetails.lastName}",
-    "recipientEmail": "${updatedOrder.contactDetails.email}",
-    "referenceId": "${updatedOrder.orderNumber}"
-}
-</script>`;
-            emailTemplate = emailTemplate.replace('</head>', `${trustpilotScript}\n</head>`);
+                // Email options for the customer and Trustpilot
+                const mailOptionsCustomer = {
+                    to: updatedOrder.contactDetails.email,
+                    subject: confirmationCopy.subject,
+                    html: emailTemplate
+                };
 
-            // Email options for the customer and Trustpilot
-            const mailOptionsCustomer = {
-                to: updatedOrder.contactDetails.email,
-                subject: confirmationCopy.subject,
-                html: emailTemplate
-            };
+                const mailOptionsTrustpilot = {
+                    to: '9311f649e0@invite.trustpilot.com',
+                    subject: confirmationCopy.subject,
+                    html: emailTemplate
+                };
 
-            const mailOptionsTrustpilot = {
-                to: '9311f649e0@invite.trustpilot.com',
-                subject: confirmationCopy.subject,
-                html: emailTemplate
-            };
+                // Email options for the owner/admin
+                const mailOptionsOwner = {
+                    to: await getAdminRecipient(),
+                    subject: `New Order Received - ${updatedOrder.orderNumber}`,
+                    html: emailTemplate
+                };
 
-            // Email options for the owner/admin
-            const mailOptionsOwner = {
-                to: 'order@',
-                subject: `New Order Received - ${updatedOrder.orderNumber}`,
-                html: emailTemplate
-            };
+                sendMail(mailOptionsCustomer).then(
+                    (info) => console.log('Order confirmation email sent to customer:', info.response || info.messageId),
+                    (error) => console.log("Error sending order confirmation email to customer:", error)
+                );
 
-            sendMail(mailOptionsCustomer).then(
-                (info) => console.log('Order confirmation email sent to customer:', info.response || info.messageId),
-                (error) => console.log("Error sending order confirmation email to customer:", error)
-            );
+                sendMail(mailOptionsTrustpilot).then(
+                    (info) => console.log('Order confirmation email sent to Trustpilot:', info.response || info.messageId),
+                    (error) => console.log("Error sending order confirmation email to Trustpilot:", error)
+                );
 
-            sendMail(mailOptionsTrustpilot).then(
-                (info) => console.log('Order confirmation email sent to Trustpilot:', info.response || info.messageId),
-                (error) => console.log("Error sending order confirmation email to Trustpilot:", error)
-            );
-
-            sendMail(mailOptionsOwner).then(
-                (info) => console.log('Order confirmation email sent to owner:', info.response || info.messageId),
-                (error) => console.log("Error sending order confirmation email to owner:", error)
-            );
+                sendMail(mailOptionsOwner).then(
+                    (info) => console.log('Order confirmation email sent to owner:', info.response || info.messageId),
+                    (error) => console.log("Error sending order confirmation email to owner:", error)
+                );
+            } catch (confirmationErr) {
+                console.error('Order confirmation email (update) failed:', confirmationErr);
+            }
         }
 
         if (status === 'Refunded') {
-            // Generate the list of products in HTML format with full details
-            const productList = updatedOrder.cart.map(item => {
-                const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
-
-                return `
-                    <li style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e5e5;">
-                        ${emailFieldPresent(item.productName) ? `<strong>${escapeHtml(item.productName)}</strong><br>` : ''}
-                        ${buildRefundCartItemVariantSpans(item)}
-                        <span style="color: #666;">Quantity: ${item.qty}</span><br>
-                        <span style="color: #dc2626; font-weight: bold;">Item Subtotal: £${itemSubtotal}</span>
-                    </li>
-                `;
-            }).join('');
-
-            // Determine refund type and amount
-            const refundType = updatedOrder.refund?.refundType || 'full';
-            const refundAmount = updatedOrder.refund?.refundAmount || updatedOrder.totalOrderValue || 0;
-
-            const orderEmailFooterResolved = await getOrderConfirmationResolved();
-            const adminRefundFooterLine =
-                orderEmailFooterResolved.fields.footerAddressLine != null &&
-                String(orderEmailFooterResolved.fields.footerAddressLine).trim() !== ''
-                    ? String(orderEmailFooterResolved.fields.footerAddressLine).trim()
-                    : ORDER_CONFIRMATION_DEFAULTS.footerAddressLine;
-            const adminRefundFooterHtml = escapeHtml(adminRefundFooterLine);
-
-            // Prepare the email template for refund confirmation
-            const emailTemplate = `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Refund Processed</title>
-                <style>
-                    body {
-                        font-family: Arial, sans-serif;
-                        background-color: #f5f5f5;
-                        color: #000;
-                        margin: 0;
-                        padding: 20px;
-                    }
-                    .container {
-                        background-color: #fff;
-                        padding: 20px;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                        max-width: 600px;
-                        margin: 0 auto;
-                    }
-                    .header {
-                        background-color: #dc2626;
-                        padding: 20px;
-                        text-align: center;
-                        color: #fff;
-                    }
-                    .header h1 {
-                        margin: 0;
-                    }
-                    .content {
-                        padding: 20px;
-                    }
-                    .content p {
-                        font-size: 16px;
-                        line-height: 1.5;
-                    }
-                    .refund-details {
-                        background-color: #fef3c7;
-                        border-left: 4px solid #f59e0b;
-                        padding: 15px;
-                        margin: 20px 0;
-                    }
-                    .refund-amount {
-                        font-size: 24px;
-                        font-weight: bold;
-                        color: #16a34a;
-                        margin: 10px 0;
-                    }
-                    .footer {
-                        background-color: #dc2626;
-                        color: #fff;
-                        padding: 20px;
-                        text-align: center;
-                        font-size: 14px;
-                    }
-                    .footer p {
-                        margin: 5px 0;
-                    }
-                    ul {
-                        list-style-type: none;
-                        padding: 0;
-                    }
-                    ul li {
-                        padding: 5px 0;
-                    }
-                </style>
-            </head>
-            <body>
-
-            <div class="container">
-                <div class="header">
-                    <h1>Refund Processed</h1>
-                </div>
-                <div class="content">
-                    <p>Hi ${updatedOrder.shippingDetails.firstName},</p>
-                    <p>We're writing to confirm that your refund request has been processed for order <strong>#${updatedOrder.orderNumber}</strong>.</p>
-
-                    <div class="refund-details">
-                        <h3 style="margin-top: 0; color: #92400e;">Refund Details</h3>
-                        <p><strong>Refund Type:</strong> ${refundType === 'full' ? 'Full Refund' : 'Partial Refund'}</p>
-                        <p><strong>Refund Amount:</strong></p>
-                        <p class="refund-amount">£${parseFloat(refundAmount).toFixed(2)}</p>
-                        ${updatedOrder.reason ? `<p><strong>Reason:</strong> ${updatedOrder.reason}</p>` : ''}
-                    </div>
-
-                    <p><strong>Order Details:</strong></p>
-                    <ul>
-                        ${productList}
-                    </ul>
-
-                    <p><strong>What happens next?</strong></p>
-                    <p>The refund will be processed to your original payment method within 5-10 business days. The exact timing may vary depending on your bank or card issuer.</p>
-
-                    <p>If you have any questions about this refund, please don't hesitate to contact our customer service team.</p>
-
-                    <p>We apologize for any inconvenience and appreciate your understanding.</p>
-
-                    <p>Best regards,<br>Zexton Tech Store Team</p>
-                </div>
-                <div class="footer">
-                    <p>Zexton Tech Store</p>
-                    <p>27 Church Street, St Helens, WA10 1AX</p>
-                    <p>Email: hello@ | Phone: +44 333 344 8541</p>
-                </div>
-            </div>
-
-            </body>
-            </html>
-            `;
-
-            // Email options for the customer
-            const mailOptionsCustomer = {
-                to: updatedOrder.contactDetails.email,
-                subject: `Refund Processed - Order #${updatedOrder.orderNumber}`,
-                html: emailTemplate
-            };
-
-            // Email options for the owner/admin
-            const mailOptionsOwner = {
-                to: '@gmail.com',
-                subject: `Refund Processed - Order #${updatedOrder.orderNumber}`,
-                html: `
-                    <!DOCTYPE html>
-                    <html lang="en">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <style>
-                            body {
-                                font-family: Arial, sans-serif;
-                                background-color: #f7f7f7;
-                                margin: 0;
-                                padding: 0;
-                                color: #333;
-                            }
-                            .container {
-                                max-width: 600px;
-                                margin: 20px auto;
-                                background-color: #ffffff;
-                                padding: 20px;
-                                border-radius: 8px;
-                                box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-                            }
-                            .header {
-                                background-color: #dc2626;
-                                color: #ffffff;
-                                padding: 10px 20px;
-                                border-radius: 8px 8px 0 0;
-                            }
-                            .header h1 {
-                                margin: 0;
-                                font-size: 24px;
-                            }
-                            .content {
-                                padding: 20px;
-                            }
-                            .order-details {
-                                margin-bottom: 20px;
-                            }
-                            .order-details h2 {
-                                font-size: 18px;
-                                margin: 0;
-                                color: #dc2626;
-                            }
-                            .order-summary {
-                                background-color: #fef3c7;
-                                padding: 10px;
-                                border-radius: 8px;
-                                margin-bottom: 20px;
-                            }
-                            .order-summary p {
-                                margin: 8px 0;
-                            }
-                            .footer {
-                                font-size: 12px;
-                                color: #777;
-                                text-align: center;
-                                margin-top: 20px;
-                            }
-                        </style>
-                        <title>Refund Processed Notification</title>
-                    </head>
-                    <body>
-                        <div class="container">
-                            <div class="header">
-                                <h1>Refund Processed</h1>
-                            </div>
-                            <div class="content">
-                                <p>A refund has been processed for order placed by ${updatedOrder.shippingDetails.firstName} ${updatedOrder.shippingDetails.lastName}.</p>
-                                <div class="order-details">
-                                    <h2>Order Number: ${updatedOrder.orderNumber}</h2>
-                                    <p><strong>Customer Name:</strong> ${updatedOrder.shippingDetails.firstName} ${updatedOrder.shippingDetails.lastName}</p>
-                                    <p><strong>Customer Email:</strong> ${updatedOrder.contactDetails.email}</p>
-                                    <p><strong>Refund Type:</strong> ${refundType === 'full' ? 'Full Refund' : 'Partial Refund'}</p>
-                                    <p><strong>Refund Amount:</strong> £${parseFloat(refundAmount).toFixed(2)}</p>
-                                    ${updatedOrder.reason ? `<p><strong>Reason:</strong> ${updatedOrder.reason}</p>` : ''}
-                                </div>
-
-                                <div class="order-summary">
-                                    <h3>Order Details:</h3>
-                                    <ul>
-                                        ${updatedOrder.cart.map(item => {
-                                            const itemSubtotal = (item.qty * item.salePrice).toFixed(2);
-
-                                            return `
-                                                <li style="margin-bottom: 15px;">
-                                                    ${emailFieldPresent(item.productName) ? `<strong>Product:</strong> ${escapeHtml(item.productName)} <br>` : ''}
-                                                    ${buildAdminRefundCartItemVariantHtml(item)}
-                                                    <strong>Quantity:</strong> ${item.qty} <br>
-                                                    <strong>Item Subtotal:</strong> £${itemSubtotal} <br>
-                                                </li>
-                                            `;
-                                        }).join('')}
-                                    </ul>
-                                </div>
-                            </div>
-
-                            <div class="footer">
-                                <p>${adminRefundFooterHtml}</p>
-                            </div>
-                        </div>
-                    </body>
-                    </html>
-                `
-            };
-
-            sendMail(mailOptionsCustomer).then(
-                (info) => console.log('Refund email sent to customer:', info.response || info.messageId),
-                (error) => console.log('Error sending refund email to customer:', error)
-            );
-
-            sendMail(mailOptionsOwner).then(
-                (info) => console.log('Refund email sent to owner:', info.response || info.messageId),
-                (error) => console.log('Error sending refund email to owner:', error)
-            );
+            // Customer refund confirmation + admin copy (Email templates → Refund status).
+            notifyRefundStatus(updatedOrder, {
+                status: 'Refunded',
+                refundAmount: updatedOrder.refund?.refundAmount ?? updatedOrder.totalOrderValue,
+                refundType: updatedOrder.refund?.refundType || 'full',
+                reason: updatedOrder.reason,
+                includeAdmin: true,
+                dedupeKey: `order-refunded|${updatedOrder.refund?.refundAmount ?? ''}`,
+            });
         }
 
         /** Customer status notification — Shipped / Refunded / Pending use dedicated templates above */
-        const skipGenericStatusEmail = ['Shipped', 'Refunded', 'Pending'];
+        const skipGenericStatusEmail = ['Shipped', 'Refunded', 'Pending', 'Delivered'];
         if (
             status &&
+            status !== previousStatus &&
             !skipGenericStatusEmail.includes(status) &&
             updatedOrder.contactDetails?.email
         ) {
@@ -550,25 +310,18 @@ const bulkUpdateOrdersService = async (orderIds, updateData) => {
             };
         }
 
-        // If status is 'Shipped', send emails for each order
-        if (status === 'Shipped') {
-            const updatedOrders = await Order.find({ _id: { $in: orderIds } });
-            await Promise.allSettled(
-                updatedOrders.map(async (order) => {
-                    try {
-                        const to = order.contactDetails?.email;
-                        if (!to) return;
-                        const { html, subject } = await buildOrderShippedEmail(order);
-                        await sendMail({ to, subject, html });
-                        console.log(`Shipment email sent for order ${order.orderNumber}`);
-                    } catch (err) {
-                        console.error(
-                            `Shipment email failed for order ${order.orderNumber}:`,
-                            err
-                        );
-                    }
-                })
-            );
+        // Shipped / Delivered emails for each order (deduped per order; never throw).
+        if (status === 'Shipped' || status === 'Delivered') {
+            try {
+                const updatedOrders = await Order.find({ _id: { $in: orderIds } });
+                await Promise.allSettled(
+                    updatedOrders.map((order) =>
+                        status === 'Shipped' ? notifyOrderShipped(order) : notifyOrderDelivered(order)
+                    )
+                );
+            } catch (err) {
+                console.error('Bulk status emails failed:', err);
+            }
         }
 
         return {

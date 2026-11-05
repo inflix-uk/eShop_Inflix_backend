@@ -15,6 +15,10 @@ const path = require('path');
 const fs = require('fs');
 const { sendMail, getOrderNotifyRecipientEmail, getOrderConfirmationCcAndBcc } = require('../../utils/mailer');
 const {
+    notifyPurchaseReceipt,
+    isSellerInvoiceEnabled,
+} = require('../email/transactionalEmailService');
+const {
   getOrderConfirmationResolved,
   applyOrderConfirmationCopyToHtml,
   getOrderNumberPrefixForGeneration,
@@ -1491,10 +1495,25 @@ const createOrderService = async (orderData, req = null) => {
                 (error) => console.log("Error sending order confirmation email to customer:", error)
             );
 
-            sendMail(mailOptionsOwner).then(
-                (info) => console.log('Order confirmation email sent to owner: ' + (info.response || info.messageId)),
-                (error) => console.log("Error sending order confirmation email to owner:", error)
-            );
+            const sendLegacyOwnerEmail = () =>
+                sendMail(mailOptionsOwner).then(
+                    (info) => console.log('Order confirmation email sent to owner: ' + (info.response || info.messageId)),
+                    (error) => console.log("Error sending order confirmation email to owner:", error)
+                );
+
+            // Purchase receipt (customer) + seller invoice (admin) — Email templates → Receipt / invoice.
+            // The seller invoice replaces the basic "New order" admin email; if it is switched off or
+            // fails to send, the legacy admin email goes out instead. Never blocks the order.
+            (async () => {
+                let sellerInvoiceOn = false;
+                try {
+                    sellerInvoiceOn = await isSellerInvoiceEnabled();
+                } catch {
+                    sellerInvoiceOn = false;
+                }
+                const receipt = await notifyPurchaseReceipt(finalOrder, { includeAdmin: sellerInvoiceOn });
+                if (!sellerInvoiceOn || !receipt?.admin) await sendLegacyOwnerEmail();
+            })().catch((err) => console.error('Receipt / seller invoice emails failed:', err));
 
             console.log(`✅ Confirmation emails sent for order ${finalOrder.orderNumber}\n`);
         } else {

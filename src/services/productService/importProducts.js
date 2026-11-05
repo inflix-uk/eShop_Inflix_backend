@@ -14,6 +14,12 @@ const { toSeoSlug, generateVariantId, variantNameToSeoSlug } = require('../../ut
  * Idempotent on `producturl` — the only unique key on the collection — so a
  * corrected file can safely be re-run.
  *
+ * Soft-deleted products (isdeleted: true) are never matched. Their producturl
+ * is still held by the unique index, so when a file creates a product with
+ * that url the deleted copy is renamed to `<url>-deleted-<id>` first (it stays
+ * restorable from Deleted Products). Matching the deleted doc instead used to
+ * revive it with its old variant options, images and description.
+ *
  * Three properties the CSV flow depends on:
  * - Unknown categories, subcategories, tags, brands and attribute VALUES are
  *   find-or-created so a new catalogue (e.g. phones) can import without a
@@ -919,6 +925,29 @@ class ImportProductsService {
         return set;
     }
 
+    /** Url a deleted product is moved to when a new product takes its url. */
+    deletedUrl(url, id) {
+        return `${url}-deleted-${id}`;
+    }
+
+    /**
+     * Rename the deleted product holding `url` so a new product can use it.
+     * dryRun only updates the in-memory slug sets.
+     */
+    async freeDeletedUrl(url, deletedByUrl, taken, dryRun) {
+        const id = deletedByUrl.get(url);
+        const moved = this.deletedUrl(url, id);
+        if (!dryRun) {
+            await Product.updateOne(
+                { _id: id, isdeleted: true, producturl: url },
+                { $set: { producturl: moved } }
+            );
+        }
+        deletedByUrl.delete(url);
+        taken.delete(url);
+        taken.add(moved);
+    }
+
     /**
      * @param {Array} products - payloads from the admin panel's CSV parser
      * @param {Object} opts
@@ -940,7 +969,7 @@ class ImportProductsService {
         const storedByUrl = new Map();
         if (ref && urls.length) {
             const stored = await Product.find(
-                { producturl: { $in: urls } },
+                { producturl: { $in: urls }, isdeleted: { $ne: true } },
                 { producturl: 1, 'variantValues.attributes': 1 }
             ).lean();
             stored.forEach((doc) => storedByUrl.set(doc.producturl, doc));
@@ -966,15 +995,20 @@ class ImportProductsService {
         }
 
         // Seed the slug set with what already exists so generated suffixes never
-        // collide with the live catalogue.
-        const existing = await Product.find({}, { producturl: 1 }).lean();
+        // collide with the live catalogue. Urls held only by deleted products are
+        // tracked separately: a new product may take them over (freeDeletedUrl).
+        const existing = await Product.find({}, { producturl: 1, isdeleted: 1 }).lean();
         const taken = new Set(existing.map(e => e.producturl).filter(Boolean));
+        const deletedByUrl = new Map(
+            existing.filter(e => e.isdeleted === true && e.producturl).map(e => [e.producturl, e._id])
+        );
 
         const results = {
             created: 0,
             updated: 0,
             skipped: 0,
             failed: 0,
+            replacedDeleted: 0,
             catalog: this.catalogCounts(missing),
         };
         const details = [];
@@ -984,8 +1018,10 @@ class ImportProductsService {
             try {
                 // Look up the stored product FIRST: validation grandfathers
                 // values that are unchanged from what it already stores.
+                // Deleted products are not "existing": updating one would bring
+                // back its old variants/options instead of the file's.
                 const match = requested
-                    ? await Product.findOne({ producturl: requested }).lean()
+                    ? await Product.findOne({ producturl: requested, isdeleted: { $ne: true } }).lean()
                     : null;
 
                 if (match && !updateExisting) {
@@ -1027,13 +1063,26 @@ class ImportProductsService {
                     continue;
                 }
 
+                // A deleted product holding this url gives it up to the new one.
+                const base = toSeoSlug(p.producturl || p.name || '') || 'product';
+                const replacesDeleted = deletedByUrl.has(base);
+                if (replacesDeleted) {
+                    await this.freeDeletedUrl(base, deletedByUrl, taken, dryRun);
+                }
+
                 // taken already holds every live slug, so this cannot collide.
                 const slug = this.buildSlug(p, taken);
                 if (!dryRun) {
                     await new Product(this.buildCreateDoc(p, slug, ref)).save();
                 }
                 results.created += 1;
-                details.push({ producturl: slug, action: dryRun ? 'would create' : 'created', name: p.name });
+                if (replacesDeleted) results.replacedDeleted += 1;
+                details.push({
+                    producturl: slug,
+                    action: dryRun ? 'would create' : 'created',
+                    name: p.name,
+                    ...(replacesDeleted ? { replacesDeleted: true } : {}),
+                });
             } catch (error) {
                 results.failed += 1;
                 const message = error.code === 11000

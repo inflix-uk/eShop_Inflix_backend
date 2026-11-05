@@ -23,6 +23,12 @@ const requestOrderSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  /** 'return' (default) or 'refund' — chooses the Return / Refund request email template. */
+  requestType: {
+    type: String,
+    enum: ['return', 'refund'],
+    default: 'return',
+  },
   notes: {
     type: String,
     default: '',

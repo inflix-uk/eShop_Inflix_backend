@@ -12,6 +12,7 @@ const fs = require('fs');
 const multer = require('multer');
 const moment = require('moment');
 const mongoose = require('mongoose');
+const { notifyRefundStatus } = require('../services/email/transactionalEmailService');
 const { exit } = require("process");
 const {
     resolveScopedUserId,
@@ -350,6 +351,8 @@ const returnOrderController = {
 
             console.log("Update Request:", { status });
 
+            const previousReturnOrder = await ReturnOrder.findById(id).select({ status: 1 }).lean();
+
             // Find the return order by ID and update only its status
             const updatedReturnOrder = await ReturnOrder.findByIdAndUpdate(id, { status }, { new: true, runValidators: true });
 
@@ -360,6 +363,32 @@ const returnOrderController = {
                 });
             }
              console.log("Updated Return Order:", updatedReturnOrder);
+
+            // Customer email: return / refund status update (never blocks the response).
+            if (status && previousReturnOrder?.status !== status) {
+                (async () => {
+                    let order = null;
+                    if (updatedReturnOrder.requestOrder) {
+                        const RequestOrder = require('../models/requestOrder');
+                        const rq = await RequestOrder.findById(updatedReturnOrder.requestOrder).select({ orderId: 1 }).lean();
+                        if (rq?.orderId) order = await Order.findById(rq.orderId);
+                    }
+                    const orderNo = updatedReturnOrder.originalOrderNumber || updatedReturnOrder.orderNumber;
+                    if (!order && orderNo) order = await Order.findOne({ orderNumber: orderNo });
+                    if (!order) return;
+                    await notifyRefundStatus(order, {
+                        status,
+                        requestOrder: {
+                            _id: updatedReturnOrder._id,
+                            rma: updatedReturnOrder.rma,
+                            reason: updatedReturnOrder.reason,
+                            notes: updatedReturnOrder.notes,
+                        },
+                        customerEmail: updatedReturnOrder.email,
+                        dedupeKey: `return|${updatedReturnOrder._id}|${status}`,
+                    });
+                })().catch((e) => console.error('Return order status email failed:', e));
+            }
             // Respond with a success message and the updated order
             res.status(200).json({
                 message: "Return order status updated successfully",
