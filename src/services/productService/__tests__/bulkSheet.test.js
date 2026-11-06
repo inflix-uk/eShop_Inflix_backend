@@ -11,7 +11,52 @@ test('parseNumber accepts prices typed with currency signs and commas', () => {
 
 test('description without blocks reads Product_description', () => {
     const d = descriptionSource({ Product_description: '<p>Hi</p>', Product_description_blocks: [] });
-    assert.deepStrictEqual(d, { editable: true, path: 'Product_description', value: '<p>Hi</p>' });
+    assert.deepStrictEqual(d, { editable: true, path: 'Product_description', value: '<p>Hi</p>', clearBlocks: false });
+});
+
+test('an empty description layout falls back to Product_description and is cleared', () => {
+    for (const blocks of [
+        [{ type: 'row', columns: [{ width: 100, blocks: [] }] }],
+        [{ type: 'row', columns: [{ width: 100, blocks: [{ type: 'text', content: '<p><br></p>' }] }] }],
+        [{ type: 'row', columns: [{ width: 100, blocks: [{ type: 'text', content: '<p>&nbsp;</p>' }] }] }],
+        [{ type: 'text', content: '<p>top-level blocks are not drawn by the website</p>' }],
+    ]) {
+        const d = descriptionSource({ Product_description: '', Product_description_blocks: blocks });
+        assert.deepStrictEqual(d, { editable: true, path: 'Product_description', value: '', clearBlocks: true }, JSON.stringify(blocks));
+    }
+});
+
+test('importing a description over an empty layout writes Product_description and clears the layout', async () => {
+    const Product = require('../../../models/product');
+    const { importSheet } = require('../bulkSheet');
+    const pid = '6ad88a9a47aabe3bc09979d8';
+    const originalFind = Product.find;
+    const originalWrite = Product.bulkWrite;
+    const writes = [];
+    Product.find = () => ({
+        select: () => ({
+            lean: async () => [{
+                _id: pid,
+                name: 'Phone',
+                Product_description: '',
+                Product_description_blocks: [{ type: 'row', columns: [{ width: 100, blocks: [] }] }],
+            }],
+        }),
+    });
+    Product.bulkWrite = async (ops) => { writes.push(...ops); };
+    try {
+        const res = await importSheet({
+            dryRun: false,
+            content: [{ row: 2, productId: pid, description: '<p>Long description</p>' }],
+        });
+        assert.strictEqual(res.errors.length, 0);
+        const $set = writes[0].updateOne.update.$set;
+        assert.strictEqual($set.Product_description, '<p>Long description</p>');
+        assert.strictEqual($set.Product_description_blocks, null);
+    } finally {
+        Product.find = originalFind;
+        Product.bulkWrite = originalWrite;
+    }
 });
 
 test('stored "null" text reads as empty', () => {

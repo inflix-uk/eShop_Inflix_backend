@@ -54,16 +54,46 @@ function cleanStored(value) {
     return ['null', 'undefined'].includes(s.trim().toLowerCase()) ? '' : s;
 }
 
+// HTML that shows something even without text (pictures, embeds, tables).
+const VISIBLE_TAGS = /<(img|iframe|video|svg|table|hr)\b/i;
+const htmlShows = (html) =>
+    typeof html === 'string' &&
+    (VISIBLE_TAGS.test(html) || html.replace(/<[^>]*>/g, '').replace(/&nbsp;|&#160;| /gi, ' ').trim() !== '');
+
+/** Whether one block puts anything on the page (mirrors the website's block renderer). */
+function blockShows(block) {
+    if (!block) return false;
+    if (block.type === 'text') return htmlShows(block.content);
+    if (block.type === 'image') return !!(block.content && block.content.url);
+    return block.type === 'products' || block.type === 'widget';
+}
+
+/**
+ * Whether the description layout shows anything. The website draws only rows, so
+ * a layout of empty rows (or a stray top-level block) shows nothing and the website
+ * falls back to Product_description.
+ */
+function blocksShow(blocks) {
+    if (!Array.isArray(blocks)) return false;
+    return blocks.some((row) =>
+        row && Array.isArray(row.columns) &&
+        row.columns.some((col) => col && Array.isArray(col.blocks) && col.blocks.some(blockShows))
+    );
+}
+
 /**
  * Where the product description that the website shows actually lives.
- * The website renders Product_description_blocks when there are any, otherwise
+ * The website renders Product_description_blocks when they show anything, otherwise
  * Product_description. Blocks are editable here only when they hold exactly one
  * text block (true for nearly every product); anything richer stays in the admin.
  */
 function descriptionSource(product) {
     const blocks = product.Product_description_blocks;
-    if (!Array.isArray(blocks) || blocks.length === 0) {
-        return { editable: true, path: 'Product_description', value: cleanStored(product.Product_description) };
+    if (!blocksShow(blocks)) {
+        // An empty layout is cleared on import so the imported text is what shows,
+        // both on the website and in the product form.
+        const clearBlocks = Array.isArray(blocks) && blocks.length > 0;
+        return { editable: true, path: 'Product_description', value: cleanStored(product.Product_description), clearBlocks };
     }
     const textBlocks = [];
     blocks.forEach((row, r) => {
@@ -277,8 +307,9 @@ async function importSheet({ variants = [], content = [], dryRun = true } = {}) 
             const desc = descriptionSource(product);
             if (!desc.editable) {
                 errors.push({ sheet: 'Descriptions & Perks', row, message: `"${product.name}" uses a multi-part description; edit it in the product form` });
-            } else if (!sameText(r.description, desc.value)) {
+            } else if (!sameText(r.description, desc.value) || desc.clearBlocks) {
                 $set[desc.path] = asText(r.description);
+                if (desc.clearBlocks) $set.Product_description_blocks = null;
                 record(product, '', 'Description', '(changed)', '(changed)');
             }
         }
