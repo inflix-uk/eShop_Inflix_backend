@@ -831,8 +831,32 @@ const adminProductController = {
                 }
             }
 
+            // SIM option picked in the product form ("Select Options"), shown under the
+            // product name on the website. The product stores the option's slug; the
+            // display name lives on the 'select_options' attribute. Switched-off or
+            // deleted options are hidden. Older products may hold free text in sim_options.
+            let selectOptionName = null;
+            const selectedSlug = normalizeSlug(product.selectOption);
+            if (selectedSlug) {
+                const selectAttribute = await VariantAttribute.findOne({
+                    $or: [{ slug: 'select_options' }, { slug: 'select-options' }]
+                });
+                const values = (selectAttribute && selectAttribute.values) || [];
+                const matched = values.find(v => normalizeSlug(v.slug) === selectedSlug)
+                    || values.find(v => normalizeSlug(v.name) === selectedSlug);
+                if (matched) {
+                    if (matched.isActive !== false && matched.isDeleted !== true) selectOptionName = matched.name;
+                } else {
+                    selectOptionName = selectedSlug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                }
+            } else {
+                const legacy = String(product.sim_options ?? '').trim();
+                if (legacy && !['null', 'undefined'].includes(legacy.toLowerCase())) selectOptionName = legacy;
+            }
+
             // Add faqDetails and reviewDetails to product response
             const productWithDetails = product.toObject();
+            productWithDetails.selectOptionName = selectOptionName;
             productWithDetails.faqDetails = faqDetails;
             productWithDetails.reviewDetails = reviewDetails;
             productWithDetails.topSectionItemsPopulated = populatedTopSectionItems;
@@ -2379,7 +2403,14 @@ const adminProductController = {
             }
 
             // Find the product
-            const product = await Product.findById(productId).select('name variantValues Quantity productType');
+            const product = await Product.findById(productId).select('name variantValues Quantity productType status');
+            // A blank quantity counts as 0 (not buyable). Variants are on unless
+            // switched off (status false); older variants have no status field.
+            const qtyOf = (v) => {
+                const n = Number(v);
+                return v === null || v === undefined || v === '' || !Number.isFinite(n) ? 0 : n;
+            };
+            const variantOn = (v) => v.status !== false && v.status !== 'false';
 
             if (!product) {
                 return res.status(404).json({
@@ -2415,13 +2446,13 @@ const adminProductController = {
                         });
                     }
 
-                    availableQuantity = variant.Quantity || 0;
+                    availableQuantity = variantOn(variant) ? qtyOf(variant.Quantity) : 0;
                     productInfo.variantId = variant._id;
                     productInfo.variantName = variant.name;
                     productInfo.variantSKU = variant.SKU;
 
                     // Check variant status
-                    if (!variant.status || availableQuantity === 0) {
+                    if (availableQuantity <= 0) {
                         stockStatus = 'out_of_stock';
                     } else if (availableQuantity <= 5) {
                         stockStatus = 'low_stock';
@@ -2430,12 +2461,12 @@ const adminProductController = {
                     // No variant ID provided, check if single-variant product
                     if (product.variantValues.length === 1) {
                         const variant = product.variantValues[0];
-                        availableQuantity = variant.Quantity || 0;
+                        availableQuantity = variantOn(variant) ? qtyOf(variant.Quantity) : 0;
                         productInfo.variantId = variant._id;
                         productInfo.variantName = variant.name;
                         productInfo.variantSKU = variant.SKU;
 
-                        if (!variant.status || availableQuantity === 0) {
+                        if (availableQuantity <= 0) {
                             stockStatus = 'out_of_stock';
                         } else if (availableQuantity <= 5) {
                             stockStatus = 'low_stock';
@@ -2450,9 +2481,9 @@ const adminProductController = {
                 }
             } else {
                 // Single product without variants
-                availableQuantity = product.Quantity || 0;
+                availableQuantity = qtyOf(product.Quantity);
 
-                if (!product.status || availableQuantity === 0) {
+                if (product.status === false || availableQuantity <= 0) {
                     stockStatus = 'out_of_stock';
                 } else if (availableQuantity <= 5) {
                     stockStatus = 'low_stock';
@@ -2466,7 +2497,7 @@ const adminProductController = {
                     ...productInfo,
                     availableQuantity,
                     stockStatus,
-                    inStock: availableQuantity > 0
+                    inStock: stockStatus !== 'out_of_stock'
                 },
                 status: 200
             });
