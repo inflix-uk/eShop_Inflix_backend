@@ -13,6 +13,10 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 const blobStorage = require("../utils/blobStorage");
 const { replaceFileReferenceInBlocks } = require("./homepageDataController");
+const {
+  normalizeSubcategorySlug,
+  findSubcategory,
+} = require("../utils/subcategoryLookup");
 
 const MAX_NAVBAR_ITEMS = 50;
 const CATEGORY_BLOCK_IMAGE_SLOT_COUNT = 40;
@@ -24,16 +28,6 @@ const subcategoryBlockImageMulterFields = Array.from(
   { length: CATEGORY_BLOCK_IMAGE_SLOT_COUNT },
   (_, i) => ({ name: `subcategoryBlockImages_${i}`, maxCount: 1 })
 );
-
-/** Match URL slugs (e.g. vent-clip) to DB values (e.g. "Vent Clip", "Vent-Clip"). */
-function normalizeSubcategorySlug(str) {
-  if (!str || typeof str !== "string") return "";
-  return str
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
-}
 
 function sanitizeNavCustomLabel(raw) {
   if (raw == null) return "";
@@ -1152,89 +1146,54 @@ const productCategoriescontroller = {
   getSubCategoryDetailsSome: async (req, res) => {
     try {
       const { name } = req.params;
-      console.log(name);
-
-      // Fetch all categories
+      const parentSlug = String(req.query.category || "").trim();
       const categories = await ProductCategory.find();
+      const found = findSubcategory(categories, name, parentSlug);
 
-      let subCategory = null;
-      let subCategoryMeta = null;
-      let parentCategory = '';
-      let subCategoryIndex = null;
-
-      // Find the subcategory and its meta details across all categories
-      for (const category of categories) {
-          const idx = category.subCategory.findIndex(
-              (sub) =>
-                  sub &&
-                  normalizeSubcategorySlug(sub) === normalizeSubcategorySlug(name)
-          );
-
-          if (idx >= 0) {
-              subCategory = category.subCategory[idx];
-              subCategoryIndex = idx;
-              subCategoryMeta =
-                  category.metasubCategory?.[idx] ||
-                  category.metasubCategory?.find(
-                      (meta) => Number(meta?.subCategoryIndex) === idx
-                  ) ||
-                  category.metasubCategory?.find(
-                      (meta) =>
-                          meta?.subcategoryName &&
-                          normalizeSubcategorySlug(meta.subcategoryName) ===
-                              normalizeSubcategorySlug(name)
-                  );
-              parentCategory = category.bannerImage ?? "";
-              break;
-          }
+      // Unknown slugs used to return 200 with an empty page and a self-canonical.
+      if (!found) {
+        return res.status(404).json({
+          message: "Subcategory not found",
+          subcategoryDetails: null,
+        });
       }
 
- 
-      if (!subCategory || !subCategoryMeta) {
-          return res.status(200).json({
-              message:  "Subcategory fetched successfully",
-              subcategoryDetails: {
-                subcategoryName: name,
-                subCategoryIndex: subCategoryIndex,
-                metaTitle: '',
-                metaDescription: '',
-                metaKeywords: '',
-                banner: parentCategory,
-                metaSchemas: '',
-                content: '',
-                content_blocks: [],
-              },
-              status: 200,
-          });
-      }
+      const { category, index } = found;
+      const subCategoryMeta =
+        category.metasubCategory?.[index] ||
+        category.metasubCategory?.find(
+          (meta) => Number(meta?.subCategoryIndex) === index
+        ) ||
+        category.metasubCategory?.find(
+          (meta) =>
+            meta?.subcategoryName &&
+            normalizeSubcategorySlug(meta.subcategoryName) ===
+              normalizeSubcategorySlug(name)
+        ) ||
+        {};
 
-
-      // Prefer subcategory-specific banner (Product Central uploads); fall back to parent category image
+      const parentCategory = category.bannerImage ?? "";
       const subBanner = subCategoryMeta.banner;
       const resolvedBanner =
         subBanner && (subBanner.url || subBanner.path)
           ? subBanner
           : parentCategory || "";
 
-      // Structure the response to return the subcategory and meta details in the required format
-      const response = {
-          message: "Subcategory fetched successfully",
-          subcategoryDetails: {
-              subcategoryName: subCategoryMeta.subcategoryName || '',
-              subCategoryIndex: subCategoryIndex ,
-              metaTitle: subCategoryMeta.metaTitle  || '',
-              metaDescription: subCategoryMeta.metaDescription  || '',
-              metaKeywords: subCategoryMeta.metaKeywords || '',
-              metaSchemas: subCategoryMeta.metaSchemas || '',
-              content: subCategoryMeta.content || '',
-              content_blocks: subCategoryMeta.content_blocks || [],
-              banner: resolvedBanner,
-          },
-          status: 200,
-      };
-
-      // Return the response
-      return res.json(response);
+      return res.json({
+        message: "Subcategory fetched successfully",
+        subcategoryDetails: {
+          subcategoryName: subCategoryMeta.subcategoryName || found.name || "",
+          subCategoryIndex: index,
+          metaTitle: subCategoryMeta.metaTitle || "",
+          metaDescription: subCategoryMeta.metaDescription || "",
+          metaKeywords: subCategoryMeta.metaKeywords || "",
+          metaSchemas: subCategoryMeta.metaSchemas || "",
+          content: subCategoryMeta.content || "",
+          content_blocks: subCategoryMeta.content_blocks || [],
+          banner: resolvedBanner,
+        },
+        status: 200,
+      });
 
   } catch (error) {
       console.error("Error fetching subcategory:", error);
