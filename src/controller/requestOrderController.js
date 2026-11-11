@@ -23,35 +23,85 @@ const {
     sendOwnershipError,
 } = require('../utils/ownershipAuth');
 
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const destinationFolder = './uploads/requestOrder';
-        // Check if the destination folder exists
-        fs.access(destinationFolder, (err) => {
-            if (err) {
-                // If the folder doesn't exist, create it
-                fs.mkdir(destinationFolder, { recursive: true }, (err) => {
-                    if (err) {
-                        console.error('Error creating destination folder:', err);
-                        cb(err, null);
-                    } else {
-                        cb(null, destinationFolder);
-                    }
-                });
-            } else {
-                // If the folder already exists, use it
-                cb(null, destinationFolder);
-            }
-        });
-    },
-   filename: function (req, file, cb) {
-        const timestamp = moment().format('YYYYMMDD_HHmmss_'); // Add timestamp
-        console.log("Original filename:", file.originalname);
-        cb(null, timestamp + (file.originalname || 'file')); // Generate the new filename
-    }
-});
+const blobStorage = require('../utils/blobStorage');
+const { resolveOrderLineImageUrlServer } = require('../utils/orderLineImageUrlServer');
 
-const uploadImage = multer({ storage: storage }).any();
+const RETURN_UPLOAD_DIR = './uploads/requestOrder';
+const RETURN_STORAGE_FOLDER = 'requestOrder';
+
+// Customer return images used to be written to the API server's local disk only. That disk
+// is not shared between instances and is wiped on redeploy, so admins later saw broken
+// "Attached Images". Files are now kept in memory and pushed to the same object storage as
+// product images; local disk is only a fallback when object storage isn't configured.
+const uploadImage = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 10 },
+}).any();
+
+function safeFilename(name) {
+    return String(name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+async function saveReturnFileToDisk(file) {
+    await fs.promises.mkdir(RETURN_UPLOAD_DIR, { recursive: true });
+    const filename = moment().format('YYYYMMDD_HHmmss_') + safeFilename(file.originalname);
+    const relPath = `uploads/requestOrder/${filename}`;
+    await fs.promises.writeFile(path.join(RETURN_UPLOAD_DIR, filename), file.buffer);
+    return { originalname: file.originalname, filename, path: relPath, url: null, size: file.size };
+}
+
+async function persistReturnFile(file) {
+    if (blobStorage.isConfigured()) {
+        try {
+            const uploaded = await blobStorage.uploadFile(file, RETURN_STORAGE_FOLDER);
+            if (uploaded?.url) {
+                return {
+                    originalname: file.originalname,
+                    filename: uploaded.filename || file.originalname,
+                    path: uploaded.path,
+                    key: uploaded.key || null,
+                    url: uploaded.url,
+                    size: uploaded.size || file.size,
+                    mimetype: file.mimetype,
+                };
+            }
+        } catch (e) {
+            console.error('Return image upload to object storage failed, saving to disk instead:', e?.message || e);
+        }
+    }
+    return { ...(await saveReturnFileToDisk(file)), mimetype: file.mimetype };
+}
+
+/** Absolute URL for a stored return file (new records carry `url`; legacy ones only a disk path). */
+function resolveReturnFileUrl(file) {
+    if (!file) return '';
+    if (file.url && /^https?:\/\//i.test(file.url)) return file.url;
+    const raw = String(file.path || '').replace(/\\/g, '/').replace(/^\.?\/+/, '');
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const base = (process.env.BACKEND_URL || '').replace(/\/+$/, '');
+    return base ? `${base}/${raw}` : `/${raw}`;
+}
+
+/** Add display-ready image URLs to a (lean or doc) request order for the admin/customer UIs. */
+function withResolvedImages(requestOrder) {
+    if (!requestOrder) return requestOrder;
+    const ro = typeof requestOrder.toObject === 'function' ? requestOrder.toObject() : requestOrder;
+    const files = Array.isArray(ro.files)
+        ? ro.files.map((f) => ({ ...f, url: resolveReturnFileUrl(f) || f.url || null }))
+        : ro.files;
+    let orderId = ro.orderId;
+    if (orderId && typeof orderId === 'object' && Array.isArray(orderId.cart)) {
+        orderId = {
+            ...orderId,
+            cart: orderId.cart.map((line) => ({
+                ...line,
+                lineImageUrl: resolveOrderLineImageUrlServer(line) || null,
+            })),
+        };
+    }
+    return { ...ro, files, orderId };
+}
 
 const requestOrderController = {
     returnThisItem: async (req, res) => {
@@ -120,12 +170,10 @@ const requestOrderController = {
                 }
 
                 // Prepare file data
-                const files = req.files.map(file => ({
-                    originalname: file.originalname,
-                    filename: file.filename,
-                    path: file.path,
-                    size: file.size,
-                }));
+                const files = [];
+                for (const file of req.files || []) {
+                    files.push(await persistReturnFile(file));
+                }
             
                 // Create a new RequestOrder instance
                 const requestOrder = new RequestOrder({
@@ -203,7 +251,7 @@ const requestOrderController = {
             return res.json({   
                 message: 'Request order found',
                 status: 200,
-                data: requestOrder
+                data: withResolvedImages(requestOrder)
             });
         } catch (error) {
             // Handle errors
@@ -256,7 +304,7 @@ const requestOrderController = {
             return res.json({
                 message: 'Request orders found',
                 status: 200,
-                data: requestOrders,
+                data: requestOrders.map(withResolvedImages),
             });
         } catch (error) {
             // Handle errors
