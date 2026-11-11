@@ -391,7 +391,7 @@ router.get('/get/product/for/csv',                      ...requireAdmin, adminPr
 // Product Search & Filtering
 router.get('/get/products/category/:categoryname',      resolvePricingScope, adminProductController.getProductsByCategoryname);
 router.get('/get/product/by/subcategory/:subcategoryname',resolvePricingScope, adminProductController.getProductsBySubCategoryname);
-router.get('/get/product/by/search/:searchname',         adminProductController.getProductsBySearch);
+router.get('/get/product/by/search/:searchname',         resolvePricingScope, adminProductController.getProductsBySearch);
 router.get('/get/navbar/suggestions',                    adminProductController.getNavbarSuggestions);
 
 // ========================================================================

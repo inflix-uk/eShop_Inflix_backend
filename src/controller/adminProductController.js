@@ -1508,10 +1508,18 @@ const adminProductController = {
     getProductsBySearch: async (req, res) => {
         try {
             const { searchname } = req.params;
-            console.log('Search query:', searchname);
 
-            // Validate search query - only proceed if searchname has actual content
-            if (!searchname || searchname.trim() === '') {
+            // The storefront sends the term hyphenated ("galaxy-a17"). Split it into words so
+            // "Galaxy A17" matches by name, escape regex characters ("iPhone 15+" used to
+            // throw), and require every word to appear in one of the searchable fields.
+            const words = String(searchname || '')
+                .replace(/[-_\s]+/g, ' ')
+                .trim()
+                .split(' ')
+                .filter(Boolean)
+                .slice(0, 8);
+
+            if (words.length === 0) {
                 return res.status(400).json({
                     message: 'Search query is required',
                     products: [],
@@ -1519,18 +1527,27 @@ const adminProductController = {
                 });
             }
 
+            const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const wordClauses = words.map((word) => {
+                const re = new RegExp(escapeRe(word), 'i');
+                return {
+                    $or: [
+                        { name: { $regex: re } },
+                        { producturl: { $regex: re } },
+                        { category: { $regex: re } },
+                        { subCategory: { $regex: re } },
+                        { brand: { $regex: re } },
+                    ],
+                };
+            });
+
             // Use aggregation for optimized querying and processing
             const products = await Product.aggregate([
                 {
                     $match: {
                         status: true,
                         isdeleted: { $ne: true },
-                        $or: [
-                            { name: { $regex: new RegExp(searchname, 'i') } },
-                            { producturl: { $regex: new RegExp(searchname, 'i') } },
-                            { category: { $regex: new RegExp(searchname, 'i') } },
-                            { subCategory: { $regex: new RegExp(searchname, 'i') } }
-                        ],
+                        $and: wordClauses,
                     },
                 },
                 {
@@ -1620,20 +1637,37 @@ const adminProductController = {
                 },
             ]);
 
-            console.log('Products found by search:', products);
-
-            // If no products are found
             if (!products || products.length === 0) {
-                return res.status(404).json({
+                return res.status(201).json({
                     message: 'No products found for this search query',
-                    status: 404,
+                    products: [],
+                    status: 201,
                 });
             }
 
-            // Return the processed products in the API response
+            // Variant prices are stored as strings, so Mongo's $min compares them as text
+            // ("1099" < "999"). Recompute numerically so the price filter / sort are right.
+            const numericMin = (values) => {
+                const nums = (values || []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+                return nums.length ? Math.min(...nums) : null;
+            };
+            const normalised = products.map((p) => {
+                const variants = Array.isArray(p.variantValues) ? p.variantValues : [];
+                return {
+                    ...p,
+                    minPrice: numericMin(variants.map((v) => v.Price)) ?? p.minPrice,
+                    minSalePrice: numericMin(variants.map((v) => v.salePrice)) ?? p.minSalePrice,
+                };
+            });
+
+            // Same customer / pricing-group prices as category pages.
+            const scope = buildPricingScopeFromPricingScope(req.pricingScope);
+            const ctx = await loadPricingContext(scope);
+            const productsWithPrices = attachConditions(applyPricingToProducts(normalised, ctx), CONDITION_STRIP);
+
             return res.status(201).json({
                 message: 'Products retrieved successfully',
-                products: attachConditions(products, CONDITION_STRIP),
+                products: productsWithPrices,
                 status: 201,
             });
         } catch (error) {
@@ -1967,20 +2001,27 @@ const adminProductController = {
                 });
             }
 
-            const searchTerm = q.trim().toLowerCase();
-            const limit = parseInt(req.query.limit) || 5; // Default to 5 suggestions
+            const limit = Math.min(parseInt(req.query.limit) || 5, 50); // Default to 5 suggestions
 
-            // Build search query with case-insensitive regex
+            // Every typed word must match (escaped, so "+" / "(" can't break the regex).
+            const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const words = q.trim().split(/[\s-]+/).filter(Boolean).slice(0, 8);
             const searchQuery = {
                 status: true, // Only active products
+                isdeleted: { $ne: true }, // Deleted products used to appear and lead to dead pages
                 category: { $not: /accessories/i }, // Exclude products with "Accessories" in category
-                $or: [
-                    { name: { $regex: searchTerm, $options: 'i' } },
-                    { producturl: { $regex: searchTerm, $options: 'i' } },
-                    { condition: { $regex: searchTerm, $options: 'i' } },
-                    { brand: { $regex: searchTerm, $options: 'i' } },
-                    { subCategory: { $regex: searchTerm, $options: 'i' } }
-                ]
+                $and: words.map((word) => {
+                    const re = new RegExp(escapeRe(word), 'i');
+                    return {
+                        $or: [
+                            { name: re },
+                            { producturl: re },
+                            { condition: re },
+                            { brand: re },
+                            { subCategory: re },
+                        ],
+                    };
+                }),
             };
 
             // Fetch minimal fields for suggestions (thumbnail for navbar UI; no category payload)
