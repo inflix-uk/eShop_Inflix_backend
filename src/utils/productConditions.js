@@ -78,8 +78,53 @@ function conditionFromName(variant, options) {
     return best;
 }
 
+const variantListPrice = (v) => {
+    const price = Number(v.Price);
+    return Number.isFinite(price) && price > 0 ? price : null;
+};
+
+const variantLinkSlug = (v) =>
+    String(v.slug || '').trim() || variantNameToSeoSlug(String(v.name || '')) || '';
+
 /**
- * @returns {{ conditions: string[], cheapestCondition: string|null }}
+ * Per-condition card data for listings: each condition becomes its own card with its
+ * own price, stock and a link to a variant in that condition.
+ * Shown price = cheapest in-stock variant, else cheapest variant overall.
+ */
+function buildConditionListing(cond, variants) {
+    let best = null; // { v, price, inStock }
+    let minList = null;
+    let inStockCount = 0;
+    for (const v of variants) {
+        const qty = Number(v.Quantity) || 0;
+        const inStock = qty > 0;
+        if (inStock) inStockCount += 1;
+        const list = variantListPrice(v);
+        if (list != null && (minList == null || list < minList)) minList = list;
+        const price = variantUnitPrice(v);
+        if (price == null) continue;
+        const better =
+            !best ||
+            (inStock && !best.inStock) ||
+            (inStock === best.inStock && price < best.price);
+        if (better) best = { v, price, inStock };
+    }
+    const linkVariant = best ? best.v : variants[0];
+    return {
+        label: cond.label,
+        slug: cond.slug,
+        price: best ? best.price : null,
+        originalPrice: best ? variantListPrice(best.v) || best.price : minList,
+        minPrice: minList,
+        inStock: inStockCount > 0,
+        inStockCount,
+        variantCount: variants.length,
+        variantSlug: linkVariant ? variantLinkSlug(linkVariant) : '',
+    };
+}
+
+/**
+ * @returns {{ conditions: string[], cheapestCondition: string|null, conditionListings: object[] }}
  */
 function summarizeConditions(product) {
     const p = product || {};
@@ -87,6 +132,7 @@ function summarizeConditions(product) {
     const variants = (Array.isArray(p.variantValues) ? p.variantValues : []).filter(isActiveVariant);
 
     const found = new Map(); // slug -> label
+    const byCondition = new Map(); // slug -> variants
     let cheapest = null;
     for (const v of variants) {
         // variantNames options are what the product page shows, so prefer them
@@ -97,6 +143,8 @@ function summarizeConditions(product) {
         }
         if (!cond) continue;
         if (!found.has(cond.slug)) found.set(cond.slug, cond.label);
+        if (!byCondition.has(cond.slug)) byCondition.set(cond.slug, []);
+        byCondition.get(cond.slug).push(v);
 
         const qty = Number(v.Quantity) || 0;
         const price = variantUnitPrice(v);
@@ -113,12 +161,17 @@ function summarizeConditions(product) {
         list = [{ slug: normSlug(label), label }];
     }
 
-    const conditions = list
+    const sorted = list
         .map((c, i) => ({ ...c, i }))
-        .sort((a, b) => conditionRank(a.slug) - conditionRank(b.slug) || a.i - b.i)
-        .map((c) => c.label);
+        .sort((a, b) => conditionRank(a.slug) - conditionRank(b.slug) || a.i - b.i);
+    const conditions = sorted.map((c) => c.label);
 
-    return { conditions, cheapestCondition: cheapest ? cheapest.label : null };
+    // Only conditions that actually have variants get their own listing card.
+    const conditionListings = sorted
+        .filter((c) => byCondition.has(c.slug))
+        .map((c) => buildConditionListing(c, byCondition.get(c.slug)));
+
+    return { conditions, cheapestCondition: cheapest ? cheapest.label : null, conditionListings };
 }
 
 /**
