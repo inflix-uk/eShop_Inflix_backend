@@ -92,9 +92,43 @@ describe('summarizeConditions', () => {
         assert.deepEqual(summarizeConditions({ condition: 'Refurbished' }), {
             conditions: ['Refurbished'],
             cheapestCondition: null,
+            conditionListings: [],
         });
-        assert.deepEqual(summarizeConditions({}), { conditions: [], cheapestCondition: null });
-        assert.deepEqual(summarizeConditions(null), { conditions: [], cheapestCondition: null });
+        const empty = { conditions: [], cheapestCondition: null, conditionListings: [] };
+        assert.deepEqual(summarizeConditions({}), empty);
+        assert.deepEqual(summarizeConditions(null), empty);
+    });
+
+    test('conditionListings: one entry per condition with its own price, stock and link', () => {
+        const product = {
+            variantNames: [conditionNames(['Brand New', 'Excellent', 'Good', 'Fair'])],
+            variantValues: [
+                { name: 'brand-new-128gb', slug: 'brand-new-128gb', Price: 600, salePrice: '550', Quantity: 0 },
+                { name: 'brand-new-256gb', slug: 'brand-new-256gb', Price: 700, salePrice: '650', Quantity: 2 },
+                { name: 'excellent-128gb', Price: 450, Quantity: 1 },
+                { name: 'excellent-256gb', Price: 400, Quantity: 0 },
+                { name: 'good-128gb', Price: 350, Quantity: null },
+                { name: 'fair-128gb', Price: 300, Quantity: 1, status: false },
+            ],
+        };
+        const listings = summarizeConditions(product).conditionListings;
+        assert.deepEqual(listings.map((l) => l.label), ['Brand New', 'Excellent', 'Good']);
+
+        const [brandNew, excellent, good] = listings;
+        // In-stock variant wins over a cheaper sold-out one.
+        assert.equal(brandNew.price, 650);
+        assert.equal(brandNew.originalPrice, 700);
+        assert.equal(brandNew.inStock, true);
+        assert.equal(brandNew.variantSlug, 'brand-new-256gb');
+        assert.equal(brandNew.minPrice, 600);
+
+        assert.equal(excellent.price, 450);
+        assert.equal(excellent.variantSlug, 'excellent-128gb');
+
+        // Nothing in stock: cheapest variant, marked out of stock.
+        assert.equal(good.inStock, false);
+        assert.equal(good.price, 350);
+        assert.equal(good.variantSlug, 'good-128gb');
     });
 
     test('unknown conditions sort after known ones', () => {
