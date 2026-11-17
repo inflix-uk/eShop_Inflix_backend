@@ -71,7 +71,7 @@ const FOOTER_DEFAULTS = {
 };
 
 const PURCHASE_RECEIPT_DEFAULTS = {
-  enabled: 'yes',
+  enabled: 'no',
   emailSubject: 'Your receipt for order {{orderNumber}}',
   headerTitle: 'Purchase Receipt',
   greetingPrefix: 'Hi',
