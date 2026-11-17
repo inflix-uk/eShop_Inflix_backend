@@ -343,7 +343,14 @@ router.post('/import/products',                       ...requireAdmin, adminProd
 router.get('/get/product/csv-reference',               ...requireAdmin, adminProductController.getCsvReferenceData); 
 router.get('/get/products/prices-content-sheet',         ...requireAdmin, adminProductController.exportPricesContentSheet);
 router.post('/get/products/prices-content-sheet',        ...requireAdmin, adminProductController.exportPricesContentSheet);
-router.post('/import/products/prices-content-sheet',     ...requireAdmin, adminProductController.importPricesContentSheet);
+// Prices & Content import is off until the importer is fixed (comma decimals
+// saved 100x, EAN loss, unreviewable description overwrites).
+// Set PRICES_CONTENT_IMPORT_ENABLED=true to turn it back on.
+const pricesContentImportGate = (req, res, next) =>
+    process.env.PRICES_CONTENT_IMPORT_ENABLED === 'true'
+        ? next()
+        : res.status(503).json({ status: 503, message: 'Prices & Content import is temporarily disabled.' });
+router.post('/import/products/prices-content-sheet',     ...requireAdmin, pricesContentImportGate, adminProductController.importPricesContentSheet);
 router.patch('/update/product/:id',                   ...requireAdmin, adminProductController.updateProduct);
 router.patch('/status/product/:id',                   ...requireAdmin, adminProductController.statusProduct); 
 router.patch('/feature/product/:id',                  ...requireAdmin, adminProductController.featureProduct);
