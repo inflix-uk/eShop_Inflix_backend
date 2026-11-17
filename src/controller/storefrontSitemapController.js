@@ -13,7 +13,6 @@ const {
   storeSkipsSitemapCategories,
   storeSkipsSitemapPath,
 } = require("../utils/sitemapStoreExclusions");
-const { categorySitemapEntries } = require("../utils/categorySitemapEntries");
 
 function slugify(value) {
   return String(value || "")
@@ -175,9 +174,7 @@ const storefrontSitemapController = {
           .lean(),
         skipCategories
           ? Promise.resolve([])
-          : ProductCategory.find({ storeId })
-              .select("name slug subCategory updatedAt")
-              .lean(),
+          : ProductCategory.find({ storeId }).select("name slug updatedAt").lean(),
         Blog.find({ storeId }).select("name updatedAt").lean(),
         NewBlog.find({ storeId, publishStatus: "published" })
           .select("slug updatedAt categories")
@@ -208,7 +205,16 @@ const storefrontSitemapController = {
       appendProductSitemapEntries(urls, products, baseUrl);
 
       if (!skipCategories) {
-        urls.push(...categorySitemapEntries(categories, baseUrl));
+        categories.forEach((category) => {
+          const categorySlug = category.slug || slugify(category.name || "");
+          if (!categorySlug) return;
+          urls.push({
+            loc: `${baseUrl}/categories/${categorySlug}`,
+            changefreq: "monthly",
+            priority: 0.6,
+            lastmod: category.updatedAt ? new Date(category.updatedAt).toISOString() : undefined,
+          });
+        });
       }
 
       blogs.forEach((blog) => {

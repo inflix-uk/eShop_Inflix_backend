@@ -12,13 +12,15 @@
 const { MongoClient } = require('mongodb');
 require('dotenv').config();
 
-const SOURCE_URI =
-  'mongodb+srv://zextonsAdmin:12345@store.y1to4og.mongodb.net/zextonsnew';
+const SOURCE_URI = process.env.SOURCE_MONGODB_URI;
 const SOURCE_DB = 'zextonsnew';
 
 const DEST_URI =
-  process.env.MASTER_MONGODB_URI ||
-  'mongodb://admin_inflix_root:kqcFAj9aVV6GsjtOkPH9icOlqIkWw16e@153.92.211.241:32770/?authSource=admin';
+  process.env.MASTER_MONGODB_URI;
+if (!SOURCE_URI || !DEST_URI) {
+  console.error('Set SOURCE_MONGODB_URI and MASTER_MONGODB_URI before running this script.');
+  process.exit(1);
+}
 
 function parseDbName(uri, fallback) {
   try {
