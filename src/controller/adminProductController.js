@@ -1384,13 +1384,26 @@ const adminProductController = {
     getProductsBySubCategoryname: async (req, res) => {
         try {
             const { subcategoryname } = req.params;
-            console.log('SubCategory Name:', subcategoryname);
+            // Optional parent category slug (e.g. ?category=samsung). subCategory is
+            // stored as a JSON string like {"Samsung":["sam-tablets"]}, so without
+            // the parent, "tablets" also matches {"Lenovo":["lenovo-tablets"]}.
+            const parentCategory = String(req.query.category || '').trim();
+            console.log('SubCategory Name:', subcategoryname, '| parent:', parentCategory || '-');
+
+            const escapeRegex = (s) => String(s || '').trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Slugs use hyphens where stored names may use spaces ("mobile-phones" ↔ "Mobile Phones")
+            const slugPattern = (s) => escapeRegex(s).replace(/-/g, '[-\\s]');
+            const subPattern = slugPattern(subcategoryname);
+            const subCategoryRegex = parentCategory
+                // Sub must sit inside the parent's own array: "Samsung":[ ... "sam-tablets" ... ]
+                ? new RegExp(`"${slugPattern(parentCategory)}"\\s*:\\s*\\[[^\\]]*${subPattern}`, 'i')
+                : new RegExp(subPattern, 'i');
 
             // Use aggregation for optimized querying and processing
             const products = await Product.aggregate([
                 {
                     $match: {
-                        subCategory: { $regex: new RegExp(subcategoryname, 'i') },
+                        subCategory: { $regex: subCategoryRegex },
                         status: true,
                         isdeleted: { $ne: true },
                     },
