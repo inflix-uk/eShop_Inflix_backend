@@ -166,11 +166,16 @@ const adminProductController = {
      */
     importPricesContentSheet: async (req, res) => {
         try {
-            const { variants = [], content = [], dryRun = true } = req.body || {};
+            const { variants = [], content = [], dryRun = true, clearBlank = false } = req.body || {};
             if (!Array.isArray(variants) || !Array.isArray(content)) {
                 return res.status(400).json({ status: 400, message: 'variants and content must be lists' });
             }
-            const result = await bulkSheetService.importSheet({ variants, content, dryRun: dryRun !== false });
+            const result = await bulkSheetService.importSheet({
+                variants,
+                content,
+                dryRun: dryRun !== false,
+                clearBlank: clearBlank === true,
+            });
             return res.json({ status: 200, ...result });
         } catch (error) {
             console.error('Error importing prices/content sheet:', error);
@@ -180,7 +185,7 @@ const adminProductController = {
 
     importProducts: async (req, res) => {
         try {
-            const { products, updateExisting = true, dryRun = false } = req.body || {};
+            const { products, updateExisting = true, dryRun = false, clearBlankFields = [] } = req.body || {};
 
             if (!Array.isArray(products) || products.length === 0) {
                 return res.json({ message: 'No products supplied', status: 400 });
@@ -189,6 +194,7 @@ const adminProductController = {
             const result = await importProductsService.importProducts(products, {
                 updateExisting,
                 dryRun,
+                clearBlankFields,
             });
 
             return res.json({

@@ -390,6 +390,45 @@ describe('buildUpdateDoc merge semantics', () => {
         assert.equal(set.status, false);
     });
 
+    // A row that only changes the price: cost, sale price and quantity are blank.
+    const priceOnlyRow = {
+        name: 'white-tea-s', attributes: [], SKU: 'WT-S', EIN: null, MPN: null, imageUrls: [],
+        Cost: null, Price: 21, salePrice: null, Quantity: null,
+    };
+
+    test('blank price cells keep the stored values by default', () => {
+        const set = service.buildUpdateDoc({ variants: [priceOnlyRow] }, existing, ref());
+        const v = set.variantValues[0];
+        assert.equal(v.Price, 21);
+        assert.equal(v.Cost, 4);
+        assert.equal(v.salePrice, '9.99');
+        assert.equal(v.Quantity, 25);
+    });
+
+    test('clearBlankFields: blank cells in those columns clear the stored value', () => {
+        const set = service.buildUpdateDoc(
+            { variants: [priceOnlyRow] },
+            existing,
+            ref(),
+            new Set(['Cost', 'salePrice', 'Quantity'])
+        );
+        const v = set.variantValues[0];
+        assert.equal(v.Price, 21);
+        assert.equal(v.Cost, null);
+        assert.equal(v.salePrice, null);
+        assert.equal(v.Quantity, null);
+        // Untouched carry-overs still come from the stored variant
+        assert.equal(v.variantId, 'KEEP-ME-1234');
+    });
+
+    test('clearBlankFields only clears the listed columns', () => {
+        const set = service.buildUpdateDoc({ variants: [priceOnlyRow] }, existing, ref(), new Set(['salePrice']));
+        const v = set.variantValues[0];
+        assert.equal(v.salePrice, null);
+        assert.equal(v.Cost, 4);
+        assert.equal(v.Quantity, 25);
+    });
+
     test('a row with no variant data leaves the stored variants alone', () => {
         // What the parser produces for a product-only row: every variant cell empty.
         const blankRow = {

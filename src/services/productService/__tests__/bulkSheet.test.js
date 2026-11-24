@@ -222,3 +222,32 @@ test.describe('split export / import (Product Details & Pricing vs Descriptions 
         }
     });
 });
+
+test('price sheet: blank cells keep stored values unless clearBlank is set', async () => {
+    const Product = require('../../../models/product');
+    const { importSheet } = require('../bulkSheet');
+    const pid = '6ad88a9a47aabe3bc09979d8';
+    const vid = '6ad88a9a47aabe3bc09979d9';
+    const originalFind = Product.find;
+    Product.find = () => ({
+        select: () => ({
+            lean: async () => [{
+                _id: pid,
+                name: 'Case',
+                variantValues: [{ _id: vid, name: 'black', Cost: 42, Price: 42, salePrice: '42', Quantity: 42 }],
+            }],
+        }),
+    });
+    // price typed; cost/sale_price/quantity cells present but empty; no SKU column
+    const row = { row: 2, productId: pid, variantId: vid, price: '19.99', cost: '', salePrice: '', quantity: '' };
+    try {
+        const keep = await importSheet({ dryRun: true, variants: [row] });
+        assert.deepStrictEqual(keep.changes.map((c) => c.field), ['Price']);
+
+        const clear = await importSheet({ dryRun: true, clearBlank: true, variants: [row] });
+        const byField = Object.fromEntries(clear.changes.map((c) => [c.field, c.to]));
+        assert.deepStrictEqual(byField, { Cost: null, Price: 19.99, salePrice: null, Quantity: null });
+    } finally {
+        Product.find = originalFind;
+    }
+});

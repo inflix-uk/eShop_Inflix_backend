@@ -186,7 +186,7 @@ async function exportSheet({ ids, part } = {}) {
  *     dryRun }
  * Returns a change list and per-row errors; with dryRun nothing is written.
  */
-async function importSheet({ variants = [], content = [], dryRun = true } = {}) {
+async function importSheet({ variants = [], content = [], dryRun = true, clearBlank = false } = {}) {
     const errors = [];
     const warnings = [];
     const changes = [];
@@ -242,7 +242,17 @@ async function importSheet({ variants = [], content = [], dryRun = true } = {}) 
         const $set = setFor(pid);
 
         for (const [key, field] of VARIANT_NUMBER_FIELDS) {
-            if (isBlank(r[key])) continue;
+            if (isBlank(r[key])) {
+                // Normally a blank cell keeps the saved value. With clearBlank the
+                // admin asked for blank to mean blank, so a wrong saved value
+                // (e.g. a placeholder) can be removed by emptying its cell.
+                // Only columns present in the file count: a missing column is undefined.
+                if (clearBlank && r[key] !== undefined && !isBlank(variant[field])) {
+                    $set[`variantValues.${index}.${field}`] = null;
+                    record(product, variant.name, field, Number(variant[field]), null);
+                }
+                continue;
+            }
             const n = parseNumber(r[key]);
             if (!Number.isFinite(n) || n < 0) {
                 errors.push({ sheet: 'Variant Prices', row, message: `${key} "${r[key]}" is not a valid number` });

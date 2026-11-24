@@ -799,8 +799,13 @@ class ImportProductsService {
      * then name, then slug): variantId (carts/stock checks key on it),
      * status, per-variant SEO and images. Blank cells keep stored values.
      */
-    mergeVariants(rawVariants, existingVariants, type, ref, variantNames = []) {
+    mergeVariants(rawVariants, existingVariants, type, ref, variantNames = [], clearBlankFields = new Set()) {
         const olds = Array.isArray(existingVariants) ? existingVariants : [];
+        // Blank cells keep the stored value, except for the price columns the
+        // admin asked to clear ("Empty price cells clear saved prices"): there a
+        // blank cell saves blank, so a wrong stored value (e.g. a placeholder)
+        // can be removed by emptying its cell.
+        const keepOr = (field, fresh, old) => (clearBlankFields.has(field) ? fresh ?? null : fresh ?? old ?? null);
         const bySku = new Map(olds.filter(v => hasText(v?.SKU)).map(v => [low(v.SKU), v]));
         const byName = new Map(olds.filter(v => hasText(v?.name)).map(v => [low(v.name), v]));
         const bySlug = new Map(olds.filter(v => hasText(v?.slug)).map(v => [low(v.slug), v]));
@@ -828,10 +833,10 @@ class ImportProductsService {
                         .map(u => this.reuseImage(u, old.variantImages))
                         .filter(Boolean)
                     : (Array.isArray(old.variantImages) ? old.variantImages : []),
-                Cost: fresh.Cost ?? old.Cost ?? null,
-                Price: fresh.Price ?? old.Price ?? null,
-                salePrice: fresh.salePrice ?? old.salePrice ?? null,
-                Quantity: raw.Quantity ?? old.Quantity ?? 0,
+                Cost: keepOr('Cost', fresh.Cost, old.Cost),
+                Price: keepOr('Price', fresh.Price, old.Price),
+                salePrice: keepOr('salePrice', fresh.salePrice, old.salePrice),
+                Quantity: clearBlankFields.has('Quantity') ? raw.Quantity ?? null : raw.Quantity ?? old.Quantity ?? 0,
                 SKU: fresh.SKU ?? old.SKU ?? null,
                 EIN: fresh.EIN ?? old.EIN ?? null,
                 MPN: fresh.MPN ?? old.MPN ?? null,
@@ -853,7 +858,7 @@ class ImportProductsService {
      * written; producturl, varImgGroup, battery, perks, warranty, related
      * products, description blocks etc. are never touched from here.
      */
-    buildUpdateDoc(p, existing, ref) {
+    buildUpdateDoc(p, existing, ref, clearBlankFields = new Set()) {
         const set = { isdeleted: false, updatedAt: Date.now() };
 
         const explicitType = p.productType?.type === 'variant' || p.productType?.type === 'single'
@@ -919,7 +924,7 @@ class ImportProductsService {
         // "default" variant, so it leaves them as they are.
         const variantRows = (p.variants || []).filter((v) => !this.isBlankVariantRow(v));
         if (hasItems(variantRows)) {
-            set.variantValues = this.mergeVariants(variantRows, existing.variantValues, type, ref, variantNames);
+            set.variantValues = this.mergeVariants(variantRows, existing.variantValues, type, ref, variantNames, clearBlankFields);
         }
 
         return set;
@@ -953,9 +958,15 @@ class ImportProductsService {
      * @param {Object} opts
      * @param {boolean} opts.updateExisting - update on producturl match instead of skipping
      * @param {boolean} opts.dryRun - validate and report without writing anything
+     * @param {string[]} opts.clearBlankFields - variant price columns (Cost, Price,
+     *   salePrice, Quantity) where a blank cell clears the stored value
      */
     async importProducts(products, opts = {}) {
         const { updateExisting = true, dryRun = false } = opts;
+        const CLEARABLE = ['Cost', 'Price', 'salePrice', 'Quantity'];
+        const clearBlankFields = new Set(
+            (Array.isArray(opts.clearBlankFields) ? opts.clearBlankFields : []).filter((f) => CLEARABLE.includes(f))
+        );
         const list = Array.isArray(products) ? products : [];
 
         if (list.length === 0) {
@@ -1042,7 +1053,7 @@ class ImportProductsService {
                 }
 
                 if (match) {
-                    const set = this.buildUpdateDoc(p, match, ref);
+                    const set = this.buildUpdateDoc(p, match, ref, clearBlankFields);
                     if (!dryRun) {
                         await Product.updateOne({ _id: match._id }, { $set: set });
                     }
