@@ -8,6 +8,8 @@ const { applyBrandFilterToQuery, isUnassignedBrandFilter } = require("../utils/p
 const {
     summarizeConditions,
     attachConditions,
+    attachVariantFacets,
+    listingAttributesExpr,
     conditionAttributesExpr,
     conditionVariantsProjection,
     attachProjectedConditions,
@@ -1299,7 +1301,7 @@ const adminProductController = {
                                     SKU: "$$variant.SKU",
                                     // For conditions only; stripped before responding
                                     status: "$$variant.status",
-                                    attributes: conditionAttributesExpr("$$variant.attributes")
+                                    attributes: listingAttributesExpr("$$variant.attributes")
                                 }
                             }
                         },
@@ -1373,7 +1375,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithPrices = attachConditions(applyPricingToProducts(products, ctx), CONDITION_STRIP);
+            const productsWithPrices = attachConditions(attachVariantFacets(applyPricingToProducts(products, ctx)), CONDITION_STRIP);
 
             return res.status(201).json({
                 message: 'Products retrieved successfully',
@@ -1432,7 +1434,7 @@ const adminProductController = {
                                     SKU: "$$variant.SKU",
                                     // For conditions only; stripped before responding
                                     status: "$$variant.status",
-                                    attributes: conditionAttributesExpr("$$variant.attributes")
+                                    attributes: listingAttributesExpr("$$variant.attributes")
                                 }
                             }
                         },
@@ -1507,7 +1509,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithPrices = attachConditions(applyPricingToProducts(products, ctx), CONDITION_STRIP);
+            const productsWithPrices = attachConditions(attachVariantFacets(applyPricingToProducts(products, ctx)), CONDITION_STRIP);
 
             return res.status(201).json({
                 message: 'Products retrieved successfully',

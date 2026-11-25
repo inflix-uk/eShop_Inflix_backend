@@ -143,6 +143,98 @@ function attachConditions(products, { variantsKey, omit = [], omitVariantFields 
     });
 }
 
+/* ------------------------------------------------------------------ */
+/* Listing filter values (category page sidebar)                       */
+/* ------------------------------------------------------------------ */
+
+// Which filter an attribute / variantNames entry feeds, from its slug or name.
+const FACET_KINDS = [
+    ['condition', /condition/i],
+    ['storage', /storage|memory|capacity/i],
+    ['colour', /colou?r/i],
+    ['network', /\bsim\b|sim[-_ ]?option|network/i],
+];
+const facetKindOf = (...keys) => {
+    const text = keys.map((k) => String(k || '')).join(' ');
+    const hit = FACET_KINDS.find(([, re]) => re.test(text));
+    return hit ? hit[0] : null;
+};
+
+/** variantNames -> { kind: [{ slug, label }] } (option slugs the variant name is built from). */
+function facetOptionsFromVariantNames(variantNames) {
+    const out = {};
+    for (const vn of Array.isArray(variantNames) ? variantNames : []) {
+        const kind = vn && facetKindOf(vn.attributeSlug, vn.name);
+        if (!kind || !Array.isArray(vn.options)) continue;
+        for (const opt of vn.options) {
+            if (!opt) continue;
+            const raw = typeof opt === 'string' ? { value: opt } : opt;
+            const label = String(raw.value || raw.name || '').trim();
+            const slug = normSlug(raw.slug || label);
+            if (!label || !slug) continue;
+            (out[kind] = out[kind] || []).push({ slug, label });
+        }
+    }
+    return out;
+}
+
+/**
+ * Clean { condition, storage, colour, network } labels for one variant, so the
+ * sidebar never has to guess from the variant name (Samsung names also carry SIM,
+ * RAM and edition words, which used to land in "Colour").
+ * Structured attributes win; otherwise the product's own option list is matched
+ * against the hyphen-joined variant name (longest option wins). Unknown = null.
+ */
+function variantFacets(variant, optionsByKind) {
+    const facets = { condition: null, storage: null, colour: null, network: null };
+    for (const a of Array.isArray(variant.attributes) ? variant.attributes : []) {
+        const kind = a && facetKindOf(a.attributeSlug, a.attributeName);
+        const label = String((a && a.value) || '').trim();
+        if (kind && label && !facets[kind]) facets[kind] = label;
+    }
+    const haystacks = [variant.name, variant.slug]
+        .map((s) => variantNameToSeoSlug(String(s || '')))
+        .filter(Boolean)
+        .map((s) => `-${s}-`);
+    for (const kind of Object.keys(facets)) {
+        if (facets[kind] || !optionsByKind[kind]) continue;
+        let best = null;
+        for (const opt of optionsByKind[kind]) {
+            if (haystacks.some((h) => h.includes(`-${opt.slug}-`)) && (!best || opt.slug.length > best.slug.length)) {
+                best = opt;
+            }
+        }
+        if (best) facets[kind] = best.label;
+    }
+    return facets;
+}
+
+/** Adds `facets` to every variant (needs `variantNames` and full `attributes`). */
+function attachVariantFacets(products) {
+    return (products || []).map((product) => {
+        if (!Array.isArray(product.variantValues)) return product;
+        const optionsByKind = facetOptionsFromVariantNames(product.variantNames);
+        return {
+            ...product,
+            variantValues: product.variantValues.map((v) => ({ ...v, facets: variantFacets(v, optionsByKind) })),
+        };
+    });
+}
+
+// Slim copy of every attribute (for filter values; dropped from the response afterwards).
+const listingAttributesExpr = (attributesPath) => ({
+    $map: {
+        input: { $ifNull: [attributesPath, []] },
+        as: 'a',
+        in: {
+            attributeSlug: '$$a.attributeSlug',
+            attributeName: '$$a.attributeName',
+            value: '$$a.value',
+            valueSlug: '$$a.valueSlug',
+        },
+    },
+});
+
 // For aggregates that projected `variantNames` + `conditionVariants` only for this.
 const attachProjectedConditions = (products) =>
     attachConditions(products, { variantsKey: 'conditionVariants', omit: ['variantNames', 'conditionVariants'] });
@@ -206,6 +298,9 @@ module.exports = {
     attachConditions,
     attachProjectedConditions,
     conditionAttributesExpr,
+    listingAttributesExpr,
+    attachVariantFacets,
+    variantFacets,
     conditionVariantsProjection,
     conditionMatchClauses,
 };
