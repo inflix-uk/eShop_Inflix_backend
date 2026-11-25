@@ -209,14 +209,42 @@ function variantFacets(variant, optionsByKind) {
     return facets;
 }
 
-/** Adds `facets` to every variant (needs `variantNames` and full `attributes`). */
-function attachVariantFacets(products) {
+// "Icy Blue", "icy-blue" and "Icyblue" are the same colour.
+const colourKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Map of colourKey -> display name from the admin "Color" attribute values,
+ * e.g. "Cobalt-Violet" -> "Cobalt Violet". Switched-off values are left out.
+ */
+function allowedColoursFromAttribute(attribute) {
+    const map = new Map();
+    for (const v of (attribute && Array.isArray(attribute.values) ? attribute.values : [])) {
+        if (!v || v.isActive === false) continue;
+        const label = String(v.name || '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+        const key = colourKey(v.name);
+        if (key && label && !map.has(key)) map.set(key, label);
+    }
+    return map;
+}
+
+/**
+ * Adds `facets` to every variant (needs `variantNames` and full `attributes`).
+ * With `allowedColours` (see allowedColoursFromAttribute) a colour only shows
+ * in the filter when it is one of the admin's colours, under the admin's name.
+ */
+function attachVariantFacets(products, { allowedColours = null } = {}) {
     return (products || []).map((product) => {
         if (!Array.isArray(product.variantValues)) return product;
         const optionsByKind = facetOptionsFromVariantNames(product.variantNames);
         return {
             ...product,
-            variantValues: product.variantValues.map((v) => ({ ...v, facets: variantFacets(v, optionsByKind) })),
+            variantValues: product.variantValues.map((v) => {
+                const facets = variantFacets(v, optionsByKind);
+                if (allowedColours && allowedColours.size && facets.colour) {
+                    facets.colour = allowedColours.get(colourKey(facets.colour)) || null;
+                }
+                return { ...v, facets };
+            }),
         };
     });
 }
@@ -300,6 +328,7 @@ module.exports = {
     conditionAttributesExpr,
     listingAttributesExpr,
     attachVariantFacets,
+    allowedColoursFromAttribute,
     variantFacets,
     conditionVariantsProjection,
     conditionMatchClauses,

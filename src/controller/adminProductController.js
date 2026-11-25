@@ -9,6 +9,7 @@ const {
     summarizeConditions,
     attachConditions,
     attachVariantFacets,
+    allowedColoursFromAttribute,
     listingAttributesExpr,
     conditionAttributesExpr,
     conditionVariantsProjection,
@@ -19,6 +20,22 @@ const productCategory = require("../models/productCategories");
 
 // Fields added to listing projections only to compute conditions
 const CONDITION_STRIP = { omit: ['variantNames'], omitVariantFields: ['status', 'attributes'] };
+
+// Colour filter only offers the admin "Color" attribute's colours (Variant
+// Attributes > Color). Cached for a minute so listings stay one query.
+let colourCache = { at: 0, map: null };
+async function loadAllowedColours() {
+    if (colourCache.map && Date.now() - colourCache.at < 60 * 1000) return colourCache.map;
+    try {
+        const VariantAttribute = require('../models/VariantAttribute');
+        const attr = await VariantAttribute.findOne({ slug: 'color' }).select('values.name values.isActive').lean();
+        colourCache = { at: Date.now(), map: allowedColoursFromAttribute(attr) };
+    } catch (error) {
+        console.error('Could not load the Color attribute for filters:', error.message);
+        colourCache = { at: Date.now(), map: null }; // no list: show every colour
+    }
+    return colourCache.map;
+}
 
 const bcrypt = require("bcrypt");
 const crypto = require('crypto');
@@ -1375,7 +1392,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithPrices = attachConditions(attachVariantFacets(applyPricingToProducts(products, ctx)), CONDITION_STRIP);
+            const productsWithPrices = attachConditions(attachVariantFacets(applyPricingToProducts(products, ctx), { allowedColours: await loadAllowedColours() }), CONDITION_STRIP);
 
             return res.status(201).json({
                 message: 'Products retrieved successfully',
@@ -1509,7 +1526,7 @@ const adminProductController = {
 
             const scope = buildPricingScopeFromPricingScope(req.pricingScope);
             const ctx = await loadPricingContext(scope);
-            const productsWithPrices = attachConditions(attachVariantFacets(applyPricingToProducts(products, ctx)), CONDITION_STRIP);
+            const productsWithPrices = attachConditions(attachVariantFacets(applyPricingToProducts(products, ctx), { allowedColours: await loadAllowedColours() }), CONDITION_STRIP);
 
             return res.status(201).json({
                 message: 'Products retrieved successfully',
